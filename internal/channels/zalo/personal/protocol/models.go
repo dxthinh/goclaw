@@ -60,7 +60,13 @@ type Settings struct {
 }
 
 type Features struct {
-	Socket SocketSettings `json:"socket"`
+	Socket    SocketSettings    `json:"socket"`
+	Sharefile SharefileSettings `json:"sharefile"`
+}
+
+// SharefileSettings holds upload limits advertised at login.
+type SharefileSettings struct {
+	ChunkSizeFile int `json:"chunk_size_file"` // max bytes per upload chunk
 }
 
 type SocketSettings struct {
