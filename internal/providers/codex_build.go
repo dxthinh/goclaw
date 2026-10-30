@@ -116,11 +116,14 @@ func (p *CodexProvider) buildRequestBody(req ChatRequest, stream bool) map[strin
 				// Pass native image_generation tool object as-is — Responses API first-class tool.
 				// Defaults chosen for Phase 1b; per-agent overrides are Phase 4.
 				tools = append(tools, map[string]any{
-					"type":           "image_generation",
-					"action":         "generate",
-					"model":          DefaultImageModel,
-					"output_format":  "png",
-					"partial_images": 1,
+					"type":          "image_generation",
+					"action":        "generate",
+					"model":         DefaultImageModel,
+					"output_format": "png",
+					// No preview frames: partial images are dropped downstream (neither
+					// emitChunk nor ObserveStage keep them), yet each one is a multi-MB
+					// base64 SSE line. The final image still arrives via output_item.done.
+					"partial_images": 0,
 				})
 			} else if t.Function != nil {
 				// Function tool path (default). Works with both value-type and pointer Function

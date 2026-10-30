@@ -976,8 +976,8 @@ func TestCodexBuildRequestBodyImageGenerationTool(t *testing.T) {
 	if tool["output_format"] != "png" {
 		t.Errorf("tool[output_format] = %v, want png", tool["output_format"])
 	}
-	if tool["partial_images"] != 1 {
-		t.Errorf("tool[partial_images] = %v, want 1", tool["partial_images"])
+	if tool["partial_images"] != 0 {
+		t.Errorf("tool[partial_images] = %v, want 0", tool["partial_images"])
 	}
 	// Must NOT contain function-specific fields.
 	if _, has := tool["name"]; has {
