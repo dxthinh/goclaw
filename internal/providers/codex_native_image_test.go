@@ -139,10 +139,15 @@ func TestCodexGenerateImage_BuildsNativeRequest(t *testing.T) {
 	if typ, _ := tool["type"].(string); typ != "image_generation" {
 		t.Errorf("tools[0].type = %q, want %q", typ, "image_generation")
 	}
-	// size should map to 1792x1024 for 16:9
-	wantSize := SizeFromAspect("16:9")
-	if size, _ := tool["size"].(string); size != wantSize {
-		t.Errorf("tools[0].size = %q, want %q", size, wantSize)
+	// size maps 16:9 to an exact ratio for the default model
+	if size, _ := tool["size"].(string); size != "1792x1008" {
+		t.Errorf("tools[0].size = %q, want 1792x1008", size)
+	}
+	if action, _ := tool["action"].(string); action != "auto" {
+		t.Errorf("tools[0].action = %q, want auto", action)
+	}
+	if quality, _ := tool["quality"].(string); quality != "auto" {
+		t.Errorf("tools[0].quality = %q, want auto", quality)
 	}
 	if fmt.Sprint(tool["output_format"]) != "png" {
 		t.Errorf("tools[0].output_format = %v, want png", tool["output_format"])
@@ -323,24 +328,54 @@ func TestCodexGenerateImage_NoPrompt(t *testing.T) {
 	}
 }
 
-// TestSizeFromAspect verifies the aspect ratio → pixel dimension mapping.
+// TestSizeFromAspect verifies the aspect ratio → pixel size mapping per model
+// family: exact ratios on multiples of 16 for GPT Image 2+, and the three fixed
+// sizes for the gpt-image-1 family.
 func TestSizeFromAspect(t *testing.T) {
 	cases := []struct {
+		model string
 		ratio string
 		want  string
 	}{
-		{"1:1", "1024x1024"},
-		{"16:9", "1792x1024"},
-		{"9:16", "1024x1792"},
-		{"4:3", "1365x1024"},
-		{"3:4", "1024x1365"},
-		{"", "1024x1024"},
-		{"custom", "1024x1024"},
+		{"gpt-image-2.5-flare", "1:1", "1024x1024"},
+		{"gpt-image-2.5-flare", "16:9", "1792x1008"},
+		{"gpt-image-2.5-sunburst", "9:16", "1008x1792"},
+		{"gpt-image-2", "4:3", "1536x1152"},
+		{"gpt-image-2", "3:4", "1152x1536"},
+		{"gpt-image-2.5-flare", "", "1024x1024"},
+		{"gpt-image-2.5-flare", "custom", "1024x1024"},
+		{"gpt-image-1.5", "16:9", "1536x1024"},
+		{"gpt-image-1.5", "4:3", "1536x1024"},
+		{"gpt-image-1-mini", "3:4", "1024x1536"},
+		{"chatgpt-image-latest", "9:16", "1024x1536"},
+		{"gpt-image-1", "1:1", "1024x1024"},
 	}
 	for _, tc := range cases {
-		got := SizeFromAspect(tc.ratio)
+		got := SizeFromAspect(tc.model, tc.ratio)
 		if got != tc.want {
-			t.Errorf("SizeFromAspect(%q) = %q, want %q", tc.ratio, got, tc.want)
+			t.Errorf("SizeFromAspect(%q, %q) = %q, want %q", tc.model, tc.ratio, got, tc.want)
+		}
+	}
+}
+
+// TestSizeFromAspectCustomSizesMeetUpstreamRules guards the GPT Image 2.5 size
+// constraints: both edges multiples of 16, ratio within 1:3..3:1, and the
+// total pixel count within 655,360..8,294,400.
+func TestSizeFromAspectCustomSizesMeetUpstreamRules(t *testing.T) {
+	for _, ratio := range []string{"1:1", "16:9", "9:16", "4:3", "3:4"} {
+		size := SizeFromAspect(DefaultImageModel, ratio)
+		var w, h int
+		if _, err := fmt.Sscanf(size, "%dx%d", &w, &h); err != nil {
+			t.Fatalf("SizeFromAspect(%q) = %q, not WIDTHxHEIGHT", ratio, size)
+		}
+		if w%16 != 0 || h%16 != 0 {
+			t.Errorf("%s → %s: edges must be multiples of 16", ratio, size)
+		}
+		if w > 3*h || h > 3*w {
+			t.Errorf("%s → %s: ratio outside 1:3..3:1", ratio, size)
+		}
+		if px := w * h; px < 655_360 || px > 8_294_400 {
+			t.Errorf("%s → %s: %d pixels outside allowed range", ratio, size, px)
 		}
 	}
 }
