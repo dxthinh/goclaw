@@ -54,7 +54,7 @@ func mockImageServer(t *testing.T, captured *[]byte) *httptest.Server {
 //
 // Sub-cases:
 //   - Default (empty ImageModel) → tools[0].model == DefaultImageModel
-//   - Rejected (ImageModel: "dall-e-3", or retired "gpt-image-1.5") → GenerateImage returns error containing "unsupported image model"
+//   - Rejected (ImageModel: "dall-e-3", or retired "gpt-image-1") → GenerateImage returns error containing "unsupported image model"
 func TestCodexGenerateImage_BuildsNativeRequest(t *testing.T) {
 	var captured []byte
 	server := mockImageServer(t, &captured)
@@ -213,7 +213,7 @@ func TestCodexGenerateImage_ImageModelRejected(t *testing.T) {
 	p := NewCodexProvider("codex-test", &staticTokenSource{token: "tok"}, server.URL, "gpt-image-2")
 	p.retryConfig.Attempts = 1
 
-	for _, imageModel := range []string{"dall-e-3", "gpt-image-1.5"} {
+	for _, imageModel := range []string{"dall-e-3", "gpt-image-1"} {
 		_, err := p.GenerateImage(context.Background(), NativeImageRequest{
 			Prompt:     "test",
 			ImageModel: imageModel,
@@ -298,7 +298,7 @@ func TestCodexGenerateImage_NoPrompt(t *testing.T) {
 
 // TestSizeFromAspect verifies the aspect ratio → pixel size mapping per model
 // family: exact ratios on multiples of 16 for GPT Image 2+, and the three fixed
-// sizes for the chatgpt-image aliases.
+// sizes for the gpt-image-1 family and chatgpt-image aliases.
 func TestSizeFromAspect(t *testing.T) {
 	cases := []struct {
 		model string
@@ -312,6 +312,9 @@ func TestSizeFromAspect(t *testing.T) {
 		{"gpt-image-2", "3:4", "1152x1536"},
 		{"gpt-image-2.5-flare", "", "1024x1024"},
 		{"gpt-image-2.5-flare", "custom", "1024x1024"},
+		{"gpt-image-1.5", "16:9", "1536x1024"},
+		{"gpt-image-1.5", "4:3", "1536x1024"},
+		{"gpt-image-1-mini", "3:4", "1024x1536"},
 		{"chatgpt-image-latest", "16:9", "1536x1024"},
 		{"chatgpt-image-latest", "3:4", "1024x1536"},
 		{"chatgpt-image-latest", "1:1", "1024x1024"},
