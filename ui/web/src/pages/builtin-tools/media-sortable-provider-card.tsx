@@ -20,7 +20,7 @@ import { useProviderModels } from "@/pages/providers/hooks/use-provider-models";
 import { getChatGPTOAuthPoolOwnership } from "@/pages/providers/provider-utils";
 import { MEDIA_PARAMS_SCHEMA } from "./media-provider-params-schema";
 import { ParamFieldControl } from "./media-param-field-control";
-import { buildDefaultParams } from "./media-provider-chain-helpers";
+import { buildDefaultParams, resolveDynamicParamField } from "./media-provider-chain-helpers";
 
 import type { ProviderEntry } from "./media-provider-chain-helpers";
 
@@ -69,7 +69,12 @@ export function SortableProviderCard({
   );
 
   const selectedProvider = enabledProviders.find((p) => p.id === entry.provider_id);
-  const { models, loading: modelsLoading } = useProviderModels(
+  const {
+    models,
+    imageModels,
+    defaultImageModel,
+    loading: modelsLoading,
+  } = useProviderModels(
     entry.provider_id || undefined,
   );
 
@@ -212,14 +217,22 @@ export function SortableProviderCard({
       {/* Collapsible params */}
       {expanded && paramSchema.length > 0 && (
         <div className="border-t px-3 py-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {paramSchema.map((field) => (
-            <ParamFieldControl
-              key={field.key}
-              field={field}
-              value={entry.params[field.key] ?? field.default}
-              onChange={(v) => handleParamChange(field.key, v)}
-            />
-          ))}
+          {paramSchema.map((schemaField) => {
+            const field = resolveDynamicParamField(
+              schemaField,
+              { imageModels, defaultImageModel },
+              entry.params[schemaField.key],
+              t("builtin.mediaChain.imageModelRecommended"),
+            );
+            return (
+              <ParamFieldControl
+                key={field.key}
+                field={field}
+                value={entry.params[field.key] ?? field.default}
+                onChange={(v) => handleParamChange(field.key, v)}
+              />
+            );
+          })}
         </div>
       )}
     </div>

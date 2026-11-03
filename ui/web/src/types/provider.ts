@@ -40,6 +40,9 @@ export interface ProviderReasoningDefaults {
 export interface ProviderModelsResponse {
   models: ModelInfo[];
   reasoning_defaults?: ProviderReasoningDefaults;
+  /** Native image_generation models; only set for ChatGPT OAuth providers. */
+  image_models?: ModelInfo[];
+  default_image_model?: string;
 }
 
 export interface ReasoningCapability {

@@ -17,8 +17,11 @@ func TestValidateImageModel(t *testing.T) {
 		{name: "sunburst", input: "gpt-image-2.5-sunburst", want: "gpt-image-2.5-sunburst"},
 		{name: "previous generation", input: "gpt-image-2", want: "gpt-image-2"},
 		{name: "legacy", input: "gpt-image-1.5", want: "gpt-image-1.5"},
-		{name: "unversioned 2.5 is not a real model id", input: "gpt-image-2.5", wantErr: true},
+		{name: "future family member passes through", input: "gpt-image-3", want: "gpt-image-3"},
+		{name: "chatgpt-image alias", input: "chatgpt-image-latest", want: "chatgpt-image-latest"},
 		{name: "unrelated model", input: "dall-e-3", wantErr: true},
+		{name: "bare family prefix", input: "gpt-image-", wantErr: true},
+		{name: "uppercase is not a model id", input: "GPT-IMAGE-2", wantErr: true},
 	}
 
 	for _, tc := range tests {
@@ -44,10 +47,20 @@ func TestValidateImageModel(t *testing.T) {
 	}
 }
 
-// TestDefaultImageModelIsAllowed guards against the default drifting out of the
-// whitelist, which would make every create_image call with no explicit model fail.
-func TestDefaultImageModelIsAllowed(t *testing.T) {
-	if !allowedImageModels[DefaultImageModel] {
-		t.Fatalf("DefaultImageModel %q is missing from allowedImageModels", DefaultImageModel)
+// TestDefaultImageModelLeadsCatalog guards the catalog the web UI renders: the
+// default must be listed first and every entry must pass ValidateImageModel,
+// otherwise the dropdown would offer a model that create_image rejects.
+func TestDefaultImageModelLeadsCatalog(t *testing.T) {
+	models := NativeImageModels()
+	if len(models) == 0 || models[0].ID != DefaultImageModel {
+		t.Fatalf("NativeImageModels()[0] = %+v, want %q first", models, DefaultImageModel)
+	}
+	for _, m := range models {
+		if _, err := ValidateImageModel(m.ID); err != nil {
+			t.Errorf("catalog model %q rejected: %v", m.ID, err)
+		}
+		if m.Name == "" {
+			t.Errorf("catalog model %q has no display name", m.ID)
+		}
 	}
 }

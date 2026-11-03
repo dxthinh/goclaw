@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -21,33 +22,52 @@ type NativeImageProvider interface {
 // at roughly half the latency, which suits the one-shot create_image path.
 const DefaultImageModel = "gpt-image-2.5-flare"
 
-// allowedImageModels enumerates the image models the native ChatGPT Responses API
-// image_generation tool will accept. Constraining to this whitelist prevents
-// silent upstream rejections from arbitrary model names (e.g. "dall-e-3").
-var allowedImageModels = map[string]bool{
-	"gpt-image-2.5-flare":    true, // default - fastest at high quality
-	"gpt-image-2.5-sunburst": true, // most capable at editing precision
-	"gpt-image-2":            true, // previous generation
-	"gpt-image-1.5":          true, // legacy fallback
+// ImageModelInfo is one image model offered for the native image_generation tool.
+type ImageModelInfo struct {
+	ID   string
+	Name string
 }
 
-// allowedImageModelList is the whitelist rendered for error messages, ordered
-// newest first so the suggestion a caller sees leads with the recommended model.
-var allowedImageModelList = []string{
-	"gpt-image-2.5-flare (default)",
-	"gpt-image-2.5-sunburst",
-	"gpt-image-2",
-	"gpt-image-1.5 (legacy)",
+// nativeImageModels is the curated catalog of image models the ChatGPT Responses
+// API image_generation tool accepts, newest first. The ChatGPT backend exposes no
+// image-model listing endpoint (GET /codex/models only returns chat models), so
+// this catalog is the single source the web UI reads via the provider models API.
+var nativeImageModels = []ImageModelInfo{
+	{ID: "gpt-image-2.5-flare", Name: "GPT Image 2.5 Flare"},       // default - fastest at high quality
+	{ID: "gpt-image-2.5-sunburst", Name: "GPT Image 2.5 Sunburst"}, // most capable at editing precision
+	{ID: "gpt-image-2", Name: "GPT Image 2"},                       // previous generation
+	{ID: "gpt-image-1.5", Name: "GPT Image 1.5"},                   // legacy fallback
+}
+
+// gptImageModelPattern matches the OpenAI GPT Image model family ("gpt-image-*",
+// "chatgpt-image-*"). Matching the family instead of a fixed whitelist lets a newly
+// released model work without a code change, while still rejecting unrelated
+// names such as "dall-e-3" before they reach upstream.
+var gptImageModelPattern = regexp.MustCompile(`^(gpt-image|chatgpt-image)-[a-z0-9][a-z0-9.-]*$`)
+
+// NativeImageModels returns a copy of the curated image model catalog.
+func NativeImageModels() []ImageModelInfo {
+	return append([]ImageModelInfo(nil), nativeImageModels...)
+}
+
+// IsGPTImageModel reports whether model belongs to the GPT Image family.
+func IsGPTImageModel(model string) bool {
+	return gptImageModelPattern.MatchString(model)
 }
 
 // ValidateImageModel returns the model to use, or an error if the caller
-// supplied an unsupported value. Empty input returns DefaultImageModel.
+// supplied a value outside the GPT Image family. Empty input returns DefaultImageModel.
 func ValidateImageModel(model string) (string, error) {
 	if model == "" {
 		return DefaultImageModel, nil
 	}
-	if !allowedImageModels[model] {
-		return "", fmt.Errorf("unsupported image model %q; allowed: %s", model, strings.Join(allowedImageModelList, ", "))
+	if !IsGPTImageModel(model) {
+		ids := make([]string, 0, len(nativeImageModels))
+		for _, m := range nativeImageModels {
+			ids = append(ids, m.ID)
+		}
+		return "", fmt.Errorf("unsupported image model %q; use a gpt-image-* model such as: %s (default %s)",
+			model, strings.Join(ids, ", "), DefaultImageModel)
 	}
 	return model, nil
 }

@@ -23,6 +23,11 @@ type ModelInfo struct {
 type ProviderModelsResponse struct {
 	Models            []ModelInfo                    `json:"models"`
 	ReasoningDefaults *store.ProviderReasoningConfig `json:"reasoning_defaults,omitempty"`
+	// ImageModels lists the models accepted by the native image_generation tool,
+	// set only for providers that expose one (ChatGPT OAuth). DefaultImageModel
+	// is the model used when a media chain entry leaves image_model empty.
+	ImageModels       []ModelInfo `json:"image_models,omitempty"`
+	DefaultImageModel string      `json:"default_image_model,omitempty"`
 }
 
 // handleListProviderModels proxies to the upstream provider API to list
@@ -57,7 +62,13 @@ func (h *ProvidersHandler) handleListProviderModels(w http.ResponseWriter, r *ht
 	}
 
 	if p.ProviderType == store.ProviderChatGPTOAuth {
-		respond(chatGPTOAuthModels())
+		models := h.fetchChatGPTOAuthModels(r.Context(), p)
+		writeJSON(w, http.StatusOK, ProviderModelsResponse{
+			Models:            models,
+			ReasoningDefaults: reasoningDefaultsForModels(p.Settings, models),
+			ImageModels:       nativeImageModelInfos(),
+			DefaultImageModel: providers.DefaultImageModel,
+		})
 		return
 	}
 

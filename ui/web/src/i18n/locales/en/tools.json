@@ -247,10 +247,7 @@
       "save": "Save",
       "saving": "Saving...",
       "imageModelLabel": "Image model",
-      "imageModelFlareOption": "Default · gpt-image-2.5-flare (recommended)",
-      "imageModelSunburstOption": "Precise · gpt-image-2.5-sunburst",
-      "imageModelPreviousOption": "Previous · gpt-image-2",
-      "imageModelLegacyOption": "Legacy · gpt-image-1.5"
+      "imageModelRecommended": "recommended"
     },
     "toast": {
       "toggled": "Tool updated",
