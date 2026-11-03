@@ -36,7 +36,6 @@ var nativeImageModels = []ImageModelInfo{
 	{ID: "gpt-image-2.5-flare", Name: "GPT Image 2.5 Flare"},       // default - fastest at high quality
 	{ID: "gpt-image-2.5-sunburst", Name: "GPT Image 2.5 Sunburst"}, // most capable at editing precision
 	{ID: "gpt-image-2", Name: "GPT Image 2"},                       // previous generation
-	{ID: "gpt-image-1.5", Name: "GPT Image 1.5"},                   // legacy fallback
 }
 
 // gptImageModelPattern matches the OpenAI GPT Image model family ("gpt-image-*",
@@ -55,13 +54,19 @@ func IsGPTImageModel(model string) bool {
 	return gptImageModelPattern.MatchString(model)
 }
 
+// retiredImageModelPrefix marks the gpt-image-1 generation (gpt-image-1,
+// gpt-image-1.5, gpt-image-1-mini), which GoClaw no longer supports on the
+// native image_generation path.
+const retiredImageModelPrefix = "gpt-image-1"
+
 // ValidateImageModel returns the model to use, or an error if the caller
-// supplied a value outside the GPT Image family. Empty input returns DefaultImageModel.
+// supplied a value outside the GPT Image family or a retired gpt-image-1 model.
+// Empty input returns DefaultImageModel.
 func ValidateImageModel(model string) (string, error) {
 	if model == "" {
 		return DefaultImageModel, nil
 	}
-	if !IsGPTImageModel(model) {
+	if !IsGPTImageModel(model) || strings.HasPrefix(model, retiredImageModelPrefix) {
 		ids := make([]string, 0, len(nativeImageModels))
 		for _, m := range nativeImageModels {
 			ids = append(ids, m.ID)
@@ -126,9 +131,9 @@ type NativeImageResult struct {
 //
 // GPT Image 2 and newer accept custom WIDTHxHEIGHT sizes when both edges are
 // multiples of 16 (2.5 docs: ratio within 1:3..3:1, 655,360..8,294,400 pixels),
-// so each ratio maps to an exact size. The gpt-image-1 family (and the
-// chatgpt-image aliases built on it) only accepts 1024x1024, 1536x1024 and
-// 1024x1536, so ratios snap to the closest of those orientations.
+// so each ratio maps to an exact size. The chatgpt-image aliases are not
+// documented to take custom sizes, so their ratios snap to the closest of
+// 1024x1024, 1536x1024 and 1024x1536.
 func SizeFromAspect(imageModel, aspectRatio string) string {
 	if !supportsCustomImageSize(imageModel) {
 		switch aspectRatio {
@@ -155,5 +160,5 @@ func SizeFromAspect(imageModel, aspectRatio string) string {
 }
 
 func supportsCustomImageSize(imageModel string) bool {
-	return !strings.HasPrefix(imageModel, "gpt-image-1") && !strings.HasPrefix(imageModel, "chatgpt-image-")
+	return !strings.HasPrefix(imageModel, "chatgpt-image-")
 }
