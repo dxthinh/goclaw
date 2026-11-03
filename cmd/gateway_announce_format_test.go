@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/nextlevelbuilder/goclaw/internal/agent"
+	"github.com/nextlevelbuilder/goclaw/internal/scheduler"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
@@ -272,5 +275,20 @@ func TestBuildMergedAnnounceContent_WithWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(result, workspace) {
 		t.Error("result missing workspace path")
+	}
+}
+
+func TestTeammateAnnounceDeliversMediaWithSilentReply(t *testing.T) {
+	outcome := scheduler.RunOutcome{Result: &agent.RunResult{
+		Content: "NO_REPLY",
+		Media:   []agent.MediaResult{{Path: "/workspace/final.png"}},
+	}}
+	content, media, ok := buildTeammateAnnounce(context.Background(), outcome, "member", nil, nil)
+	if !ok || content != "" || len(media) != 1 {
+		t.Fatalf("got content %q, media %v, announce %v", content, media, ok)
+	}
+	message := buildMergedAnnounceContent([]announceEntry{{MemberAgent: "member", Content: content, Media: media}}, "", "")
+	if !strings.Contains(message, "call send_file") || !strings.Contains(message, "[Files already queued for delivery from member]\n- /workspace/final.png") {
+		t.Fatalf("missing delivery instructions or queued file: %s", message)
 	}
 }

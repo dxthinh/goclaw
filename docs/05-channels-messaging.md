@@ -114,6 +114,11 @@ filename, and optional captions.
 - `send_file` accepts either the legacy single `path` + optional `caption`, or
   `attachments: [{path, caption?}, ...]` for batch delivery of existing
   workspace files.
+- Assigned team members use `send_file` to queue final deliverables before
+  completing a task. Images from `create_image` remain available for team
+  review and post-processing. The completion announcement forwards queued
+  files and instructs the lead to attach any remaining final files named in
+  the task result.
 - Telegram groups compatible outbound media into `sendMediaGroup` album chunks
   of 2-10 items. Photo/video items can share a chunk; documents group only with
   documents; audio groups only with audio. Voice-mode audio, singleton chunks,

@@ -114,6 +114,7 @@ func processAnnounceLoop(
 			HideInput:        true,
 			Stream:           false,
 			TeamID:           r.TeamID,
+			TeamWorkspace:    r.TeamWorkspace,
 			ParentTraceID:    r.ParentTraceID,
 			ParentRootSpanID: r.ParentRootSpanID,
 		}
@@ -244,7 +245,16 @@ func buildMergedAnnounceContent(entries []announceEntry, taskBoardSnapshot, team
 		sb.WriteString("\n\nPresent this result to the user.")
 	}
 
-	sb.WriteString(" Any media files are forwarded automatically. Do NOT search for files — the results above contain all relevant information.")
+	sb.WriteString("\n\nFor completed tasks with final files for the user, call send_file with their exact paths before replying, except for files already queued for delivery below. A workspace link in the reply does not attach a file. Send only final deliverables, using list_files for an explicitly named output directory when needed. Report any attachment error accurately.")
+	for _, entry := range entries {
+		if len(entry.Media) == 0 || strings.HasPrefix(entry.Content, "[FAILED]") {
+			continue
+		}
+		fmt.Fprintf(&sb, "\n[Files already queued for delivery from %s]", memberLabel(entry))
+		for _, media := range entry.Media {
+			fmt.Fprintf(&sb, "\n- %s", media.Path)
+		}
+	}
 
 	if teamWorkspace != "" {
 		fmt.Fprintf(&sb, "\n[Team workspace: %s — use read_file/list_files to access shared files]", teamWorkspace)
