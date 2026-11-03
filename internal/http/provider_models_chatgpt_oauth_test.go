@@ -81,3 +81,26 @@ func TestProvidersHandlerListProviderModelsChatGPTOAuthIncludesImageModels(t *te
 		}
 	}
 }
+
+func TestIntersectCodexCatalogsKeepsModelsEveryAccountLists(t *testing.T) {
+	owner := []oauth.CodexModel{{Slug: "gpt-6.1-sol"}, {Slug: "gpt-6-astra"}, {Slug: "gpt-5.6-sol"}}
+	members := [][]oauth.CodexModel{
+		{{Slug: "gpt-5.6-sol"}, {Slug: "gpt-6.1-sol"}},
+		{{Slug: "gpt-6.1-sol"}, {Slug: "gpt-5.6-sol"}, {Slug: "gpt-6-luna"}},
+	}
+	got := intersectCodexCatalogs(owner, members)
+	var slugs []string
+	for _, m := range got {
+		slugs = append(slugs, m.Slug)
+	}
+	if want := []string{"gpt-6.1-sol", "gpt-5.6-sol"}; !slices.Equal(slugs, want) {
+		t.Fatalf("intersection = %v, want %v in owner order", slugs, want)
+	}
+}
+
+func TestIntersectCodexCatalogsWithoutMembersReturnsOwner(t *testing.T) {
+	owner := []oauth.CodexModel{{Slug: "gpt-6.1-sol"}}
+	if got := intersectCodexCatalogs(owner, nil); len(got) != 1 || got[0].Slug != "gpt-6.1-sol" {
+		t.Fatalf("intersection = %+v, want owner catalog", got)
+	}
+}

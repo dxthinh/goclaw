@@ -62,14 +62,43 @@ func FetchCodexModels(ctx context.Context, provider *store.LLMProviderData, toke
 		apiBase = DefaultProviderAPIBase
 	}
 	endpoint := apiBase + "/codex/models?client_version=" + url.QueryEscape(codexModelsClientVersion)
+	accountID := strings.TrimSpace(parseOAuthSettings(provider.Settings).AccountID)
 
+	// Retry transient failures (429/5xx honor Retry-After) so a single blip does
+	// not swap the live catalog for the stale fallback list.
+	all, err := providers.RetryDo(ctx, providers.RetryConfig{
+		Attempts: 2,
+		MinDelay: 400 * time.Millisecond,
+		MaxDelay: 2 * time.Second,
+		Jitter:   0.1,
+	}, func() ([]CodexModel, error) {
+		return requestCodexModels(ctx, endpoint, token, accountID)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	models := make([]CodexModel, 0, len(all))
+	for _, m := range all {
+		m.Slug = strings.TrimSpace(m.Slug)
+		if m.Slug == "" || m.Visibility != "list" {
+			continue
+		}
+		models = append(models, m)
+	}
+	sort.SliceStable(models, func(i, j int) bool { return models[i].Priority < models[j].Priority })
+	return models, nil
+}
+
+// requestCodexModels performs one catalog request and returns every entry.
+func requestCodexModels(ctx context.Context, endpoint, token, accountID string) ([]CodexModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("codex models: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", codexModelsUserAgent)
-	if accountID := strings.TrimSpace(parseOAuthSettings(provider.Settings).AccountID); accountID != "" {
+	if accountID != "" {
 		req.Header.Set("ChatGPT-Account-Id", accountID)
 	}
 
@@ -97,17 +126,7 @@ func FetchCodexModels(ctx context.Context, provider *store.LLMProviderData, toke
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("codex models: decode response: %w", err)
 	}
-
-	models := make([]CodexModel, 0, len(payload.Models))
-	for _, m := range payload.Models {
-		m.Slug = strings.TrimSpace(m.Slug)
-		if m.Slug == "" || m.Visibility != "list" {
-			continue
-		}
-		models = append(models, m)
-	}
-	sort.SliceStable(models, func(i, j int) bool { return models[i].Priority < models[j].Priority })
-	return models, nil
+	return payload.Models, nil
 }
 
 func truncateForError(s string) string {

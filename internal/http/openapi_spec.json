@@ -702,6 +702,22 @@
                           "enum": ["downgrade", "off", "provider_default"]
                         }
                       }
+                    },
+                    "image_models": {
+                      "type": "array",
+                      "description": "Models accepted by the native image_generation tool. Returned only for chatgpt_oauth providers; any gpt-image-* or chatgpt-image-* id is also accepted.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "name": { "type": "string" }
+                        },
+                        "required": ["id"]
+                      }
+                    },
+                    "default_image_model": {
+                      "type": "string",
+                      "description": "Image model used when a create_image chain entry leaves image_model empty. Returned only for chatgpt_oauth providers."
                     }
                   },
                   "required": ["models"]

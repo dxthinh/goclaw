@@ -94,6 +94,28 @@ func TestFetchCodexModelsReturnsHTTPError(t *testing.T) {
 	}
 }
 
+func TestFetchCodexModelsRetriesTransientFailure(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "0")
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-6.1-sol","visibility":"list"}]}`))
+	}))
+	defer server.Close()
+
+	models, err := FetchCodexModels(t.Context(), &store.LLMProviderData{APIBase: server.URL}, stubTokenSource{token: "tok"})
+	if err != nil {
+		t.Fatalf("FetchCodexModels() error = %v", err)
+	}
+	if calls != 2 || len(models) != 1 {
+		t.Fatalf("calls = %d, models = %+v; want one retry then the catalog", calls, models)
+	}
+}
+
 func TestFetchCodexModelsFailsWithoutToken(t *testing.T) {
 	_, err := FetchCodexModels(t.Context(), &store.LLMProviderData{}, stubTokenSource{err: errors.New("no token")})
 	if err == nil {
