@@ -54,8 +54,7 @@ func mockImageServer(t *testing.T, captured *[]byte) *httptest.Server {
 //
 // Sub-cases:
 //   - Default (empty ImageModel) → tools[0].model == DefaultImageModel
-//   - Legacy (ImageModel: "gpt-image-1.5") → tools[0].model == "gpt-image-1.5"
-//   - Rejected (ImageModel: "dall-e-3") → GenerateImage returns error containing "unsupported image model"
+//   - Rejected (ImageModel: "dall-e-3", or retired "gpt-image-1.5") → GenerateImage returns error containing "unsupported image model"
 func TestCodexGenerateImage_BuildsNativeRequest(t *testing.T) {
 	var captured []byte
 	server := mockImageServer(t, &captured)
@@ -200,39 +199,6 @@ func TestCodexGenerateImage_ImageModelDefault(t *testing.T) {
 	}
 }
 
-// TestCodexGenerateImage_ImageModelLegacy verifies that ImageModel "gpt-image-1.5"
-// is forwarded to the outbound tools[0].model field.
-func TestCodexGenerateImage_ImageModelLegacy(t *testing.T) {
-	var captured []byte
-	server := mockImageServer(t, &captured)
-	defer server.Close()
-
-	p := NewCodexProvider("codex-test", &staticTokenSource{token: "tok"}, server.URL, "gpt-image-2")
-	p.retryConfig.Attempts = 1
-
-	_, err := p.GenerateImage(context.Background(), NativeImageRequest{
-		Prompt:      "test",
-		ImageModel:  "gpt-image-1.5",
-		AspectRatio: "1:1",
-	})
-	if err != nil {
-		t.Fatalf("GenerateImage returned error: %v", err)
-	}
-
-	var body map[string]any
-	if err := json.Unmarshal(captured, &body); err != nil {
-		t.Fatalf("unmarshal captured body: %v", err)
-	}
-	tools, _ := body["tools"].([]any)
-	if len(tools) == 0 {
-		t.Fatal("tools array is empty")
-	}
-	tool, _ := tools[0].(map[string]any)
-	if imgModel, _ := tool["model"].(string); imgModel != "gpt-image-1.5" {
-		t.Errorf("tools[0].model = %q, want gpt-image-1.5 (legacy)", imgModel)
-	}
-}
-
 // TestCodexGenerateImage_ImageModelRejected verifies that an unsupported image model
 // causes GenerateImage to return an error containing "unsupported image model" before
 // making any HTTP request.
@@ -247,15 +213,17 @@ func TestCodexGenerateImage_ImageModelRejected(t *testing.T) {
 	p := NewCodexProvider("codex-test", &staticTokenSource{token: "tok"}, server.URL, "gpt-image-2")
 	p.retryConfig.Attempts = 1
 
-	_, err := p.GenerateImage(context.Background(), NativeImageRequest{
-		Prompt:     "test",
-		ImageModel: "dall-e-3",
-	})
-	if err == nil {
-		t.Fatal("expected error for unsupported image model, got nil")
-	}
-	if !strings.Contains(err.Error(), "unsupported image model") {
-		t.Errorf("error %q does not contain 'unsupported image model'", err.Error())
+	for _, imageModel := range []string{"dall-e-3", "gpt-image-1.5"} {
+		_, err := p.GenerateImage(context.Background(), NativeImageRequest{
+			Prompt:     "test",
+			ImageModel: imageModel,
+		})
+		if err == nil {
+			t.Fatalf("%s: expected error for unsupported image model, got nil", imageModel)
+		}
+		if !strings.Contains(err.Error(), "unsupported image model") {
+			t.Errorf("%s: error %q does not contain 'unsupported image model'", imageModel, err.Error())
+		}
 	}
 	if requestMade {
 		t.Error("HTTP request was made despite invalid image model (should have been rejected before the request)")
@@ -330,7 +298,7 @@ func TestCodexGenerateImage_NoPrompt(t *testing.T) {
 
 // TestSizeFromAspect verifies the aspect ratio → pixel size mapping per model
 // family: exact ratios on multiples of 16 for GPT Image 2+, and the three fixed
-// sizes for the gpt-image-1 family.
+// sizes for the chatgpt-image aliases.
 func TestSizeFromAspect(t *testing.T) {
 	cases := []struct {
 		model string
@@ -344,11 +312,9 @@ func TestSizeFromAspect(t *testing.T) {
 		{"gpt-image-2", "3:4", "1152x1536"},
 		{"gpt-image-2.5-flare", "", "1024x1024"},
 		{"gpt-image-2.5-flare", "custom", "1024x1024"},
-		{"gpt-image-1.5", "16:9", "1536x1024"},
-		{"gpt-image-1.5", "4:3", "1536x1024"},
-		{"gpt-image-1-mini", "3:4", "1024x1536"},
-		{"chatgpt-image-latest", "9:16", "1024x1536"},
-		{"gpt-image-1", "1:1", "1024x1024"},
+		{"chatgpt-image-latest", "16:9", "1536x1024"},
+		{"chatgpt-image-latest", "3:4", "1024x1536"},
+		{"chatgpt-image-latest", "1:1", "1024x1024"},
 	}
 	for _, tc := range cases {
 		got := SizeFromAspect(tc.model, tc.ratio)
