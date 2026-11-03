@@ -116,7 +116,8 @@ func acpModels() []ModelInfo {
 	}
 }
 
-// chatGPTOAuthModels returns models available via ChatGPT OAuth integration.
+// chatGPTOAuthModels is the fallback ChatGPT OAuth model list, served when the
+// live Codex catalog cannot be fetched (see fetchChatGPTOAuthModels).
 func chatGPTOAuthModels() []ModelInfo {
 	return withReasoningCapabilities([]ModelInfo{
 		{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol"},

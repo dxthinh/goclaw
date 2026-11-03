@@ -5,6 +5,12 @@ export type ParamField = {
   labelKey?: string;
   type: "select" | "toggle" | "number" | "text";
   options?: { value: string; label: string; labelKey?: string }[];
+  /**
+   * Fill `options` (and `default`) at render time from the provider models API
+   * instead of a hard-coded list. "image_models" reads `image_models` /
+   * `default_image_model` from GET /v1/providers/{id}/models.
+   */
+  optionsSource?: "image_models";
   default?: unknown;
   min?: number;
   max?: number;
@@ -20,30 +26,9 @@ export const MEDIA_PARAMS_SCHEMA: Record<string, Record<string, ParamField[]>> =
         label: "Image model",
         labelKey: "builtin.mediaChain.imageModelLabel",
         type: "select",
-        // Keep in sync with allowedImageModels in internal/providers/native_image.go.
-        default: "gpt-image-2.5-flare",
-        options: [
-          {
-            value: "gpt-image-2.5-flare",
-            label: "Default · gpt-image-2.5-flare (recommended)",
-            labelKey: "builtin.mediaChain.imageModelFlareOption",
-          },
-          {
-            value: "gpt-image-2.5-sunburst",
-            label: "Precise · gpt-image-2.5-sunburst",
-            labelKey: "builtin.mediaChain.imageModelSunburstOption",
-          },
-          {
-            value: "gpt-image-2",
-            label: "Previous · gpt-image-2",
-            labelKey: "builtin.mediaChain.imageModelPreviousOption",
-          },
-          {
-            value: "gpt-image-1.5",
-            label: "Legacy · gpt-image-1.5",
-            labelKey: "builtin.mediaChain.imageModelLegacyOption",
-          },
-        ],
+        // Options come from the backend image model catalog so new models
+        // show up without a UI release; see resolveDynamicParamField.
+        optionsSource: "image_models",
       },
     ],
     minimax_native: [],

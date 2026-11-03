@@ -1,7 +1,8 @@
 import { uniqueId } from "@/lib/utils";
 import { getChatGPTOAuthPoolOwnership } from "@/pages/providers/provider-utils";
-import type { ProviderData } from "@/types/provider";
+import type { ModelInfo, ProviderData } from "@/types/provider";
 import { MEDIA_PARAMS_SCHEMA } from "./media-provider-params-schema";
+import type { ParamField } from "./media-provider-params-schema";
 
 export interface ProviderEntry {
   id: string;
@@ -19,6 +20,31 @@ export function formatToolTitle(name: string): string {
   return name
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Fill a schema field whose options come from the provider models API.
+ * The default model gets `recommendedSuffix` appended, and a stored value the
+ * catalog no longer lists is kept as an option so the select never shows blank.
+ */
+export function resolveDynamicParamField(
+  field: ParamField,
+  source: { imageModels: ModelInfo[]; defaultImageModel: string },
+  currentValue: unknown,
+  recommendedSuffix: string,
+): ParamField {
+  if (field.optionsSource !== "image_models") return field;
+  const options = source.imageModels.map((m) => ({
+    value: m.id,
+    label: m.id === source.defaultImageModel
+      ? `${m.name ?? m.id} · ${m.id} (${recommendedSuffix})`
+      : `${m.name ?? m.id} · ${m.id}`,
+  }));
+  const current = typeof currentValue === "string" ? currentValue : "";
+  if (current && !options.some((o) => o.value === current)) {
+    options.push({ value: current, label: current });
+  }
+  return { ...field, options, default: source.defaultImageModel || undefined };
 }
 
 /** Build default param values for a given tool + provider type from schema. */

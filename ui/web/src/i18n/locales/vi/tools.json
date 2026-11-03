@@ -247,10 +247,7 @@
       "save": "Lưu",
       "saving": "Đang lưu...",
       "imageModelLabel": "Mô hình ảnh",
-      "imageModelFlareOption": "Mặc định · gpt-image-2.5-flare (khuyến nghị)",
-      "imageModelSunburstOption": "Chính xác · gpt-image-2.5-sunburst",
-      "imageModelPreviousOption": "Đời trước · gpt-image-2",
-      "imageModelLegacyOption": "Cũ · gpt-image-1.5"
+      "imageModelRecommended": "khuyến nghị"
     },
     "toast": {
       "toggled": "Đã cập nhật công cụ",

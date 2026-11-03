@@ -161,10 +161,7 @@
       "settings": "设置",
       "timeout": "超时",
       "imageModelLabel": "图像模型",
-      "imageModelFlareOption": "默认 · gpt-image-2.5-flare（推荐）",
-      "imageModelSunburstOption": "精细 · gpt-image-2.5-sunburst",
-      "imageModelPreviousOption": "上一代 · gpt-image-2",
-      "imageModelLegacyOption": "旧版 · gpt-image-1.5"
+      "imageModelRecommended": "推荐"
     },
     "noMatchDescription": "请尝试其他搜索词。",
     "noMatchTitle": "未找到匹配工具",

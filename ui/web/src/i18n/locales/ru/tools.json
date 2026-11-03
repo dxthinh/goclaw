@@ -246,10 +246,7 @@
       "save": "Сохранить",
       "saving": "Сохранение...",
       "imageModelLabel": "Модель изображений",
-      "imageModelFlareOption": "По умолчанию · gpt-image-2.5-flare (рекомендуется)",
-      "imageModelSunburstOption": "Точная · gpt-image-2.5-sunburst",
-      "imageModelPreviousOption": "Предыдущая · gpt-image-2",
-      "imageModelLegacyOption": "Устаревшая · gpt-image-1.5"
+      "imageModelRecommended": "рекомендуется"
     },
     "toast": {
       "toggled": "Инструмент обновлён",

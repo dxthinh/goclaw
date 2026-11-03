@@ -395,13 +395,9 @@ func (t *CreateImageTool) callProvider(ctx context.Context, cp credentialProvide
 
 	// OpenAI image-to-image (Edits)
 	if len(refImgs) > 0 && (ptype == "openai" || providerName == "openai" || ptype == "openai_compat") {
-		isEditModel := model == "gpt-image-2.5-flare" ||
-			model == "gpt-image-2.5-sunburst" ||
-			model == "gpt-image-2" ||
-			model == "gpt-image-1.5" ||
-			model == "gpt-image-1" ||
-			model == "gpt-image-1-mini" ||
-			model == "chatgpt-image-latest" ||
+		// Every GPT Image model accepts reference images on /images/edits, so match
+		// the family rather than listing IDs that go stale on each release.
+		isEditModel := providers.IsGPTImageModel(model) ||
 			model == "dall-e-2" ||
 			ptype == "openai_compat"
 		if isEditModel {

@@ -26,6 +26,8 @@ export function useProviderModels(providerId: string | undefined) {
   return {
     models: data?.models ?? [],
     reasoningDefaults: data?.reasoning_defaults ?? null,
+    imageModels: data?.image_models ?? [],
+    defaultImageModel: data?.default_image_model ?? "",
     loading,
   };
 }
