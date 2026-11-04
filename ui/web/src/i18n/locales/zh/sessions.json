@@ -43,7 +43,10 @@
       "toolResult": "工具结果",
       "trace": "追踪",
       "activity": "活动",
-      "failed": "失败"
+      "failed": "失败",
+      "delivery": "文件已发送",
+      "deliveryFailed": "文件未送达",
+      "attempts": "尝试 {{count}} 次"
     }
   },
   "toast": {

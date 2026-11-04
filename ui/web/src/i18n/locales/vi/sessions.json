@@ -43,7 +43,10 @@
       "toolResult": "kết quả tool",
       "trace": "trace",
       "activity": "hoạt động",
-      "failed": "lỗi"
+      "failed": "lỗi",
+      "delivery": "đã gửi file",
+      "deliveryFailed": "chưa gửi được file",
+      "attempts": "{{count}} lần thử"
     }
   },
   "toast": {
