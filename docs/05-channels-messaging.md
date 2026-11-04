@@ -123,6 +123,31 @@ filename, and optional captions.
 - Slack and other media-capable channels keep ordered fallback behavior unless
   their adapter advertises a stronger batch capability.
 
+`send_file` only queues a file: the tool result says "Queued", and the upload
+happens after the reply. The outcome of each attachment is settled in
+`Manager.deliverOutbound` (`internal/channels/dispatch.go`,
+`internal/channels/delivery_retry.go`):
+
+- **Per-file errors.** A channel that attempts every attachment returns
+  `*channels.MediaDeliveryError` listing the files that failed, instead of logging
+  and returning success. Files not listed were delivered. Zalo Personal, Feishu,
+  Slack, Bitrix24, Pancake, WhatsApp and Telegram do this. For Telegram, a failed
+  album chunk counts as failed for all its files. Discord sends all files in one
+  request, so its failure applies to the whole message and is not retried.
+- **Text-only channels.** Zalo OA, Facebook and Pancake comment replies report
+  attachments as failed with `ErrMediaUnsupported` rather than dropping them.
+- **Retry.** Files that failed with a transient error (network, timeout, rate limit,
+  5xx) are re-sent as a media-only message, up to 3 times after 1s, 3s and 9s. Text
+  is never re-sent. Retries run inline on the conversation's shard to keep message
+  order, so other chats on that shard can wait up to 13s. There is no retry when the
+  channel's health is `failed`.
+- **Failure notice.** Files still undelivered after that trigger one notice in the
+  chat through `handleSendFailure`.
+- **Record.** Every outcome is recorded against the producing run, see
+  [Tracing](./10-tracing-observability.md#delivery-records).
+
+Retries live in memory: a gateway restart during a retry loses that delivery.
+
 ### Reasoning Delivery
 
 Telegram channel config supports explicit reasoning delivery:

@@ -144,7 +144,7 @@ flowchart TD
 |--------|-------------|-------------|
 | `create` | Create task with subject, description, priority, assignee, blocked_by | Lead/Admin |
 | `claim` | Atomically claim a pending task | Members |
-| `complete` | Mark task done with result summary | Members/Agents |
+| `complete` | Mark task done with result summary and optional `deliverables` (final file paths to send to the user) | Members/Agents |
 | `approve` | Approve completed task (human-in-the-loop) | Admin/Human |
 | `reject` | Reject task with reason, mark as cancelled, inject message to lead | Admin/Human |
 | `cancel` | Cancel task with reason | Lead |
@@ -301,6 +301,26 @@ Workspace files can be attached to tasks:
 - Auto-links files created during task execution
 - Metadata captures which agent/user attached the file
 
+#### Task Deliverables
+
+`team_tasks(action="complete", deliverables=[...])` declares which files are the
+final output for the user. This is what decides delivery, not what the member's
+tools happened to produce:
+
+- Paths are validated like `send_file` (inside the workspace, not an internal file,
+  regular, non-empty). One bad path rejects the call and the task stays open, so the
+  model can correct it.
+- Valid files are tagged `metadata.role="deliverable"` in `team_task_attachments`,
+  including files already attached automatically. Only `MarkTaskDeliverables` writes
+  this tag, and delivery relies on that.
+- The completion announce attaches deliverables and any `send_file` files to the
+  lead's reply automatically. The lead needs no tool call.
+- In a run with an assigned task, `create_image`, `create_video`, `create_audio` and
+  `tts` output is attached to the task but not sent, since it may be a draft. Chat
+  runs outside a task still send it automatically.
+- With nothing declared and nothing sent, no file goes out. The announce lists the
+  attachment paths and tells the lead, who can use `send_file`.
+
 ### Review Workflow
 
 Tasks can require human approval before final completion. When creating a task, pass `require_approval: true`:
@@ -447,7 +467,7 @@ Each dispatched task includes in its message to the member:
 - Task number, ID, subject, and description
 - Team workspace path (if configured)
 - List of attached files (from task metadata)
-- Instructions for available actions: progress, comment, blocker, complete
+- Instructions for available actions: progress, comment, blocker, complete (with `deliverables`)
 - Completed blocker results (for unblocked tasks)
 - Recent comments (for re-dispatched tasks after reject/retry)
 
