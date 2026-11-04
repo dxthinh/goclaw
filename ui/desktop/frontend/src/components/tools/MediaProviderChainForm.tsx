@@ -33,6 +33,8 @@ interface MediaProviderChainFormProps {
 export function MediaProviderChainForm({ tool, onSave, onClose }: MediaProviderChainFormProps) {
   const { t } = useTranslation(['tools', 'common'])
   const [chain, setChain] = useState<ProviderEntry[]>([])
+  const [imageInput, setImageInput] = useState('auto')
+  const isReadImage = tool.name === 'read_image'
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -50,6 +52,8 @@ export function MediaProviderChainForm({ tool, onSave, onClose }: MediaProviderC
       max_retries: p.max_retries ?? 2,
     }))
     setChain(entries)
+    const savedInput = (tool.settings as { image_input?: unknown } | undefined)?.image_input
+    setImageInput(savedInput === 'inline' || savedInput === 'file_ref' ? savedInput : 'auto')
     setError('')
     setSaving(false)
     loadingRef.current.clear()
@@ -106,8 +110,15 @@ export function MediaProviderChainForm({ tool, onSave, onClose }: MediaProviderC
     setError('')
     try {
       const serialized = chain.map(({ id: _id, ...rest }) => rest)
-      // Keep settings this form does not manage, such as read_image's image_input.
-      await onSave(tool.name, { ...(tool.settings as Record<string, unknown> | undefined), providers: serialized })
+      // Keep settings this form does not manage, but not the legacy flat provider and
+      // model, which must not outlive the chain that replaced them.
+      const { provider: _provider, model: _model, ...kept } = (tool.settings ?? {}) as Record<string, unknown>
+      const settings: Record<string, unknown> = { ...kept, providers: serialized }
+      if (isReadImage) {
+        if (imageInput === 'auto') delete settings.image_input
+        else settings.image_input = imageInput
+      }
+      await onSave(tool.name, settings)
       onClose()
     } catch (err) {
       setError((err as Error).message || 'Failed to save')
@@ -167,6 +178,23 @@ export function MediaProviderChainForm({ tool, onSave, onClose }: MediaProviderC
           </svg>
           {t('builtin.mediaChain.addProvider')}
         </button>
+
+        {isReadImage && (
+          <div className="space-y-1.5 pt-2">
+            <label htmlFor="read-image-input" className="text-xs text-text-secondary">{t('builtin.mediaChain.imageInput')}</label>
+            <select
+              id="read-image-input"
+              className="border border-surface-secondary rounded px-2 py-1 text-sm w-full bg-surface"
+              value={imageInput}
+              onChange={(e) => setImageInput(e.target.value)}
+            >
+              <option value="auto">{t('builtin.mediaChain.imageInputAuto')}</option>
+              <option value="inline">{t('builtin.mediaChain.imageInputInline')}</option>
+              <option value="file_ref">{t('builtin.mediaChain.imageInputFileRef')}</option>
+            </select>
+            <p className="text-xs text-text-muted">{t('builtin.mediaChain.imageInputHint')}</p>
+          </div>
+        )}
       </div>
 
       {error && <div className="px-5"><p className="text-xs text-error">{error}</p></div>}

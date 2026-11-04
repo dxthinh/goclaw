@@ -140,13 +140,18 @@ export function parseImageInputMode(settings: Record<string, unknown>): ImageInp
   return mode === "inline" || mode === "file_ref" ? mode : "auto";
 }
 
-/** Rebuilds settings from the form, keeping keys the form does not manage. */
+/**
+ * Rebuilds settings from the form, keeping keys the form does not manage. The legacy
+ * flat provider and model were migrated into the chain, so they must not outlive it.
+ */
 export function buildChainSettings(
   initialSettings: Record<string, unknown>,
   providers: Omit<ProviderEntry, "id">[],
   imageInput: ImageInputMode | null,
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...initialSettings, providers };
+  delete next.provider;
+  delete next.model;
   if (imageInput === "auto") {
     delete next.image_input;
   } else if (imageInput) {

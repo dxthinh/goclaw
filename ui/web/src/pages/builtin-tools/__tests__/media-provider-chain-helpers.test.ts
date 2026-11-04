@@ -53,6 +53,10 @@ describe("buildChainSettings", () => {
   it("removes the key for auto", () => {
     expect(buildChainSettings({ image_input: "inline" }, providers, "auto")).toEqual({ providers });
   });
+
+  it("drops the legacy flat provider and model", () => {
+    expect(buildChainSettings({ provider: "old", model: "old-model" }, [], null)).toEqual({ providers: [] });
+  });
 });
 
 describe("parseImageInputMode", () => {
