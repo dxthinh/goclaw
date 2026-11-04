@@ -718,11 +718,12 @@ func (l *Loop) reloadMediaForMessages(msgs []providers.Message, maxMessages int)
 			if ref.Kind != "image" {
 				continue
 			}
-			// Assistant images still count toward the window, so the set of user
-			// images sent to the provider does not change, but no provider sends
-			// them: loading them would only inflate the request budget.
+			// Assistant images, and anything carried by an assistant message, still
+			// count toward the window, so the set of user images sent to the provider
+			// does not change, but no provider sends them: loading them would only
+			// inflate the request budget.
 			hasImageRef = true
-			if isAssistantMediaRef(msgs[i], ref) {
+			if msgs[i].Role == "assistant" || isAssistantMediaRef(msgs[i], ref) {
 				continue
 			}
 			p := ref.Path

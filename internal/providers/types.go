@@ -139,11 +139,14 @@ type MediaRef struct {
 	Path     string `json:"path,omitempty"`    // absolute workspace path (persisted for /v1/files/ serving)
 	Prompt   string `json:"prompt,omitempty"`  // prompt that generated this asset, if known
 	Caption  string `json:"caption,omitempty"` // caption the file was sent with, if any
-	Origin   string `json:"origin,omitempty"`  // MediaOriginAssistant when compaction moved an assistant ref to another message
+	Origin   string `json:"origin,omitempty"`  // who produced a ref that compaction moved to another message
 }
 
-// MediaOriginAssistant marks a MediaRef produced by the assistant.
-const MediaOriginAssistant = "assistant"
+// MediaRef origins, recorded when compaction moves a ref off its source message.
+const (
+	MediaOriginAssistant = "assistant"
+	MediaOriginUser      = "user"
+)
 
 // Message represents a conversation message.
 type Message struct {

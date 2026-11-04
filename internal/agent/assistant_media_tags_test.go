@@ -169,7 +169,7 @@ func TestPreservedMediaRefsAreChronological(t *testing.T) {
 			t.Errorf("refs[%d].Path = %q, want %q", i, got[i].Path, want)
 		}
 	}
-	if got[0].Origin != providers.MediaOriginAssistant || got[1].Origin != "" {
+	if got[0].Origin != providers.MediaOriginAssistant || got[1].Origin != providers.MediaOriginUser {
 		t.Errorf("origins not recorded: %q, %q", got[0].Origin, got[1].Origin)
 	}
 
@@ -201,8 +201,40 @@ func TestPreservedMediaRefRecordsOrigin(t *testing.T) {
 	if got := preservedMediaRef(providers.Message{Role: "assistant"}, ref); got.Origin != providers.MediaOriginAssistant {
 		t.Fatalf("assistant ref origin = %q", got.Origin)
 	}
-	if got := preservedMediaRef(providers.Message{Role: "user"}, ref); got.Origin != "" {
+	if got := preservedMediaRef(providers.Message{Role: "user"}, ref); got.Origin != providers.MediaOriginUser {
 		t.Fatalf("user ref origin = %q", got.Origin)
+	}
+	// A second compaction must not relabel a ref by the message now carrying it.
+	moved := imageRef("/w/a.png", providers.MediaOriginUser)
+	if got := preservedMediaRef(providers.Message{Role: "assistant"}, moved); got.Origin != providers.MediaOriginUser {
+		t.Fatalf("moved user ref origin = %q", got.Origin)
+	}
+}
+
+// Compaction can move a user image onto an assistant message. It is neither loaded,
+// since no provider sends images there, nor presented as something the assistant sent.
+func TestUserRefOnAssistantMessage(t *testing.T) {
+	img := writeTestImage(t, t.TempDir(), "user.jpg")
+	msgs := []providers.Message{{Role: "assistant", Content: "Done", MediaRefs: []providers.MediaRef{
+		imageRef(img, providers.MediaOriginUser),
+		{ID: "bot.png", Kind: "image", Path: "/w/bot.png"},
+	}}}
+
+	var loop Loop
+	loop.reloadMediaForMessages(msgs, maxMediaReloadMessages)
+	if len(msgs[0].Images) != 0 {
+		t.Fatalf("image loaded onto an assistant message: %d", len(msgs[0].Images))
+	}
+
+	enrichAssistantMediaTags(msgs)
+
+	want := "Done\n\n" + assistantMediaHeader + "\n" + `<media:image id="bot.png" desc="bot.png">` +
+		"\n\n" + movedUserMediaHeader + "\n" + `<media:image id="user.jpg" desc="user.jpg">`
+	if msgs[0].Content != want {
+		t.Fatalf("content = %q, want %q", msgs[0].Content, want)
+	}
+	if got := SanitizeAssistantContent(msgs[0].Content); got != "Done" {
+		t.Fatalf("echoed list survived: %q", got)
 	}
 }
 

@@ -16,6 +16,9 @@ const (
 	// message. It is never persisted; stripAssistantMediaTags removes it if a
 	// model echoes it into a reply.
 	assistantMediaHeader = "[Files attached to this reply. To inspect one, call the matching read_* tool with its media_id.]"
+	// movedUserMediaHeader lists user files that compaction moved onto an assistant
+	// message, which no provider sends images on.
+	movedUserMediaHeader = "[Files the user sent earlier. To inspect one, call the matching read_* tool with its media_id.]"
 	maxMediaDescRunes    = 200
 
 	// maxPreservedMediaRefs bounds the refs compaction keeps on a single message.
@@ -26,18 +29,31 @@ const (
 // keeps user-sent <media:*> tags, which never carry it, out of the match.
 var assistantMediaTagPattern = regexp.MustCompile(`<media:[a-z]+ id="(?:[^"\\]|\\.)*" desc="(?:[^"\\]|\\.)*">`)
 
-// isAssistantMediaRef reports whether a ref came from the assistant. Providers
-// only send images on user messages, and compaction can move assistant refs onto
-// a user message, so both the message role and the ref origin count.
+// isAssistantMediaRef reports whether a ref came from the assistant. Compaction can
+// move refs onto a message of either role, so a recorded origin outranks the role of
+// the message carrying the ref.
 func isAssistantMediaRef(msg providers.Message, ref providers.MediaRef) bool {
-	return msg.Role == "assistant" || ref.Origin == providers.MediaOriginAssistant
+	switch ref.Origin {
+	case providers.MediaOriginAssistant:
+		return true
+	case providers.MediaOriginUser:
+		return false
+	}
+	return msg.Role == "assistant"
 }
 
 // preservedMediaRef returns a ref ready to move to another message during
-// compaction, recording its origin before the source message's role is lost.
+// compaction, recording its origin before the source message's role is lost. A ref
+// moved by an earlier compaction keeps the origin it already has.
 func preservedMediaRef(msg providers.Message, ref providers.MediaRef) providers.MediaRef {
-	if msg.Role == "assistant" {
+	if ref.Origin != "" {
+		return ref
+	}
+	switch msg.Role {
+	case "assistant":
 		ref.Origin = providers.MediaOriginAssistant
+	case "user":
+		ref.Origin = providers.MediaOriginUser
 	}
 	return ref
 }
@@ -67,21 +83,30 @@ func enrichAssistantMediaTags(messages []providers.Message) {
 		if messages[i].Role != "user" && messages[i].Role != "assistant" {
 			continue
 		}
-		var tags []string
+		var sent, moved []string
 		for _, ref := range messages[i].MediaRefs {
-			if isAssistantMediaRef(messages[i], ref) {
-				tags = append(tags, fmt.Sprintf("<media:%s id=%q desc=%q>", ref.Kind, ref.ID, assistantMediaDesc(ref)))
+			tag := fmt.Sprintf("<media:%s id=%q desc=%q>", ref.Kind, ref.ID, assistantMediaDesc(ref))
+			switch {
+			case isAssistantMediaRef(messages[i], ref):
+				sent = append(sent, tag)
+			case messages[i].Role == "assistant":
+				moved = append(moved, tag)
 			}
 		}
-		if len(tags) == 0 {
-			continue
-		}
-		block := assistantMediaHeader + "\n" + strings.Join(tags, "\n")
-		if messages[i].Content != "" {
-			block = messages[i].Content + "\n\n" + block
-		}
-		messages[i].Content = block
+		messages[i].Content = appendMediaList(messages[i].Content, assistantMediaHeader, sent)
+		messages[i].Content = appendMediaList(messages[i].Content, movedUserMediaHeader, moved)
 	}
+}
+
+func appendMediaList(content, header string, tags []string) string {
+	if len(tags) == 0 {
+		return content
+	}
+	block := header + "\n" + strings.Join(tags, "\n")
+	if content == "" {
+		return block
+	}
+	return content + "\n\n" + block
 }
 
 // assistantMediaDesc picks the best known description of a file: the prompt that
@@ -104,13 +129,14 @@ func assistantMediaDesc(ref providers.MediaRef) string {
 // stripAssistantMediaTags removes the runtime file list when a model copies it
 // into its reply, so channel users never see internal media tags.
 func stripAssistantMediaTags(content string) string {
-	if !strings.Contains(content, "<media:") && !strings.Contains(content, assistantMediaHeader) {
+	if !strings.Contains(content, "<media:") && !strings.Contains(content, assistantMediaHeader) && !strings.Contains(content, movedUserMediaHeader) {
 		return content
 	}
 	lines := strings.Split(content, "\n")
 	result := make([]string, 0, len(lines))
 	for _, line := range lines {
-		stripped := assistantMediaTagPattern.ReplaceAllString(strings.ReplaceAll(line, assistantMediaHeader, ""), "")
+		stripped := strings.ReplaceAll(strings.ReplaceAll(line, assistantMediaHeader, ""), movedUserMediaHeader, "")
+		stripped = assistantMediaTagPattern.ReplaceAllString(stripped, "")
 		if stripped == line {
 			result = append(result, line)
 			continue
