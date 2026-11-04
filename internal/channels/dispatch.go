@@ -175,9 +175,7 @@ func (m *Manager) deliverOutbound(ctx context.Context, msg bus.OutboundMessage) 
 		})
 	}
 
-	if err := channel.Send(sendCtx, msg); err != nil {
-		m.handleSendFailure(sendCtx, channel, msg, err)
-	}
+	m.settleDelivery(sendCtx, channel, msg, channel.Send(sendCtx, msg))
 }
 
 // claimTempMedia filters msg.Media down to the files this dispatch owns, and

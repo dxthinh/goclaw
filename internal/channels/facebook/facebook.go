@@ -206,6 +206,17 @@ func (ch *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return nil
 	}
 
+	// Graph API sends here are text-only. Report attachments as undelivered
+	// instead of dropping them silently.
+	failed := channels.AllMediaFailed(msg.Media, channels.ErrMediaUnsupported)
+	if msg.Content == "" {
+		return channels.MediaDeliveryResult(failed, nil)
+	}
+	return channels.MediaDeliveryResult(failed, ch.sendText(ctx, msg))
+}
+
+// sendText delivers the text body to Messenger or as a comment reply.
+func (ch *Channel) sendText(ctx context.Context, msg bus.OutboundMessage) error {
 	mode := msg.Metadata["fb_mode"]
 
 	switch mode {

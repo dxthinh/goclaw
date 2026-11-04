@@ -52,14 +52,25 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 
 	content := msg.Content
 
-	// NO_REPLY: delete placeholder, return
+	// Upload media before the text paths below, each of which returns early:
+	// a media-only message or an edited placeholder must not drop attachments.
+	var failed []channels.MediaFailure
+	for _, media := range msg.Media {
+		if err := c.uploadFile(channelID, threadTS, media); err != nil {
+			slog.Warn("slack: file upload failed",
+				"file", media.URL, "error", err)
+			failed = append(failed, channels.MediaFailure{Media: media, Err: err})
+		}
+	}
+
+	// NO_REPLY or media-only: delete placeholder, return
 	if content == "" {
 		if pTS, ok := c.placeholders.Load(placeholderKey); ok {
 			c.placeholders.Delete(placeholderKey)
 			ts := pTS.(string)
 			_, _, _ = c.api.DeleteMessage(channelID, ts)
 		}
-		return nil
+		return channels.MediaDeliveryResult(failed, nil)
 	}
 
 	content = markdownToSlackMrkdwn(content)
@@ -78,25 +89,16 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 
 		if _, _, _, editErr := c.api.UpdateMessage(channelID, ts, opts...); editErr == nil {
 			if remaining != "" {
-				return c.sendChunked(channelID, remaining, threadTS)
+				return channels.MediaDeliveryResult(failed, c.sendChunked(channelID, remaining, threadTS))
 			}
-			return nil
+			return channels.MediaDeliveryResult(failed, nil)
 		} else {
 			slog.Warn("slack placeholder edit failed, sending new message",
 				"channel_id", channelID, "error", editErr)
 		}
 	}
 
-	// Handle media attachments
-	for _, media := range msg.Media {
-		if err := c.uploadFile(channelID, threadTS, media); err != nil {
-			slog.Warn("slack: file upload failed",
-				"file", media.URL, "error", err)
-			c.sendChunked(channelID, fmt.Sprintf("[File upload failed: %s]", media.URL), threadTS)
-		}
-	}
-
-	return c.sendChunked(channelID, content, threadTS)
+	return channels.MediaDeliveryResult(failed, c.sendChunked(channelID, content, threadTS))
 }
 
 // sendChunked sends message chunks using markdown-aware splitting.

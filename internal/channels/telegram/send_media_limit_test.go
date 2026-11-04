@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nextlevelbuilder/goclaw/internal/bus"
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 )
 
@@ -62,4 +63,47 @@ func sparseFile(t *testing.T, size int64) string {
 		t.Fatalf("Truncate: %v", err)
 	}
 	return path
+}
+
+func TestPrepareTelegramMediaItems_OversizedFileFailsAlone(t *testing.T) {
+	ch := &Channel{config: config.TelegramConfig{MediaMaxBytes: defaultMediaMaxBytes}}
+	tooBig := sparseFile(t, officialAPIOutboundMaxBytes+1)
+	ok := sparseFile(t, 10)
+
+	items, failed, leftover := ch.prepareTelegramMediaItems(bus.OutboundMessage{
+		Content: "hello",
+		Media:   []bus.MediaAttachment{{URL: tooBig}, {URL: ok}},
+	})
+
+	if len(failed) != 1 || failed[0].Media.URL != tooBig {
+		t.Fatalf("failed = %+v, want only the oversized file", failed)
+	}
+	if len(items) != 1 || items[0].media.URL != ok {
+		t.Fatalf("items = %+v, want the sendable file", items)
+	}
+	// The message body moves to the first file that can actually be sent.
+	if !items[0].carriesText || items[0].undeliveredText() == "" || leftover != "" {
+		t.Fatalf("body not carried by sendable file: %+v, leftover %q", items[0], leftover)
+	}
+}
+
+func TestPrepareTelegramMediaItems_TextSurvivesWhenNoFileIsSendable(t *testing.T) {
+	ch := &Channel{config: config.TelegramConfig{MediaMaxBytes: defaultMediaMaxBytes}}
+	tooBig := sparseFile(t, officialAPIOutboundMaxBytes+1)
+
+	items, failed, leftover := ch.prepareTelegramMediaItems(bus.OutboundMessage{
+		Content: "hello",
+		Media:   []bus.MediaAttachment{{URL: tooBig}},
+	})
+
+	if len(items) != 0 || len(failed) != 1 || leftover != "hello" {
+		t.Fatalf("items %+v, failed %+v, leftover %q", items, failed, leftover)
+	}
+}
+
+func TestTelegramMediaItem_PerFileCaptionIsNotUndeliveredText(t *testing.T) {
+	item := telegramMediaSendItem{caption: "per-file caption"}
+	if got := item.undeliveredText(); got != "" {
+		t.Fatalf("undeliveredText() = %q, want empty for a per-file caption", got)
+	}
 }

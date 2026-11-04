@@ -9,17 +9,15 @@ import (
 	"path/filepath"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
-// handleMediaAttachments uploads media files from an OutboundMessage and returns attachment IDs.
-// Returns an empty slice (not an error) when no media is attached.
-// On upload failure the error is returned so the caller can decide to send text-only.
-func (ch *Channel) handleMediaAttachments(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
-	if len(msg.Media) == 0 {
-		return nil, nil
-	}
-
+// handleMediaAttachments uploads media files from an OutboundMessage and returns
+// the attachment IDs. A failed upload does not stop the remaining files; it is
+// returned as a MediaFailure so the caller can still send the rest and the text.
+func (ch *Channel) handleMediaAttachments(ctx context.Context, msg bus.OutboundMessage) ([]string, []channels.MediaFailure) {
 	var ids []string
+	var failed []channels.MediaFailure
 	for _, att := range msg.Media {
 		if att.URL == "" {
 			continue
@@ -29,12 +27,13 @@ func (ch *Channel) handleMediaAttachments(ctx context.Context, msg bus.OutboundM
 		if err != nil {
 			slog.Warn("pancake: skipping media attachment on upload error",
 				"page_id", ch.pageID, "url", att.URL, "err", err)
-			return ids, err
+			failed = append(failed, channels.MediaFailure{Media: att, Err: err})
+			continue
 		}
 		ids = append(ids, id)
 	}
 
-	return ids, nil
+	return ids, failed
 }
 
 // uploadMediaFile opens a local file path and uploads it to the Pancake API.

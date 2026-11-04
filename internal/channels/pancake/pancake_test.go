@@ -7,10 +7,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1239,5 +1242,68 @@ func TestCommentFlowEndToEnd(t *testing.T) {
 	// Stateless — no per-sender dedup. FB's per-comment idempotency handles duplicates platform-side.
 	if finalCount != 4 {
 		t.Errorf("expected 4 total requests (stateless: 2 rounds × (reply + DM)), got %d", finalCount)
+	}
+}
+
+// uploadAwareTransport answers media uploads with an attachment ID.
+type uploadAwareTransport struct{ *multiCaptureTransport }
+
+func (t uploadAwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.multiCaptureTransport.RoundTrip(req)
+	if err == nil && strings.Contains(req.Header.Get("Content-Type"), "multipart/form-data") {
+		resp.Body = io.NopCloser(strings.NewReader(`{"id":"att-1"}`))
+	}
+	return resp, err
+}
+
+// One unreadable file must not stop the rest: the good file and the text still go
+// out, and the failure is reported per attachment.
+func TestSend_InboxPartialMediaFailure(t *testing.T) {
+	ch, transport := newChannelWithMultiCapture(t, pancakeInstanceConfig{})
+	ch.apiClient.httpClient = &http.Client{Transport: uploadAwareTransport{transport}}
+	good := filepath.Join(t.TempDir(), "good.png")
+	if err := os.WriteFile(good, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "conv-123",
+		Content: "see attached",
+		Media:   []bus.MediaAttachment{{URL: "/no/such/file.png"}, {URL: good}},
+	})
+
+	mde, ok := channels.AsMediaDeliveryError(err)
+	if !ok || len(mde.Failed) != 1 || mde.Failed[0].Media.URL != "/no/such/file.png" || mde.TextErr != nil {
+		t.Fatalf("Send error = %v, want only the missing file reported", err)
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	sawText := false
+	for _, body := range transport.bodies {
+		if strings.Contains(string(body), "see attached") {
+			sawText = true
+		}
+	}
+	// Upload of good file, its attachment message, then the text.
+	if len(transport.reqs) < 3 || !sawText {
+		t.Fatalf("requests = %d, text sent = %v", len(transport.reqs), sawText)
+	}
+}
+
+func TestSend_CommentModeReportsMediaAsUnsupported(t *testing.T) {
+	ch, _ := newChannelWithMultiCapture(t, pancakeInstanceConfig{})
+
+	err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "conv-123",
+		Content: "reply text",
+		Media:   []bus.MediaAttachment{{URL: "/tmp/a.png"}},
+		Metadata: map[string]string{
+			"pancake_mode":        "comment",
+			"reply_to_comment_id": "msg-1",
+		},
+	})
+
+	if _, ok := channels.AsMediaDeliveryError(err); !ok || !errors.Is(err, channels.ErrMediaUnsupported) {
+		t.Fatalf("Send error = %v, want unsupported media failure", err)
 	}
 }

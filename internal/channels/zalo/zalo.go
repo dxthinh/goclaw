@@ -123,6 +123,17 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 		return fmt.Errorf("zalo bot not running")
 	}
 
+	// The OA API only takes photos by URL. Report local attachments as
+	// undelivered instead of dropping them silently.
+	failed := channels.AllMediaFailed(msg.Media, channels.ErrMediaUnsupported)
+	if msg.Content == "" && len(failed) > 0 {
+		return channels.MediaDeliveryResult(failed, nil)
+	}
+	return channels.MediaDeliveryResult(failed, c.sendContent(msg))
+}
+
+// sendContent delivers the text body, or a photo when it holds a "[photo:URL]" marker.
+func (c *Channel) sendContent(msg bus.OutboundMessage) error {
 	// Strip markdown — Zalo does not support any markup rendering.
 	msg.Content = StripMarkdown(msg.Content)
 

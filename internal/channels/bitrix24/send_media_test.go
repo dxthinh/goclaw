@@ -3,11 +3,13 @@ package bitrix24
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
 // TestUploadOneFile_HappyPath tests successful file upload with correct base64 encoding.
@@ -434,5 +436,33 @@ func TestSendMedia_FilenameSanitized(t *testing.T) {
 	capturedFilename := rt.reqs[0].Get("fields[FILE][name]")
 	if capturedFilename != "actual_file.txt" {
 		t.Errorf("filename = %q; want actual_file.txt", capturedFilename)
+	}
+}
+
+// Files over the per-message cap used to vanish silently; they must be reported.
+func TestSendMedia_OverCapReportedAsFailed(t *testing.T) {
+	dir := t.TempDir()
+	media := make([]bus.MediaAttachment, 0, maxOutboundFiles+2)
+	for i := range maxOutboundFiles + 2 {
+		path := filepath.Join(dir, fmt.Sprintf("f%d.txt", i))
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		media = append(media, bus.MediaAttachment{URL: path})
+	}
+	ch, _ := newFakeChannelWithClient(t, newStubClient("test.bitrix24.com", &captureRTPartialFail{}))
+
+	err := ch.sendMedia(context.Background(), bus.OutboundMessage{ChatID: "chat1", Media: media})
+
+	mde, ok := channels.AsMediaDeliveryError(err)
+	if !ok {
+		t.Fatalf("sendMedia error = %v, want MediaDeliveryError", err)
+	}
+	over := map[string]bool{}
+	for _, f := range mde.Failed {
+		over[f.Media.URL] = true
+	}
+	if !over[media[maxOutboundFiles].URL] || !over[media[maxOutboundFiles+1].URL] {
+		t.Fatalf("over-cap files not reported: %+v", mde.Failed)
 	}
 }

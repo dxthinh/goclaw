@@ -251,13 +251,15 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	}
 
 	// Send media attachments — same thread routing applies as text.
+	var failed []channels.MediaFailure
 	for _, media := range msg.Media {
 		if err := c.sendMediaAttachment(ctx, chatID, receiveIDType, media, replyTargetID); err != nil {
 			slog.Warn("feishu send media failed", "url", media.URL, "error", err)
+			failed = append(failed, channels.MediaFailure{Media: media, Err: err})
 		}
 	}
 
-	return nil
+	return channels.MediaDeliveryResult(failed, nil)
 }
 
 // --- Connection modes ---
