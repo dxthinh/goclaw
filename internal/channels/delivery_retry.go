@@ -67,10 +67,25 @@ func isTransientSendError(err error) bool {
 	if errors.As(err, &opErr) && opErr.Op == "dial" {
 		return true // nothing was sent
 	}
+	if failedBeforeConnecting(err.Error()) {
+		return true // nothing was sent
+	}
 	if mayHaveReachedChat(err) {
 		return false
 	}
 	return isTransientFailureMessage(err.Error())
+}
+
+// failedBeforeConnecting recognizes a failed dial in an error flattened to text,
+// where the *net.OpError above is no longer reachable.
+func failedBeforeConnecting(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, marker := range []string{"dial tcp", "connection refused", "no such host"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // mayHaveReachedChat reports a failure that can happen after the platform received

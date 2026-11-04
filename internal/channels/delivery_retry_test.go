@@ -247,6 +247,10 @@ func TestIsTransientSendError(t *testing.T) {
 	transient := []error{
 		errTransient, errors.New("HTTP 503"), errors.New("rate limit exceeded"),
 		refused, fmt.Errorf("upload: %w", dialTimeout),
+		// Flattened to text, so the *net.OpError is out of reach.
+		errors.New("upload failed: dial tcp 1.2.3.4:443: connect: connection refused"),
+		errors.New("Post \"https://api.example/upload\": dial tcp: lookup api.example: no such host"),
+		errors.New("dial tcp 1.2.3.4:443: i/o timeout"),
 	}
 	for _, err := range transient {
 		if !isTransientSendError(err) {
