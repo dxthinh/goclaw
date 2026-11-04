@@ -138,11 +138,17 @@ happens after the reply. The outcome of each attachment is settled in
   not retried.
 - **Text-only channels.** Zalo OA, Facebook and Pancake comment replies report
   attachments as failed with `ErrMediaUnsupported` rather than dropping them.
-- **Retry.** Files that failed with a transient error (network, timeout, rate limit,
-  5xx) are re-sent as a media-only message, up to 3 times after 1s, 3s and 9s. Text
-  is never re-sent. Retries run inline on the conversation's shard to keep message
-  order, so other chats on that shard can wait up to 13s. There is no retry when the
-  channel's health is `failed`.
+- **Retry.** Files the platform turned away for now (rate limit, overload, 5xx) or
+  that failed before the connection was made are re-sent as a media-only message, up
+  to 3 times after 1s, 3s and 9s. Text is never re-sent. A timeout, reset or EOF is
+  not retried: the platform may already have the file, and a retry would send it
+  twice. Retries run inline on the conversation's shard to keep message order, so
+  other chats on that shard wait for the 13s of backoff plus the retry sends. There
+  is no retry when the channel's health is `failed`, or for a channel that already
+  retries each file itself (`channels.SendRetrier`, Telegram).
+- **Retry side effects.** A retry send carries `media_retry=true` in its metadata.
+  It must not touch the chat's placeholder, typing indicator or stream, which may
+  belong to a newer run by then. Slack honors it.
 - **Failure notice.** Files still undelivered after that trigger one notice in the
   chat through `handleSendFailure`, in the same thread or group. Public comment
   replies get no notice; the failure stays in the log and the delivery record.

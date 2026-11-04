@@ -3,8 +3,13 @@ package channels
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -83,7 +88,9 @@ func newDeliveryFixture(script ...func(bus.OutboundMessage) error) (*Manager, *s
 	return mgr, ch, rec
 }
 
-var errTransient = errors.New("connection reset by peer")
+// errTransient is a failure the platform reports before taking the file, so a
+// retry cannot duplicate it.
+var errTransient = errors.New("HTTP 503 service unavailable")
 
 func TestDeliverOutbound_RetriesOnlyFailedMediaWithoutText(t *testing.T) {
 	noBackoff(t)
@@ -235,7 +242,12 @@ func TestDeliverOutbound_TextOnlyNotRecorded(t *testing.T) {
 
 func TestIsTransientSendError(t *testing.T) {
 	t.Parallel()
-	transient := []error{errTransient, errors.New("HTTP 503"), errors.New("rate limit exceeded"), errors.New("request timeout")}
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+	dialTimeout := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	transient := []error{
+		errTransient, errors.New("HTTP 503"), errors.New("rate limit exceeded"),
+		refused, fmt.Errorf("upload: %w", dialTimeout),
+	}
 	for _, err := range transient {
 		if !isTransientSendError(err) {
 			t.Errorf("isTransientSendError(%v) = false", err)
@@ -246,6 +258,68 @@ func TestIsTransientSendError(t *testing.T) {
 		if isTransientSendError(err) {
 			t.Errorf("isTransientSendError(%v) = true", err)
 		}
+	}
+}
+
+// The upload may have reached the platform before these failures, so a retry could
+// put the same file in the chat twice.
+func TestIsTransientSendError_NotRetriedWhenFileMayHaveArrived(t *testing.T) {
+	t.Parallel()
+	readTimeout := &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	for _, err := range []error{
+		readTimeout,
+		context.DeadlineExceeded,
+		fmt.Errorf("upload: %w", io.ErrUnexpectedEOF),
+		fmt.Errorf("write: %w", syscall.ECONNRESET),
+		errors.New("request timeout"),
+		errors.New("Post \"https://api.example/upload\": EOF"),
+		errors.New("connection reset by peer"),
+		errors.New("HTTP 502: context deadline exceeded"),
+	} {
+		if isTransientSendError(err) {
+			t.Errorf("isTransientSendError(%v) = true, want no retry", err)
+		}
+	}
+}
+
+type retryingChannel struct{ *scriptedChannel }
+
+func (retryingChannel) RetriesTransientSends() bool { return true }
+
+// A channel that already retried each file within its own budget is not retried
+// again: stacking both loops held the shard for minutes.
+func TestDeliverOutbound_SkipsRetryForChannelThatRetriesItself(t *testing.T) {
+	noBackoff(t)
+	mgr, ch, rec := newDeliveryFixture(failMedia(errTransient, "/a.png"))
+	mgr.channels["zp"] = retryingChannel{ch}
+
+	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
+		Channel: "zp", ChatID: "c1", Media: []bus.MediaAttachment{{URL: "/a.png"}},
+	})
+
+	// The first send and the failure notice, with no retry between them.
+	if len(ch.sends) != 2 || len(ch.sends[1].Media) != 0 {
+		t.Fatalf("sends = %+v, want the first send and a notice only", ch.sends)
+	}
+	if got := rec.outcomes["/a.png"]; got.Attempts != 1 || got.Err == nil {
+		t.Fatalf("/a.png outcome = %+v", got)
+	}
+}
+
+// The retry send is marked, so channels can leave the chat's placeholder alone.
+func TestDeliverOutbound_RetrySendIsMarked(t *testing.T) {
+	noBackoff(t)
+	mgr, ch, _ := newDeliveryFixture(failMedia(errTransient, "/a.png"))
+
+	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
+		Channel: "zp", ChatID: "c1", Media: []bus.MediaAttachment{{URL: "/a.png"}},
+	})
+
+	if len(ch.sends) != 2 {
+		t.Fatalf("sends = %d, want first send + 1 retry", len(ch.sends))
+	}
+	if ch.sends[0].Metadata[MetaMediaRetry] != "" || ch.sends[1].Metadata[MetaMediaRetry] != "true" {
+		t.Fatalf("first meta = %v, retry meta = %v", ch.sends[0].Metadata, ch.sends[1].Metadata)
 	}
 }
 

@@ -161,6 +161,10 @@ func (c *Channel) retrySend(ctx context.Context, name string, resetFn func(), fn
 	return err
 }
 
+// RetriesTransientSends implements channels.SendRetrier: every upload goes
+// through retrySend, so the dispatcher must not retry a failed file again.
+func (c *Channel) RetriesTransientSends() bool { return true }
+
 // Send delivers an outbound message to a Telegram chat.
 // Supports text-only messages and messages with media attachments.
 // Reads metadata for reply-to-message and forum thread routing.

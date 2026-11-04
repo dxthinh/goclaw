@@ -63,6 +63,12 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 		}
 	}
 
+	// A media retry runs after its message, when the stored placeholder may belong
+	// to a newer run in the same chat or thread: leave it alone.
+	if content == "" && msg.Metadata[channels.MetaMediaRetry] == "true" {
+		return channels.MediaDeliveryResult(msg.Media, failed, nil)
+	}
+
 	// NO_REPLY or media-only: delete placeholder, return
 	if content == "" {
 		if pTS, ok := c.placeholders.Load(placeholderKey); ok {
