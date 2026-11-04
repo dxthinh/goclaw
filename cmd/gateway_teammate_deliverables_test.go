@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,10 +21,11 @@ import (
 type stubAttachmentStore struct {
 	store.TeamStore
 	attachments []store.TeamTaskAttachmentData
+	listErr     error
 }
 
 func (s *stubAttachmentStore) ListTaskAttachments(context.Context, uuid.UUID) ([]store.TeamTaskAttachmentData, error) {
-	return s.attachments, nil
+	return s.attachments, s.listErr
 }
 
 func (s *stubAttachmentStore) ListRecentTaskComments(context.Context, uuid.UUID, int) ([]store.TeamTaskCommentData, error) {
@@ -179,5 +181,49 @@ func TestTeammateAnnounceRefusesDeliverableSwappedAfterValidation(t *testing.T) 
 				t.Fatalf("content = %q", content)
 			}
 		})
+	}
+}
+
+// The member completed the task, then a later model call failed. The task stays
+// completed and no other announce follows, so the declared files must go out here.
+func TestTeammateAnnounceKeepsDeclaredFilesAfterRunError(t *testing.T) {
+	poster := writeAnnounceFile(t, "poster.png")
+	deps := &ConsumerDeps{TeamStore: &stubAttachmentStore{attachments: []store.TeamTaskAttachmentData{deliverableAttachment(poster)}}}
+	meta := map[string]string{tools.MetaTeamTaskID: uuid.NewString()}
+
+	content, media, ok := buildTeammateAnnounce(context.Background(), scheduler.RunOutcome{Err: errors.New("model call failed")}, "member", meta, deps)
+
+	if !ok || len(media) != 1 || media[0].Path != poster {
+		t.Fatalf("ok = %v, media = %+v", ok, media)
+	}
+	if !strings.HasPrefix(content, "[FAILED]") || !strings.Contains(content, "completed before this error") {
+		t.Fatalf("content = %q", content)
+	}
+}
+
+func TestTeammateAnnounceRunErrorWithoutDeclaredFilesStaysFailed(t *testing.T) {
+	deps := &ConsumerDeps{TeamStore: &stubAttachmentStore{}}
+	meta := map[string]string{tools.MetaTeamTaskID: uuid.NewString()}
+
+	content, media, ok := buildTeammateAnnounce(context.Background(), scheduler.RunOutcome{Err: errors.New("model call failed")}, "member", meta, deps)
+
+	if !ok || len(media) != 0 || strings.Contains(content, "completed before this error") {
+		t.Fatalf("ok = %v, media = %+v, content = %q", ok, media, content)
+	}
+}
+
+// A failed read must not look like "no files": the lead has to hear about it, even
+// when the member finished with NO_REPLY.
+func TestTeammateAnnounceReportsAttachmentReadFailure(t *testing.T) {
+	deps := &ConsumerDeps{TeamStore: &stubAttachmentStore{listErr: errors.New("db unavailable")}}
+	meta := map[string]string{tools.MetaTeamTaskID: uuid.NewString()}
+
+	for _, reply := range []string{"done", "NO_REPLY"} {
+		outcome := scheduler.RunOutcome{Result: &agent.RunResult{Content: reply}}
+		content, media, ok := buildTeammateAnnounce(context.Background(), outcome, "member", meta, deps)
+
+		if !ok || len(media) != 0 || !strings.Contains(content, "Could not read this task's attachments") {
+			t.Fatalf("reply %q: ok = %v, media = %+v, content = %q", reply, ok, media, content)
+		}
 	}
 }

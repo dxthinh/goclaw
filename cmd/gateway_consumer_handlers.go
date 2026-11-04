@@ -587,10 +587,14 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 	// that finishes with NO_REPLY still delivers them.
 	var taskUUID uuid.UUID
 	var attachments []store.TeamTaskAttachmentData
+	var attachmentsErr error
 	if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" && deps.TeamStore != nil {
 		if parsed, err := uuid.Parse(taskIDStr); err == nil {
 			taskUUID = parsed
-			attachments, _ = deps.TeamStore.ListTaskAttachments(ctx, taskUUID)
+			attachments, attachmentsErr = deps.TeamStore.ListTaskAttachments(ctx, taskUUID)
+			if attachmentsErr != nil {
+				slog.Warn("teammate message: read task attachments failed", "task_id", taskUUID, "error", attachmentsErr)
+			}
 		}
 	}
 
@@ -602,13 +606,21 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 			errMsg = errMsg[:500] + "..."
 		}
 		content = fmt.Sprintf("[FAILED] %s", errMsg)
+		// The run can fail after the member completed the task. The task stays
+		// completed and this is its only announce, so its files must still go out.
+		media, rejectedDeliverables = mergeDeliverableMedia(nil, attachments)
+		if len(media) > 0 {
+			content += "\n[The task was completed before this error. Its declared final files are attached to your reply.]"
+		}
 	} else if outcome.Result == nil {
 		slog.Warn("teammate message: nil result without error", "from", senderID)
 		return "", nil, false
 	} else {
 		media, rejectedDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments)
 		normalized, shouldDeliver := normalizeAgentOutboundContent(outcome.Result.Content, len(media))
-		if !shouldDeliver {
+		// Without the attachment list, a silent reply may still have declared files:
+		// announce anyway so the lead can check.
+		if !shouldDeliver && attachmentsErr == nil {
 			slog.Info("teammate message: suppressed silent/empty reply", "from", senderID)
 			return "", nil, false
 		}
@@ -617,6 +629,9 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 
 	// Append member comments & attachments so leader sees them in the announce.
 	if taskUUID != uuid.Nil {
+		if attachmentsErr != nil {
+			content += "\n[Could not read this task's attachments, so any declared final files are not attached. Check them with team_tasks(action=\"get\") and use send_file.]"
+		}
 		if comments, err := deps.TeamStore.ListRecentTaskComments(ctx, taskUUID, 5); err == nil && len(comments) > 0 {
 			var parts []string
 			for _, c := range comments {

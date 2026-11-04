@@ -84,13 +84,16 @@ func resolveTaskDeliverable(ctx context.Context, path, workspace string, allowed
 	}, nil
 }
 
-// checkDeliverablesAllowed lets only the task owner or the team lead declare files.
-// Declared files go straight to the user, so a teammate must not be able to add
-// files to someone else's task, including one that has already completed.
+// checkDeliverablesAllowed lets only the task's owner or its own team's lead declare
+// files. Declared files go straight to the user, so nobody else may add files to a
+// task, including one that has already completed.
 func (t *TeamTasksTool) checkDeliverablesAllowed(ctx context.Context, team *store.TeamData, taskID, agentID uuid.UUID) error {
 	task, err := t.manager.Store().GetTask(ctx, taskID)
 	if err != nil || task == nil {
 		return fmt.Errorf("cannot verify task owner, deliverables not registered: %w", err)
+	}
+	if task.TeamID != team.ID {
+		return fmt.Errorf("task %s does not belong to your team", taskID)
 	}
 	if agentID == team.LeadAgentID || (task.OwnerAgentID != nil && *task.OwnerAgentID == agentID) {
 		return nil

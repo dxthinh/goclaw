@@ -319,7 +319,10 @@ tools happened to produce:
   swapped for a symlink or hardlink since validation, it is not sent, a
   `security.deliverable_rejected` line is logged, and the announce tells the lead.
 - The completion announce attaches deliverables and any `send_file` files to the
-  lead's reply automatically. The lead needs no tool call.
+  lead's reply automatically. The lead needs no tool call. Deliverables still go out
+  if the run fails after the task was completed.
+- If the attachment list cannot be read, the announce says so, so the lead can check
+  the task.
 - In a run with an assigned task, `create_image`, `create_video`, `create_audio` and
   `tts` output is attached to the task but not sent, since it may be a draft. Chat
   runs outside a task still send it automatically.

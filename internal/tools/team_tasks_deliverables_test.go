@@ -222,3 +222,34 @@ func TestCompleteWithoutDeliverablesKeepsPermissions(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 }
+
+// A lead may not reach into another team's task, even one that already completed.
+func TestDeliverablesRejectedForTaskOfAnotherTeam(t *testing.T) {
+	ws := t.TempDir()
+	mb, tool, _, _, ctx := newTestTeamSetup()
+	taskID := uuid.New()
+	preloadTask(mb, &store.TeamTaskData{
+		BaseModel: store.BaseModel{ID: taskID},
+		TeamID:    uuid.New(),
+		Subject:   "foreign",
+		Status:    store.TeamTaskStatusCompleted,
+	})
+	ctx = WithTaskActionFlags(store.WithAgentID(ctx, testLeadID), &TaskActionFlags{})
+	ctx = WithToolWorkspace(ctx, ws)
+	ctx = WithToolTeamWorkspace(ctx, ws)
+
+	res := tool.Execute(ctx, map[string]any{
+		"action":       "complete",
+		"task_id":      taskID.String(),
+		"result":       "done",
+		"deliverables": []any{writeDeliverable(t, ws, "final.png", "poster")},
+	})
+
+	if !res.IsError || !strings.Contains(res.ForLLM, "does not belong to your team") {
+		t.Fatalf("result = %+v", res)
+	}
+	atts, _ := mb.Store().ListTaskAttachments(context.Background(), taskID)
+	if len(atts) != 0 {
+		t.Fatalf("attachments = %+v, want none on a foreign task", atts)
+	}
+}
