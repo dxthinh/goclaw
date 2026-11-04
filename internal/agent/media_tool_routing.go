@@ -15,8 +15,8 @@ import (
 // and are reached only through the read_image tool (file-ref mode).
 //
 // settings.image_input forces either mode. Without it, a configured read_image
-// provider alone no longer disables inline images: file-ref remains only for main
-// providers that lack vision or do not declare it, which is why that mode exists.
+// provider alone no longer disables inline images: every model is assumed to have
+// vision, and file-ref remains only for main providers that declare they lack it.
 func (l *Loop) deferImagesToReadImage() bool {
 	switch l.readImageInputMode() {
 	case readImageInputInline:
@@ -27,8 +27,17 @@ func (l *Loop) deferImagesToReadImage() bool {
 	if !l.hasReadImageProvider() {
 		return false
 	}
-	aware, ok := l.provider.(providers.CapabilitiesAware)
-	return !ok || !aware.Capabilities().Vision
+	return declaresNoVision(l.provider)
+}
+
+// declaresNoVision reports whether a provider explicitly lacks vision. The fallback
+// wrapper declares nothing itself, so its primary provider decides.
+func declaresNoVision(p providers.Provider) bool {
+	if fallback, ok := p.(*providers.ModelFallbackProvider); ok {
+		p = fallback.PrimaryProvider()
+	}
+	aware, ok := p.(providers.CapabilitiesAware)
+	return ok && !aware.Capabilities().Vision
 }
 
 const (

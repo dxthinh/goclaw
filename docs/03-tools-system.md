@@ -174,8 +174,10 @@ Memory layers: L1 (`memory_search`) returns ranked abstracts; L2 (`memory_expand
 
 `read_image` settings accept an optional `image_input`: `inline` always attaches
 user images to the main request, `file_ref` keeps them out and leaves them to
-`read_image`. Without it, images are inline unless a `read_image` provider is
-configured and the main provider lacks or does not declare vision.
+`read_image`. Without it, every model is assumed to have vision, so images are
+inline unless a `read_image` provider is configured and the main provider declares
+`Vision: false` (Ollama and ACP today). Use `file_ref` for a text-only model behind
+a provider that declares vision, such as an OpenAI-compatible endpoint.
 
 Files the assistant already sent are never reloaded as images, because providers
 only send images on user messages. They appear in history as runtime-only tags
