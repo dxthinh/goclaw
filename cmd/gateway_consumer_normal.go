@@ -638,6 +638,9 @@ func processNormalMessage(
 		}
 
 		appendMediaToOutbound(&outMsg, outcome.Result.Media)
+		attachDeliveryTrace(&outMsg, deliveryTrace{
+			runID: outcome.Result.RunID, sessionKey: sessionKey, traceID: outcome.Result.TraceID, tenantID: tenantID,
+		})
 
 		parts := []string{replyContent}
 		if !streaming && len(outMsg.Media) == 0 {

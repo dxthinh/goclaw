@@ -175,7 +175,7 @@ func makeCronJobHandler(sched *scheduler.Scheduler, msgBus *bus.MessageBus, cfg 
 			ChatTitle:         chatTitle,
 			PeerKind:          peerKind,
 			UserID:            job.UserID,
-			RunID:             fmt.Sprintf("cron:%s", job.ID),
+			RunID:             fmt.Sprintf("cron:%s:%s", job.ID, uuid.NewString()[:8]),
 			Stream:            false,
 			ModelOverride:     modelOverride,
 			ProviderOverride:  providerOverride,
@@ -198,7 +198,9 @@ func makeCronJobHandler(sched *scheduler.Scheduler, msgBus *bus.MessageBus, cfg 
 		result := outcome.Result
 
 		// If job wants delivery to a channel, send the agent response to the target chat.
-		deliverCronOutput(msgBus, job, result.Content, result.Media, peerKind)
+		deliverCronOutput(msgBus, job, result.Content, result.Media, peerKind, deliveryTrace{
+			runID: result.RunID, sessionKey: sessionKey, traceID: result.TraceID, tenantID: job.TenantID,
+		})
 
 		cronResult := &store.CronJobResult{
 			Content: result.Content,
@@ -221,7 +223,7 @@ func makeCronJobHandler(sched *scheduler.Scheduler, msgBus *bus.MessageBus, cfg 
 // deliverCronOutput publishes a cron job's output to the configured delivery
 // channel, honoring the NO_REPLY sentinel. Shared by the agent-turn and the
 // deterministic command-payload paths.
-func deliverCronOutput(msgBus *bus.MessageBus, job *store.CronJob, content string, media []agent.MediaResult, peerKind string) {
+func deliverCronOutput(msgBus *bus.MessageBus, job *store.CronJob, content string, media []agent.MediaResult, peerKind string, trace deliveryTrace) {
 	if job.Deliver && job.DeliverChannel != "" && job.DeliverTo != "" {
 		if cronOutputContainsNoReplySentinel(content) {
 			slog.Info("cron: suppressed delivery because output contained NO_REPLY",
@@ -242,6 +244,7 @@ func deliverCronOutput(msgBus *bus.MessageBus, job *store.CronJob, content strin
 			outMsg.Metadata = map[string]string{"group_id": job.DeliverTo}
 		}
 		appendMediaToOutbound(&outMsg, media)
+		attachDeliveryTrace(&outMsg, trace)
 		msgBus.PublishOutbound(outMsg)
 		return
 	}
@@ -286,7 +289,7 @@ func runCommandCronJob(cfg *config.Config, job *store.CronJob, tenantStore store
 		return nil, res.Err
 	}
 
-	deliverCronOutput(msgBus, job, res.Summary, nil, peerKind)
+	deliverCronOutput(msgBus, job, res.Summary, nil, peerKind, deliveryTrace{})
 	return &store.CronJobResult{Content: res.Summary}, nil
 }
 

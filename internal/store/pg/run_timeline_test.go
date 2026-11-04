@@ -105,3 +105,38 @@ func TestPGRunTimelineStoreTenantScope(t *testing.T) {
 		t.Fatalf("tenant B len = %d, want 0", len(gotB))
 	}
 }
+
+func TestPGRunTimelineStoreNextSeqNeverOverwritesRunEvents(t *testing.T) {
+	db := hooksTestDB(t)
+	timeline := NewPGRunTimelineStore(db)
+	tenantID, _ := seedTenantAndAgent(t, db)
+	ctx := store.WithTenantID(context.Background(), tenantID)
+	const runID = "pg-run-next-seq"
+	session := "agent:default:direct:user-1"
+
+	first := &store.RunTimelineItem{RunID: runID, SessionKey: session, ItemType: store.RunTimelineItemTypeDelivery, Title: "a.png"}
+	if err := timeline.AppendRunTimelineItemNextSeq(ctx, first); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	second := &store.RunTimelineItem{RunID: runID, SessionKey: session, ItemType: store.RunTimelineItemTypeDelivery, Title: "b.png"}
+	if err := timeline.AppendRunTimelineItemNextSeq(ctx, second); err != nil {
+		t.Fatalf("second delivery: %v", err)
+	}
+	if first.Seq != store.RunTimelineDeliverySeqBase || second.Seq != store.RunTimelineDeliverySeqBase+1 {
+		t.Fatalf("seqs = %d, %d", first.Seq, second.Seq)
+	}
+
+	// run.completed lands late, numbered by the recorder's in-memory counter.
+	late := &store.RunTimelineItem{RunID: runID, SessionKey: session, Seq: 7, ItemType: store.RunTimelineItemTypeRunStatus, Title: "Run completed"}
+	if err := timeline.AppendRunTimelineItem(ctx, late); err != nil {
+		t.Fatalf("late run event: %v", err)
+	}
+
+	got, err := timeline.ListRunTimelineItems(ctx, store.RunTimelineListOpts{RunID: runID})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 3 || got[0].Title != "Run completed" || got[1].Title != "a.png" || got[2].Title != "b.png" {
+		t.Fatalf("items = %+v", got)
+	}
+}

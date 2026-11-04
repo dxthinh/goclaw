@@ -214,7 +214,7 @@ func processSubagentAnnounceLoop(
 			UserID:           r.UserID,
 			SenderID:         r.SenderID, // preserves real acting sender for permission checks (#915)
 			Role:             r.Role,     // preserves RBAC role for admin bypass in group writes (#915)
-			RunID:            fmt.Sprintf("subagent-announce-%s-%d", r.ParentAgent, len(entries)),
+			RunID:            fmt.Sprintf("subagent-announce-%s-%s", r.ParentAgent, uuid.NewString()[:8]),
 			RunKind:          "announce",
 			HideInput:        true,
 			Stream:           false,
@@ -255,6 +255,9 @@ func processSubagentAnnounceLoop(
 					Metadata: r.OutMeta,
 				}
 				appendMediaToOutbound(&outMsg, outcome.Result.Media)
+				attachDeliveryTrace(&outMsg, deliveryTrace{
+					runID: outcome.Result.RunID, sessionKey: r.SessionKey, traceID: outcome.Result.TraceID, tenantID: r.TenantID,
+				})
 				msgBus.PublishOutbound(outMsg)
 			}
 		}

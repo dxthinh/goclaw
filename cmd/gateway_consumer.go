@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -236,6 +237,34 @@ func truncateForReminder(content string, maxLen int) string {
 
 // appendMediaToOutbound converts agent MediaResults to outbound MediaAttachments
 // on the given OutboundMessage. Handles voice annotation when applicable.
+// deliveryTrace identifies the run behind an outbound message.
+type deliveryTrace struct {
+	runID      string
+	sessionKey string
+	traceID    uuid.UUID
+	tenantID   uuid.UUID
+}
+
+// attachDeliveryTrace lets the dispatcher record each attachment's delivery
+// against the producing run. No-op without attachments or a run. The metadata map
+// is copied because callers reuse it across messages.
+func attachDeliveryTrace(msg *bus.OutboundMessage, trace deliveryTrace) {
+	if len(msg.Media) == 0 || trace.runID == "" {
+		return
+	}
+	if msg.TenantID == uuid.Nil {
+		msg.TenantID = trace.tenantID
+	}
+	meta := make(map[string]string, len(msg.Metadata)+3)
+	maps.Copy(meta, msg.Metadata)
+	meta[bus.MetaDeliveryRunID] = trace.runID
+	meta[bus.MetaDeliverySessionKey] = trace.sessionKey
+	if trace.traceID != uuid.Nil {
+		meta[bus.MetaDeliveryTraceID] = trace.traceID.String()
+	}
+	msg.Metadata = meta
+}
+
 func appendMediaToOutbound(msg *bus.OutboundMessage, media []agent.MediaResult) {
 	for _, mr := range media {
 		msg.Media = append(msg.Media, bus.MediaAttachment{

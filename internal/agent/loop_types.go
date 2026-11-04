@@ -693,6 +693,7 @@ type RunResult struct {
 	Content        string                `json:"content"`
 	Thinking       string                `json:"thinking,omitempty"` // reasoning content from thinking models (Claude, o3, DeepSeek-R1, Kimi)
 	RunID          string                `json:"runId"`
+	TraceID        uuid.UUID             `json:"-"`
 	Iterations     int                   `json:"iterations"`
 	Usage          *providers.Usage      `json:"usage,omitempty"`
 	LastUsage      *providers.Usage      `json:"lastUsage,omitempty"`

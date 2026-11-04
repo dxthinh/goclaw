@@ -109,7 +109,7 @@ func processAnnounceLoop(
 			// checks then deny write_file etc. (#915 follow-up)
 			SenderID:         r.OriginSenderID,
 			Role:             r.OriginRole,
-			RunID:            fmt.Sprintf("teammate-announce-%s-%d", r.LeadAgent, len(entries)),
+			RunID:            fmt.Sprintf("teammate-announce-%s-%s", r.LeadAgent, uuid.NewString()[:8]),
 			RunKind:          "announce",
 			HideInput:        true,
 			Stream:           false,
@@ -166,6 +166,10 @@ func processAnnounceLoop(
 						Metadata: r.OutMeta,
 					}
 					appendMediaToOutbound(&outMsg, outcome.Result.Media)
+					attachDeliveryTrace(&outMsg, deliveryTrace{
+						runID: outcome.Result.RunID, sessionKey: r.LeadSessionKey, traceID: outcome.Result.TraceID,
+						tenantID: store.TenantIDFromContext(ctx),
+					})
 					msgBus.PublishOutbound(outMsg)
 				}
 			}
@@ -244,7 +248,7 @@ func buildMergedAnnounceContent(entries []announceEntry, taskBoardSnapshot, team
 		sb.WriteString("\n\nPresent this result to the user.")
 	}
 
-	sb.WriteString(" Any media files are forwarded automatically. Do NOT search for files — the results above contain all relevant information.")
+	sb.WriteString(" Final files declared by members are attached to your reply automatically: do not send them again. Do NOT search for files — the results above contain all relevant information.")
 
 	if teamWorkspace != "" {
 		fmt.Fprintf(&sb, "\n[Team workspace: %s — use read_file/list_files to access shared files]", teamWorkspace)
