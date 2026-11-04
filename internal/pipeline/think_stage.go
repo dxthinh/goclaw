@@ -223,14 +223,33 @@ func (s *ThinkStage) Execute(ctx context.Context, state *RunState) error {
 	return nil
 }
 
+// maxStoppedAnnounceRunes bounds what a stopped announce adds to a session that
+// has already run out of context budget.
+const maxStoppedAnnounceRunes = 8000
+
 // stopForContextBudget ends the run with a localized notice instead of an error so
 // FinalizeStage still persists this run's tool results and delivers the reply.
 func (s *ThinkStage) stopForContextBudget(ctx context.Context, state *RunState, cause error) error {
 	slog.Warn("context_budget.run_stopped", "run_id", state.RunID, "iteration", state.Iteration, "error", cause)
+	keepStoppedAnnounceInput(state)
 	state.Observe.FinalContent = i18n.T(store.LocaleFromContext(ctx), i18n.MsgContextBudgetExceeded)
 	state.StopReason = cause.Error()
 	s.result = AbortRun
 	return nil
+}
+
+// keepStoppedAnnounceInput saves the task results of an announce run that stopped
+// before answering. Announce input is hidden because the lead's reply normally
+// stands in for it; with no reply, later turns would never learn the task finished.
+func keepStoppedAnnounceInput(state *RunState) {
+	if !state.Input.HideInput || state.Input.RunKind != "announce" || state.Input.Message == "" {
+		return
+	}
+	content := state.Input.Message
+	if runes := []rune(content); len(runes) > maxStoppedAnnounceRunes {
+		content = string(runes[:maxStoppedAnnounceRunes]) + "\n[Truncated. Use team_tasks get to read the full result.]"
+	}
+	state.Messages.AppendPending(providers.Message{Role: "user", Content: content})
 }
 
 func (s *ThinkStage) logFinalRequestActual(ctx context.Context, state *RunState, estimate FinalRequestEstimate, usage providers.Usage) {
