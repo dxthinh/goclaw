@@ -172,6 +172,7 @@ func TestKeepStoppedAnnounceInputTruncates(t *testing.T) {
 	state := defaultState()
 	state.Input.HideInput = true
 	state.Input.RunKind = "announce"
+	state.Input.TeamID = "team-1"
 	state.Input.Message = strings.Repeat("ả", maxStoppedAnnounceRunes+10)
 
 	keepStoppedAnnounceInput(state)
@@ -179,6 +180,20 @@ func TestKeepStoppedAnnounceInputTruncates(t *testing.T) {
 	got := state.Messages.Pending()[0].Content
 	if strings.Count(got, "ả") != maxStoppedAnnounceRunes || !strings.Contains(got, "team_tasks get") {
 		t.Fatalf("unexpected truncation, runes of body = %d", strings.Count(got, "ả"))
+	}
+}
+
+func TestKeepStoppedAnnounceInputSubagentHasNoTeamHint(t *testing.T) {
+	state := defaultState()
+	state.Input.HideInput = true
+	state.Input.RunKind = "announce"
+	state.Input.Message = strings.Repeat("ả", maxStoppedAnnounceRunes+10)
+
+	keepStoppedAnnounceInput(state)
+
+	got := state.Messages.Pending()[0].Content
+	if !strings.HasSuffix(got, "[Truncated.]") || strings.Contains(got, "team_tasks") {
+		t.Fatalf("subagent announce truncated as %q", got[len(got)-40:])
 	}
 }
 

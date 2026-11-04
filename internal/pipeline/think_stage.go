@@ -247,7 +247,12 @@ func keepStoppedAnnounceInput(state *RunState) {
 	}
 	content := state.Input.Message
 	if runes := []rune(content); len(runes) > maxStoppedAnnounceRunes {
-		content = string(runes[:maxStoppedAnnounceRunes]) + "\n[Truncated. Use team_tasks get to read the full result.]"
+		note := "[Truncated.]"
+		// Subagent announces share this run kind but have no team task to read back.
+		if state.Input.TeamID != "" {
+			note = "[Truncated. Use team_tasks get to read the full result.]"
+		}
+		content = string(runes[:maxStoppedAnnounceRunes]) + "\n" + note
 	}
 	state.Messages.AppendPending(providers.Message{Role: "user", Content: content})
 }
