@@ -201,20 +201,28 @@ func (t *BridgeTool) Execute(ctx context.Context, args map[string]any) *tools.Re
 		}
 	}
 
+	// The two checks below fail before any request is sent, so repeating the call
+	// cannot run the tool twice, and a reconnect may have finished by then. Failures
+	// after CallTool, timeouts included, are never retried: the server may have
+	// executed the tool, and MCP tools are not known to be idempotent.
 	if !t.connected.Load() {
-		return tools.ErrorResult(fmt.Sprintf(
+		result := tools.ErrorResult(fmt.Sprintf(
 			"MCP server %q is disconnected (tool %q). The server may be restarting, "+
 				"unreachable, or had its credential revoked — check mcp.server.health_failed / "+
 				"mcp.tool.call.auth_expired logs for the underlying cause.",
 			t.serverName, t.registeredName))
+		result.Retryable = true
+		return result
 	}
 
 	client := t.clientPtr.Load() // atomic load — safe during concurrent reconnect
 	if client == nil {
-		return tools.ErrorResult(fmt.Sprintf(
+		result := tools.ErrorResult(fmt.Sprintf(
 			"MCP server %q has no active client (tool %q). Connection was closed "+
 				"and reconnect has not yet succeeded.",
 			t.serverName, t.registeredName))
+		result.Retryable = true
+		return result
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(t.timeoutSec)*time.Second)

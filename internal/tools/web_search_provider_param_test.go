@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -145,5 +147,34 @@ func TestExecute_ProviderParam_CacheIsolated(t *testing.T) {
 	_ = tool.Execute(ctx, map[string]any{"query": "q", "provider": "exa"})
 	if !braveCalled || !exaCalled {
 		t.Fatalf("both providers should run for distinct provider args (brave=%v, exa=%v)", braveCalled, exaCalled)
+	}
+}
+
+func TestWebSearchMarksRetryableOnlyWhenEveryProviderFailedTransiently(t *testing.T) {
+	transient := errors.New("brave API returned 503: busy")
+	permanent := errors.New("tavily API returned 401: bad key")
+
+	cases := []struct {
+		name     string
+		failures []error
+		want     bool
+	}{
+		{"all transient", []error{transient, transient}, true},
+		{"one permanent", []error{transient, permanent}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubs := make([]*searchStubProvider, len(tc.failures))
+			for i, failure := range tc.failures {
+				stubs[i] = &searchStubProvider{name: fmt.Sprintf("p%d", i), failure: failure}
+			}
+			tool, ctx := makeStubbedTool(t, stubs...)
+
+			result := tool.Execute(ctx, map[string]any{"query": "q"})
+
+			if !result.IsError || result.Retryable != tc.want {
+				t.Fatalf("result = %+v, want Retryable = %v", result, tc.want)
+			}
+		})
 	}
 }

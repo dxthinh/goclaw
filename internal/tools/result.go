@@ -14,6 +14,11 @@ type Result struct {
 	Async   bool   `json:"async"`               // running asynchronously
 	Err     error  `json:"-"`                   // internal error (not serialized)
 
+	// Retryable marks an error as transient AND safe to repeat with the same
+	// arguments. Only the tool can know the second part, so the runtime never
+	// infers it. Requires IsError.
+	Retryable bool `json:"-"`
+
 	// Media holds media files to forward as output (e.g. images from delegation).
 	Media []bus.MediaFile `json:"-"`
 
