@@ -22,6 +22,10 @@ type stubRunTimelineStore struct {
 	err   error
 }
 
+func (s *stubRunTimelineStore) AppendRunTimelineItemNextSeq(context.Context, *store.RunTimelineItem) error {
+	return nil
+}
+
 func (s *stubRunTimelineStore) AppendRunTimelineItem(context.Context, *store.RunTimelineItem) error {
 	return nil
 }

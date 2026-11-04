@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
 // Send delivers an outbound message to WhatsApp via whatsmeow.
@@ -65,30 +66,23 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		}
 	}
 
-	// Send media attachments first.
-	if len(msg.Media) > 0 {
-		for i, m := range msg.Media {
-			caption := m.Caption
-			if caption == "" && i == 0 && msg.Content != "" {
-				caption = markdownToWhatsApp(msg.Content)
-			}
-
-			data, readErr := os.ReadFile(m.URL)
-			if readErr != nil {
-				return fmt.Errorf("read media file: %w", readErr)
-			}
-
-			waMsg, buildErr := c.buildMediaMessage(data, m.ContentType, caption)
-			if buildErr != nil {
-				return fmt.Errorf("build media message: %w", buildErr)
-			}
-
-			if _, sendErr := c.client.SendMessage(c.ctx, chatJID, waMsg); sendErr != nil {
-				return fmt.Errorf("send whatsapp media: %w", sendErr)
-			}
+	// Send media attachments first. A failure does not stop the remaining files.
+	var failed []channels.MediaFailure
+	for i, m := range msg.Media {
+		caption := m.Caption
+		carriesText := caption == "" && i == 0 && msg.Content != ""
+		if carriesText {
+			caption = markdownToWhatsApp(msg.Content)
 		}
-		// Skip text if caption was used on first media.
-		if msg.Media[0].Caption == "" && msg.Content != "" {
+
+		if err := c.sendMediaAttachment(chatJID, m, caption); err != nil {
+			slog.Warn("whatsapp: media send failed", "path", m.URL, "error", err)
+			failed = append(failed, channels.MediaFailure{Media: m, Err: err})
+			continue
+		}
+		// Skip text if caption was delivered on the first media. If that media
+		// failed, the text below still goes out on its own.
+		if carriesText {
 			msg.Content = ""
 		}
 	}
@@ -102,7 +96,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 				Conversation: new(chunk),
 			}
 			if _, err := c.client.SendMessage(c.ctx, chatJID, waMsg); err != nil {
-				return fmt.Errorf("send whatsapp message: %w", err)
+				return channels.MediaDeliveryResult(msg.Media, failed, fmt.Errorf("send whatsapp message: %w", err))
 			}
 		}
 	}
@@ -115,6 +109,24 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	}
 	go c.sendPresence(chatJID, types.ChatPresencePaused)
 
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
+}
+
+// sendMediaAttachment reads one local file and sends it with the given caption.
+func (c *Channel) sendMediaAttachment(chatJID types.JID, m bus.MediaAttachment, caption string) error {
+	data, err := os.ReadFile(m.URL)
+	if err != nil {
+		return fmt.Errorf("read media file: %w", err)
+	}
+
+	waMsg, err := c.buildMediaMessage(data, m.ContentType, caption)
+	if err != nil {
+		return fmt.Errorf("build media message: %w", err)
+	}
+
+	if _, err := c.client.SendMessage(c.ctx, chatJID, waMsg); err != nil {
+		return fmt.Errorf("send whatsapp media: %w", err)
+	}
 	return nil
 }
 

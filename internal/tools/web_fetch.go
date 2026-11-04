@@ -242,7 +242,9 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *Result
 	result, err := t.doFetch(ctx, rawURL, extractMode, maxChars, pol)
 	if err != nil {
 		errMsg := truncateStr(err.Error(), defaultErrorMaxChars)
-		return ErrorResult(fmt.Sprintf("fetch failed: %s", errMsg))
+		result := ErrorResult(fmt.Sprintf("fetch failed: %s", errMsg))
+		result.Retryable = IsTransientNetworkError(err) // GET only, safe to repeat
+		return result
 	}
 
 	wrapped := wrapExternalContent(result, "Web Fetch", true)

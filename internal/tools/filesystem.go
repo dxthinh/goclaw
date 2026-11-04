@@ -450,6 +450,14 @@ func ValidateRegularFileForRead(path string) error {
 	return checkHardlink(path)
 }
 
+// InternalDenyPaths are workspace-relative files and folders that tools must never
+// write, list or deliver: credentials, internal databases, memory and uploads.
+var InternalDenyPaths = []string{
+	"config.json", "memory.db", "memory.db-wal", "memory.db-shm",
+	"goclaw.db", "goclaw.db-wal", "goclaw.db-shm",
+	"memory/", ".media/", ".uploads/", "delegate/",
+}
+
 // checkDeniedPath returns an error if the resolved path falls under any denied prefix.
 // Denied prefixes are relative to the workspace (e.g. ".goclaw" denies workspace/.goclaw/).
 // The resolved path should already be canonical (from resolvePath with restrict=true).

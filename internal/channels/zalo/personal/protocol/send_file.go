@@ -49,24 +49,17 @@ func UploadFile(ctx context.Context, sess *Session, ln *Listener, threadID strin
 	clientID := time.Now().UnixMilli()
 
 	uploadParams := map[string]any{
-		"totalChunk": 1,
-		"fileName":   fileName,
-		"clientId":   clientID,
-		"totalSize":  totalSize,
-		"imei":       sess.IMEI,
-		"isE2EE":     0,
-		"jxl":        0,
-		"chunkId":    1,
+		"fileName":  fileName,
+		"clientId":  clientID,
+		"totalSize": totalSize,
+		"imei":      sess.IMEI,
+		"isE2EE":    0,
+		"jxl":       0,
 	}
 	if threadType == ThreadTypeGroup {
 		uploadParams["grid"] = threadID
 	} else {
 		uploadParams["toid"] = threadID
-	}
-
-	encParams, err := encryptPayload(sess, uploadParams)
-	if err != nil {
-		return nil, fmt.Errorf("zalo_personal: encrypt file upload params: %w", err)
 	}
 
 	pathPrefix := "/api/message/"
@@ -76,43 +69,9 @@ func UploadFile(ctx context.Context, sess *Session, ln *Listener, threadID strin
 		typeParam = "11"
 	}
 
-	uploadURL := makeURL(sess, fileURL+pathPrefix+"asyncfile/upload", map[string]any{
-		"type":   typeParam,
-		"params": encParams,
-	}, true)
-
-	body, contentType, err := buildMultipartBody("chunkContent", fileName, data)
-	if err != nil {
-		return nil, fmt.Errorf("zalo_personal: build multipart: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, body)
-	if err != nil {
-		return nil, err
-	}
-	setDefaultHeaders(req, sess)
-	req.Header.Set("Content-Type", contentType)
-
-	resp, err := sess.Client.Do(req)
+	plain, err := uploadChunks(ctx, sess, fileURL+pathPrefix+"asyncfile/upload", typeParam, fileName, uploadParams, data)
 	if err != nil {
 		return nil, fmt.Errorf("zalo_personal: upload file: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var envelope Response[*string]
-	if err := readJSON(resp, &envelope); err != nil {
-		return nil, fmt.Errorf("zalo_personal: parse file upload response: %w", err)
-	}
-	if envelope.ErrorCode != 0 {
-		return nil, fmt.Errorf("zalo_personal: file upload error code %d", envelope.ErrorCode)
-	}
-	if envelope.Data == nil {
-		return nil, fmt.Errorf("zalo_personal: empty file upload response")
-	}
-
-	plain, err := decryptDataField(sess, *envelope.Data)
-	if err != nil {
-		return nil, fmt.Errorf("zalo_personal: decrypt file upload response: %w", err)
 	}
 
 	var result FileUploadResult

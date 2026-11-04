@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -176,6 +177,76 @@ func scanTaskEventRows(rows *sql.Rows) ([]store.TeamTaskEventData, error) {
 // ============================================================
 // Attachments
 // ============================================================
+
+// MarkTaskDeliverables implements store.TeamStore. It upserts rather than inserts
+// because AttachFileToTask's DO NOTHING would leave auto-attached files untagged.
+func (s *SQLiteTeamStore) MarkTaskDeliverables(ctx context.Context, atts []*store.TeamTaskAttachmentData) error {
+	if len(atts) == 0 {
+		return nil
+	}
+	tid := tenantIDForInsert(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after commit
+
+	inserted := 0
+	for _, att := range atts {
+		if att.ID == uuid.Nil {
+			att.ID = store.GenNewID()
+		}
+		att.CreatedAt = time.Now()
+		att.Metadata = json.RawMessage(store.TaskAttachmentDeliverableMetadata)
+		if att.BaseName == "" && att.Path != "" {
+			att.BaseName = ComputeAttachmentBaseName(att.Path)
+		}
+
+		// Merge in Go: rows hold metadata as BLOB (see AttachFileToTask), which
+		// SQLite's JSON functions do not reliably accept as text JSON.
+		var existing []byte
+		err := tx.QueryRowContext(ctx,
+			`SELECT metadata FROM team_task_attachments WHERE task_id = ? AND path = ? AND tenant_id = ?`,
+			att.TaskID, att.Path, tid).Scan(&existing)
+		switch {
+		case err == nil:
+			merged := map[string]any{}
+			_ = json.Unmarshal(existing, &merged) // corrupt metadata: keep only the tag
+			merged["role"] = "deliverable"
+			metadata, err := json.Marshal(merged)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE team_task_attachments SET metadata = ?, file_size = ? WHERE task_id = ? AND path = ? AND tenant_id = ?`,
+				metadata, att.FileSize, att.TaskID, att.Path, tid); err != nil {
+				return err
+			}
+		case errors.Is(err, sql.ErrNoRows):
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO team_task_attachments (id, task_id, team_id, chat_id, path, base_name, file_size, mime_type, created_by_agent_id, created_by_sender_id, metadata, created_at, tenant_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				att.ID, att.TaskID, att.TeamID, att.ChatID, att.Path, att.BaseName,
+				att.FileSize, att.MimeType, att.CreatedByAgentID,
+				nilStr(att.CreatedBySenderID),
+				att.Metadata, att.CreatedAt, tid,
+			); err != nil {
+				return err
+			}
+			inserted++
+		default:
+			return err
+		}
+	}
+	if inserted > 0 {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE team_tasks SET attachment_count = attachment_count + ? WHERE id = ? AND tenant_id = ?`,
+			inserted, atts[0].TaskID, tid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 func (s *SQLiteTeamStore) AttachFileToTask(ctx context.Context, att *store.TeamTaskAttachmentData) error {
 	if att.ID == uuid.Nil {

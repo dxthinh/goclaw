@@ -48,11 +48,11 @@ func sendFileResultMessage(media []bus.MediaFile) string {
 		if media[0].Caption != "" {
 			return media[0].Caption
 		}
-		return fmt.Sprintf("Sent file: %s", media[0].Filename)
+		return fmt.Sprintf("Queued file for delivery: %s. It is sent after this reply; failures are reported in the chat.", media[0].Filename)
 	}
 	names := make([]string, 0, len(media))
 	for _, mf := range media {
 		names = append(names, mf.Filename)
 	}
-	return fmt.Sprintf("Sent %d files: %s", len(media), strings.Join(names, ", "))
+	return fmt.Sprintf("Queued %d files for delivery: %s. They are sent after this reply; failures are reported in the chat.", len(media), strings.Join(names, ", "))
 }

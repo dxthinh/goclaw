@@ -13,6 +13,9 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
+// runTimelineNextSeqAttempts bounds retries when concurrent writers race for a seq.
+const runTimelineNextSeqAttempts = 5
+
 // PGRunTimelineStore implements store.RunTimelineStore backed by PostgreSQL.
 type PGRunTimelineStore struct {
 	db *sql.DB
@@ -68,6 +71,56 @@ func (s *PGRunTimelineStore) AppendRunTimelineItem(ctx context.Context, item *st
 		item.Content = ""
 	}
 	return err
+}
+
+// AppendRunTimelineItemNextSeq implements store.RunTimelineStore.
+func (s *PGRunTimelineStore) AppendRunTimelineItemNextSeq(ctx context.Context, item *store.RunTimelineItem) error {
+	if item.ID == uuid.Nil {
+		item.ID = store.GenNewID()
+	}
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = time.Now()
+	}
+	tenantID := tenantIDForInsert(ctx)
+	item.TenantID = tenantID
+	metadata := item.Metadata
+	if len(metadata) == 0 {
+		metadata = []byte(`{}`)
+	}
+
+	// A concurrent writer can take the same seq; the loser reads again and retries.
+	for range runTimelineNextSeqAttempts {
+		var seq int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(seq), $1 - 1) + 1 FROM run_timeline_items
+			 WHERE tenant_id = $2 AND run_id = $3 AND seq >= $1`,
+			store.RunTimelineDeliverySeqBase, tenantID, item.RunID,
+		).Scan(&seq); err != nil {
+			return err
+		}
+		res, err := s.db.ExecContext(ctx,
+			`INSERT INTO run_timeline_items
+			 (id, tenant_id, run_id, session_key, agent_id, user_id, channel, chat_id, seq,
+			  item_type, status, title, preview, content, tool_name, tool_call_id, trace_id, span_id,
+			  metadata, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+			  $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+			 ON CONFLICT (tenant_id, run_id, seq) DO NOTHING`,
+			item.ID, tenantID, item.RunID, item.SessionKey, nilUUID(item.AgentID), nilStr(item.UserID),
+			nilStr(item.Channel), nilStr(item.ChatID), seq, item.ItemType, nilStr(item.Status),
+			nilStr(item.Title), nilStr(item.Preview), "", nilStr(item.ToolName), nilStr(item.ToolCallID),
+			nilUUID(item.TraceID), nilUUID(item.SpanID), jsonOrEmpty(metadata), item.CreatedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			item.Seq = seq
+			item.Content = ""
+			return nil
+		}
+	}
+	return fmt.Errorf("run timeline: no free seq for run %s after %d attempts", item.RunID, runTimelineNextSeqAttempts)
 }
 
 func (s *PGRunTimelineStore) ListRunTimelineItems(ctx context.Context, opts store.RunTimelineListOpts) ([]store.RunTimelineItem, error) {

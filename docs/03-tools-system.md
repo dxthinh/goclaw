@@ -64,6 +64,8 @@ Each tool carries structured metadata describing side-effect class, group member
 
 Capabilities are inferred from tool name when no explicit metadata is registered. The policy engine can use capability class to gate entire sets (e.g. restrict an agent to read-only tools).
 
+A tool can mark an error result as `Retryable`, meaning the failure is transient and repeating the call with the same arguments is safe. The loop then repeats it up to twice (after 500ms and 2s) before showing the error to the model, and records the attempts in the tool span metadata. Only the tool sets this flag: `web_fetch` for network failures (an HTTP error page is content, not a failure), `web_search` when every provider failed transiently, and MCP tools only when the server is disconnected, because no request was sent. MCP timeouts are never retried since the tool may have run.
+
 The agent loop also uses this metadata for parallel tool-call scheduling. Only registered read-only tools are eligible for bounded parallel raw I/O. Mutating, async, MCP-bridged, `exec`/`bash`, `wait`, and unknown tools stay sequential by default. `PreToolUse` hooks run before any parallel I/O so hooks can block or rewrite arguments consistently.
 
 ---
@@ -136,7 +138,7 @@ Memory layers: L1 (`memory_search`) returns ranked abstracts; L2 (`memory_expand
 | Tool | Description |
 |---|---|
 | `message` | Send a message to a channel |
-| `send_file` | Send an existing workspace file as a chat attachment (with optional caption); marks `DeliveredMedia` to prevent duplicate delivery |
+| `send_file` | Queue an existing workspace file as a chat attachment (with optional caption), sent after the reply; marks `DeliveredMedia` to prevent duplicate delivery |
 | `create_forum_topic` | Create a Telegram forum topic |
 | `list_group_members` | List members in a group chat (Feishu/Lark) |
 

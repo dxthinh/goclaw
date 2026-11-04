@@ -17,6 +17,7 @@ import (
 	tu "github.com/mymmrac/telego/telegoutil"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/typing"
 )
 
@@ -159,6 +160,10 @@ func (c *Channel) retrySend(ctx context.Context, name string, resetFn func(), fn
 	}
 	return err
 }
+
+// RetriesTransientSends implements channels.SendRetrier: every upload goes
+// through retrySend, so the dispatcher must not retry a failed file again.
+func (c *Channel) RetriesTransientSends() bool { return true }
 
 // Send delivers an outbound message to a Telegram chat.
 // Supports text-only messages and messages with media attachments.
@@ -364,36 +369,47 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 // Ref: TS src/telegram/send.ts → sendMessageTelegram with mediaUrl
 func (c *Channel) sendMediaMessage(ctx context.Context, chatID int64, msg bus.OutboundMessage, replyTo, threadID int) error {
 	chatIDObj := tu.ID(chatID)
-	items, err := c.prepareTelegramMediaItems(msg)
-	if err != nil {
-		return err
+	items, failed, leftoverText := c.prepareTelegramMediaItems(msg)
+
+	// A failed chunk does not stop the others. The message body it carried, if
+	// any, still goes out as plain text once the attachments are done.
+	var textErr error
+	sendFollowUp := func(text string) {
+		if err := c.sendTelegramMediaFollowUp(ctx, chatID, text, threadID); err != nil && textErr == nil {
+			textErr = err
+		}
 	}
 
 	for _, chunk := range chunkTelegramMediaItems(items) {
 		if chunk.grouped {
 			if err := c.sendTelegramMediaGroup(ctx, chatIDObj, chunk.items, replyTo, threadID); err != nil {
-				return err
+				slog.Warn("telegram: media group send failed", "chat_id", chatID, "items", len(chunk.items), "error", err)
+				for _, item := range chunk.items {
+					failed = append(failed, channels.MediaFailure{Media: item.media, Err: err})
+					leftoverText += item.undeliveredText()
+				}
+				continue
 			}
 			replyTo = 0
 			for _, item := range chunk.items {
-				if err := c.sendTelegramMediaFollowUp(ctx, chatID, item.followUpText, threadID); err != nil {
-					return err
-				}
+				sendFollowUp(item.followUpText)
 			}
 			continue
 		}
 
 		for _, item := range chunk.items {
 			if err := c.sendSingleTelegramMediaItem(ctx, chatIDObj, item, replyTo, threadID); err != nil {
-				return err
+				slog.Warn("telegram: media send failed", "chat_id", chatID, "path", item.media.URL, "error", err)
+				failed = append(failed, channels.MediaFailure{Media: item.media, Err: err})
+				leftoverText += item.undeliveredText()
+				continue
 			}
 			replyTo = 0
-			if err := c.sendTelegramMediaFollowUp(ctx, chatID, item.followUpText, threadID); err != nil {
-				return err
-			}
+			sendFollowUp(item.followUpText)
 		}
 	}
-	return nil
+	sendFollowUp(leftoverText)
+	return channels.MediaDeliveryResult(msg.Media, failed, textErr)
 }
 
 func (c *Channel) validateOutboundMediaSize(path string) error {

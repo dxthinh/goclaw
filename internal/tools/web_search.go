@@ -237,11 +237,13 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) *Resul
 
 	// Try providers in order (first success wins, unless narrowed above)
 	var lastErr error
+	allTransient := true
 	for _, provider := range chain {
 		results, err := provider.Search(ctx, params)
 		if err != nil {
 			slog.Warn("web_search provider failed", "provider", provider.Name(), "error", err)
 			lastErr = err
+			allTransient = allTransient && IsTransientNetworkError(err)
 			continue
 		}
 
@@ -253,7 +255,11 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) *Resul
 	}
 
 	if lastErr != nil {
-		return ErrorResult(fmt.Sprintf("all search providers failed: %v", lastErr))
+		result := ErrorResult(fmt.Sprintf("all search providers failed: %v", lastErr))
+		// A provider with a bad key would fail the same way, so only retry when
+		// every provider failed for a reason that can pass.
+		result.Retryable = allTransient
+		return result
 	}
 	return ErrorResult("no search providers configured")
 }

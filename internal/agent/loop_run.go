@@ -200,6 +200,8 @@ func (l *Loop) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			}
 			return nil, err
 		}
+		result.TraceID = tracing.TraceIDFromContext(ctx)
+
 		// Structured performance log for v3 pipeline runs.
 		elapsed := time.Since(runStart)
 		logAttrs := []any{

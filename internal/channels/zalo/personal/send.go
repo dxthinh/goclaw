@@ -39,23 +39,27 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	}
 
 	// Send media attachments.
+	var failed []channels.MediaFailure
 	for _, media := range msg.Media {
 		if protocol.IsImageFile(media.URL) {
 			if err := c.sendImage(ctx, sess, msg.ChatID, threadType, media.URL, media.Caption); err != nil {
 				slog.Warn("zalo_personal: failed to send image", "path", media.URL, "error", err)
+				failed = append(failed, channels.MediaFailure{Media: media, Err: err})
 			}
 		} else {
 			if err := c.sendFile(ctx, sess, msg.ChatID, threadType, media.URL); err != nil {
 				slog.Warn("zalo_personal: failed to send file", "path", media.URL, "error", err)
+				failed = append(failed, channels.MediaFailure{Media: media, Err: err})
 			}
 		}
 	}
 
 	// Send text content (if any remains after media).
+	var textErr error
 	if msg.Content != "" {
-		return c.sendChunkedText(ctx, sess, msg.ChatID, threadType, msg.Content)
+		textErr = c.sendChunkedText(ctx, sess, msg.ChatID, threadType, msg.Content)
 	}
-	return nil
+	return channels.MediaDeliveryResult(msg.Media, failed, textErr)
 }
 
 // sendImage uploads and sends an image file to a Zalo thread.

@@ -29,8 +29,7 @@ describe("resolveDynamicParamField", () => {
 
   it("keeps a stored model the catalog no longer lists", () => {
     const field = resolveDynamicParamField(imageModelField, source, "gpt-image-1.5", "recommended");
-    const options = field.options ?? [];
-    expect(options[options.length - 1]).toEqual({ value: "gpt-image-1.5", label: "gpt-image-1.5" });
+    expect(field.options?.[field.options.length - 1]).toEqual({ value: "gpt-image-1.5", label: "gpt-image-1.5" });
   });
 
   it("leaves static fields untouched", () => {

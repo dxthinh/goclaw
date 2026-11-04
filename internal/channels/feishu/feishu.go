@@ -217,7 +217,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	// Absent on non-thread messages — Send falls back to the new-message path.
 	replyTargetID := msg.Metadata["feishu_reply_target_id"]
 
-	// Send text content
+	// Send text content. A failure must not cost the attachments below.
+	var textErr error
 	text := msg.Content
 	if text != "" {
 		// Resolve render mode
@@ -240,24 +241,22 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		}
 
 		if useCard {
-			if err := c.sendMarkdownCard(ctx, chatID, receiveIDType, text, replyTargetID, nil); err != nil {
-				return err
-			}
+			textErr = c.sendMarkdownCard(ctx, chatID, receiveIDType, text, replyTargetID, nil)
 		} else {
-			if err := c.sendChunkedText(ctx, chatID, receiveIDType, text, chunkLimit, replyTargetID); err != nil {
-				return err
-			}
+			textErr = c.sendChunkedText(ctx, chatID, receiveIDType, text, chunkLimit, replyTargetID)
 		}
 	}
 
 	// Send media attachments — same thread routing applies as text.
+	var failed []channels.MediaFailure
 	for _, media := range msg.Media {
 		if err := c.sendMediaAttachment(ctx, chatID, receiveIDType, media, replyTargetID); err != nil {
 			slog.Warn("feishu send media failed", "url", media.URL, "error", err)
+			failed = append(failed, channels.MediaFailure{Media: media, Err: err})
 		}
 	}
 
-	return nil
+	return channels.MediaDeliveryResult(msg.Media, failed, textErr)
 }
 
 // --- Connection modes ---

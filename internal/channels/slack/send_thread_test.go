@@ -173,3 +173,41 @@ func TestSend_MetadataThreadIDWins(t *testing.T) {
 		t.Errorf("thread_ts = %q, want %q", calls[0].threadTS, "1784900153.376659")
 	}
 }
+
+// A missing file must surface as a media failure while the text still goes out,
+// with no inline failure text that a retry would repeat.
+func TestSend_MediaFailureReportedAndTextStillSent(t *testing.T) {
+	api := &fakeSlackAPI{}
+	ch := newSendTestChannel(t, api)
+
+	err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "C123",
+		Content: "report ready",
+		Media:   []bus.MediaAttachment{{URL: "/no/such/file.pdf"}},
+	})
+
+	mde, ok := channels.AsMediaDeliveryError(err)
+	if !ok || len(mde.Failed) != 1 || mde.Failed[0].Media.URL != "/no/such/file.pdf" {
+		t.Fatalf("Send error = %v, want a MediaDeliveryError for the missing file", err)
+	}
+	calls := api.posted()
+	if len(calls) != 1 || !strings.Contains(calls[0].text, "report ready") {
+		t.Fatalf("posted = %+v, want only the text body", calls)
+	}
+}
+
+// A media-only message used to hit the NO_REPLY branch and report success without
+// uploading anything. The retry path sends exactly this shape.
+func TestSend_MediaOnlyIsNotTreatedAsNoReply(t *testing.T) {
+	api := &fakeSlackAPI{}
+	ch := newSendTestChannel(t, api)
+
+	err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID: "C123",
+		Media:  []bus.MediaAttachment{{URL: "/no/such/file.pdf"}},
+	})
+
+	if _, ok := channels.AsMediaDeliveryError(err); !ok {
+		t.Fatalf("Send error = %v, want the upload to be attempted and reported", err)
+	}
+}

@@ -2,12 +2,14 @@ package facebook
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
 // newTestChannel wires a facebook Channel to a mock Graph API server with
@@ -766,5 +768,45 @@ func TestPostFetcher_GetCommentThread_Delegates(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Errorf("len = %d, want 1", len(got))
+	}
+}
+
+// Graph API sends are text-only: attachments must be reported as undelivered, and
+// a media-only message must not post an empty text.
+func TestSend_MediaReportedAsUnsupported(t *testing.T) {
+	var sends int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sends++
+		_, _ = w.Write([]byte(`{"message_id":"mid"}`))
+	}))
+	t.Cleanup(srv.Close)
+	swapGraphBase(t, srv.URL)
+
+	ch, _ := New(facebookInstanceConfig{PageID: "111"}, facebookCreds{
+		PageAccessToken: "t", AppSecret: "s", VerifyToken: "v",
+	}, bus.New(), nil)
+	media := []bus.MediaAttachment{{URL: "/tmp/a.png"}}
+
+	err := ch.Send(t.Context(), bus.OutboundMessage{
+		ChatID: "user-1", Content: "hello", Media: media,
+		Metadata: map[string]string{"fb_mode": "messenger"},
+	})
+	if _, ok := channels.AsMediaDeliveryError(err); !ok || !errors.Is(err, channels.ErrMediaUnsupported) {
+		t.Fatalf("Send error = %v, want unsupported media failure", err)
+	}
+	if sends == 0 {
+		t.Fatal("text must still be sent")
+	}
+
+	sends = 0
+	err = ch.Send(t.Context(), bus.OutboundMessage{
+		ChatID: "user-1", Media: media,
+		Metadata: map[string]string{"fb_mode": "messenger"},
+	})
+	if _, ok := channels.AsMediaDeliveryError(err); !ok {
+		t.Fatalf("media-only Send error = %v, want unsupported media failure", err)
+	}
+	if sends != 0 {
+		t.Fatalf("media-only message posted %d requests", sends)
 	}
 }

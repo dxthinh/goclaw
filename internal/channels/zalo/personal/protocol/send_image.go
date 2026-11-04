@@ -53,14 +53,12 @@ func UploadImage(ctx context.Context, sess *Session, threadID string, threadType
 	width, height := imageDimensions(data)
 
 	uploadParams := map[string]any{
-		"totalChunk": 1,
-		"fileName":   fileName,
-		"clientId":   time.Now().UnixMilli(),
-		"totalSize":  totalSize,
-		"imei":       sess.IMEI,
-		"isE2EE":     0,
-		"jxl":        0,
-		"chunkId":    1,
+		"fileName":  fileName,
+		"clientId":  time.Now().UnixMilli(),
+		"totalSize": totalSize,
+		"imei":      sess.IMEI,
+		"isE2EE":    0,
+		"jxl":       0,
 	}
 	if threadType == ThreadTypeGroup {
 		uploadParams["grid"] = threadID
@@ -68,12 +66,7 @@ func UploadImage(ctx context.Context, sess *Session, threadID string, threadType
 		uploadParams["toid"] = threadID
 	}
 
-	encParams, err := encryptPayload(sess, uploadParams)
-	if err != nil {
-		return nil, fmt.Errorf("zalo_personal: encrypt upload params: %w", err)
-	}
-
-	// Build URL: file_service/api/{message|group}/photo_original/upload
+	// URL: file_service/api/{message|group}/photo_original/upload
 	pathPrefix := "/api/message/"
 	typeParam := "2"
 	if threadType == ThreadTypeGroup {
@@ -81,45 +74,9 @@ func UploadImage(ctx context.Context, sess *Session, threadID string, threadType
 		typeParam = "11"
 	}
 
-	uploadURL := makeURL(sess, fileURL+pathPrefix+"photo_original/upload", map[string]any{
-		"type":   typeParam,
-		"params": encParams,
-	}, true)
-
-	// Build multipart body
-	body, contentType, err := buildMultipartBody("chunkContent", fileName, data)
-	if err != nil {
-		return nil, fmt.Errorf("zalo_personal: build multipart: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, body)
-	if err != nil {
-		return nil, err
-	}
-	setDefaultHeaders(req, sess)
-	req.Header.Set("Content-Type", contentType)
-
-	resp, err := sess.Client.Do(req)
+	plain, err := uploadChunks(ctx, sess, fileURL+pathPrefix+"photo_original/upload", typeParam, fileName, uploadParams, data)
 	if err != nil {
 		return nil, fmt.Errorf("zalo_personal: upload image: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Response: {"error_code":0, "data":"<encrypted>"}
-	var envelope Response[*string]
-	if err := readJSON(resp, &envelope); err != nil {
-		return nil, fmt.Errorf("zalo_personal: parse upload response: %w", err)
-	}
-	if envelope.ErrorCode != 0 {
-		return nil, fmt.Errorf("zalo_personal: upload error code %d", envelope.ErrorCode)
-	}
-	if envelope.Data == nil {
-		return nil, fmt.Errorf("zalo_personal: empty upload response")
-	}
-
-	plain, err := decryptDataField(sess, *envelope.Data)
-	if err != nil {
-		return nil, fmt.Errorf("zalo_personal: decrypt upload response: %w", err)
 	}
 
 	var result ImageUploadResult

@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
 // sendOptions captures per-message routing context extracted from
@@ -68,13 +69,24 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	// is delivered separately below, so a media failure never drops the text and
 	// we never double-post. A media-only message (empty Content) returns at the
 	// empty-text guard below after the upload completes.
+	var failed []channels.MediaFailure
 	if len(msg.Media) > 0 {
 		if err := c.sendMedia(ctx, msg); err != nil {
 			slog.Warn("bitrix24: one or more media uploads failed; continuing with text",
 				"chat_id", msg.ChatID, "err", err)
+			if mde, ok := channels.AsMediaDeliveryError(err); ok {
+				failed = mde.Failed
+			} else {
+				failed = channels.AllMediaFailed(msg.Media, err)
+			}
 		}
 	}
 
+	return channels.MediaDeliveryResult(msg.Media, failed, c.sendTextBody(ctx, msg))
+}
+
+// sendTextBody converts, chunks and posts the text part of an outbound message.
+func (c *Channel) sendTextBody(ctx context.Context, msg bus.OutboundMessage) error {
 	text := strings.TrimSpace(msg.Content)
 	if text == "" {
 		return nil
