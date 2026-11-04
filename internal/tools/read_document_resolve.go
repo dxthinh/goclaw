@@ -34,7 +34,8 @@ func (t *ReadDocumentTool) resolveDocumentFile(ctx context.Context, mediaID, doc
 	// Find specific media_id or use most recent document.
 	var ref *providers.MediaRef
 	if mediaID != "" {
-		for i := range refs {
+		// Newest first: assistant file IDs are base names that a revised file can reuse.
+		for i := len(refs) - 1; i >= 0; i-- {
 			if refs[i].ID == mediaID {
 				ref = &refs[i]
 				break

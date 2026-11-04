@@ -175,6 +175,31 @@ func TestResolveAudioFileRequiresExactMediaID(t *testing.T) {
 	}
 }
 
+func TestResolveAudioFilePrefersNewestDuplicateID(t *testing.T) {
+	workspace := t.TempDir()
+	var refs []providers.MediaRef
+	for _, dir := range []string{"old", "new"} {
+		path := filepath.Join(workspace, dir, "voice.mp3")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, providers.MediaRef{ID: "voice.mp3", Kind: "audio", MimeType: "audio/mpeg", Path: path})
+	}
+
+	tool := NewReadAudioTool(nil, nil)
+	ctx := WithMediaAudioRefs(WithToolWorkspace(context.Background(), workspace), refs)
+	gotPath, _, err := tool.resolveAudioFile(ctx, "voice.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(filepath.Dir(gotPath)) != "new" {
+		t.Fatalf("duplicate media ID resolved to %q, want the newest", gotPath)
+	}
+}
+
 func TestResolveAudioFileOmittedMediaIDUsesNewestRef(t *testing.T) {
 	workspace := t.TempDir()
 	oldPath := filepath.Join(workspace, ".uploads", "old.mp3")

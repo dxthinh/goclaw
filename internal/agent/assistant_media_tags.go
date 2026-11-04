@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -16,11 +17,14 @@ const (
 	// model echoes it into a reply.
 	assistantMediaHeader = "[Files attached to this reply. To inspect one, call the matching read_* tool with its media_id.]"
 	maxMediaDescRunes    = 200
+
+	// maxPreservedMediaRefs bounds the refs compaction keeps on a single message.
+	maxPreservedMediaRefs = 30
 )
 
 // assistantMediaTagPattern matches only the tags built here: the desc attribute
 // keeps user-sent <media:*> tags, which never carry it, out of the match.
-var assistantMediaTagPattern = regexp.MustCompile(`^<media:[a-z]+ id="(?:[^"\\]|\\.)*" desc="(?:[^"\\]|\\.)*">$`)
+var assistantMediaTagPattern = regexp.MustCompile(`<media:[a-z]+ id="(?:[^"\\]|\\.)*" desc="(?:[^"\\]|\\.)*">`)
 
 // isAssistantMediaRef reports whether a ref came from the assistant. Providers
 // only send images on user messages, and compaction can move assistant refs onto
@@ -36,6 +40,23 @@ func preservedMediaRef(msg providers.Message, ref providers.MediaRef) providers.
 		ref.Origin = providers.MediaOriginAssistant
 	}
 	return ref
+}
+
+// preservedMediaRefs returns the newest refs of messages about to be compacted, in
+// chronological order, because media_id lookups let the last duplicate ID win.
+func preservedMediaRefs(messages []providers.Message) []providers.MediaRef {
+	var refs []providers.MediaRef
+	for i := len(messages) - 1; i >= 0; i-- {
+		for _, ref := range slices.Backward(messages[i].MediaRefs) {
+			if len(refs) == maxPreservedMediaRefs {
+				slices.Reverse(refs)
+				return refs
+			}
+			refs = append(refs, preservedMediaRef(messages[i], ref))
+		}
+	}
+	slices.Reverse(refs)
+	return refs
 }
 
 // enrichAssistantMediaTags lists assistant files as text on their message, so the
@@ -89,11 +110,16 @@ func stripAssistantMediaTags(content string) string {
 	lines := strings.Split(content, "\n")
 	result := make([]string, 0, len(lines))
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == assistantMediaHeader || assistantMediaTagPattern.MatchString(trimmed) {
+		stripped := assistantMediaTagPattern.ReplaceAllString(strings.ReplaceAll(line, assistantMediaHeader, ""), "")
+		if stripped == line {
+			result = append(result, line)
 			continue
 		}
-		result = append(result, line)
+		// A line holding nothing else, or only its list marker, goes away entirely.
+		if strings.Trim(stripped, " \t-*•") == "" {
+			continue
+		}
+		result = append(result, strings.TrimRight(strings.ReplaceAll(stripped, "  ", " "), " \t"))
 	}
 	return strings.Join(result, "\n")
 }

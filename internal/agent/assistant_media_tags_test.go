@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,6 +138,61 @@ func TestSanitizeStripsEchoedAssistantMediaTags(t *testing.T) {
 	userTag := `Xem <media:image id="x" path="a.png">`
 	if got := SanitizeAssistantContent(userTag); got != userTag {
 		t.Fatalf("unrelated tag removed: %q", got)
+	}
+
+	for _, tt := range []struct{ in, want string }{
+		{`Xem <media:image id="a.png" desc="x"> nhé`, "Xem nhé"},
+		{`Đây là <media:image id="a.png" desc="x">`, "Đây là"},
+		{"Đã gửi:\n- <media:image id=\"a.png\" desc=\"x\">\n* <media:image id=\"b.png\" desc=\"y\">", "Đã gửi:"},
+	} {
+		if got := SanitizeAssistantContent(tt.in); got != tt.want {
+			t.Errorf("SanitizeAssistantContent(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestPreservedMediaRefsAreChronological(t *testing.T) {
+	messages := []providers.Message{
+		{Role: "assistant", MediaRefs: []providers.MediaRef{{ID: "poster.png", Kind: "image", Path: "old/poster.png"}}},
+		{Role: "user", MediaRefs: []providers.MediaRef{{ID: "u1", Kind: "image", Path: "u1.png"}, {ID: "u2", Kind: "image", Path: "u2.png"}}},
+		{Role: "assistant", MediaRefs: []providers.MediaRef{{ID: "poster.png", Kind: "image", Path: "new/poster.png"}}},
+	}
+
+	got := preservedMediaRefs(messages)
+
+	wantPaths := []string{"old/poster.png", "u1.png", "u2.png", "new/poster.png"}
+	if len(got) != len(wantPaths) {
+		t.Fatalf("got %d refs, want %d", len(got), len(wantPaths))
+	}
+	for i, want := range wantPaths {
+		if got[i].Path != want {
+			t.Errorf("refs[%d].Path = %q, want %q", i, got[i].Path, want)
+		}
+	}
+	if got[0].Origin != providers.MediaOriginAssistant || got[1].Origin != "" {
+		t.Errorf("origins not recorded: %q, %q", got[0].Origin, got[1].Origin)
+	}
+
+	// A media_id lookup scans from the end, so the revised file must resolve.
+	refs := collectRefsByKind([]providers.Message{{Role: "user", MediaRefs: got}}, nil, "image")
+	if last := refs[len(refs)-1]; last.Path != "new/poster.png" {
+		t.Errorf("newest ref = %q", last.Path)
+	}
+}
+
+func TestPreservedMediaRefsKeepTheNewestWhenCapped(t *testing.T) {
+	refs := make([]providers.MediaRef, maxPreservedMediaRefs+5)
+	for i := range refs {
+		refs[i] = providers.MediaRef{ID: fmt.Sprintf("r%d", i), Kind: "image"}
+	}
+
+	got := preservedMediaRefs([]providers.Message{{Role: "user", MediaRefs: refs}})
+
+	if len(got) != maxPreservedMediaRefs {
+		t.Fatalf("got %d refs, want %d", len(got), maxPreservedMediaRefs)
+	}
+	if got[0].ID != "r5" || got[len(got)-1].ID != "r34" {
+		t.Fatalf("kept %s..%s, want r5..r34", got[0].ID, got[len(got)-1].ID)
 	}
 }
 

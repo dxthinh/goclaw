@@ -32,7 +32,8 @@ func (t *ReadVideoTool) resolveVideoFile(ctx context.Context, mediaID string) (p
 
 	var ref *providers.MediaRef
 	if mediaID != "" {
-		for i := range refs {
+		// Newest first: assistant file IDs are base names that a revised file can reuse.
+		for i := len(refs) - 1; i >= 0; i-- {
 			if refs[i].ID == mediaID {
 				ref = &refs[i]
 				break

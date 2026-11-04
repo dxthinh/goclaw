@@ -113,22 +113,10 @@ func (l *Loop) compactMessagesInPlace(ctx context.Context, messages []providers.
 		"timeout_seconds", int(timeout/time.Second),
 	)
 
-	// Collect MediaRefs from compacted messages (keep up to 30 most recent).
-	const maxPreservedMediaRefs = 30
-	var preservedRefs []providers.MediaRef
-	for i := len(toSummarize) - 1; i >= 0 && len(preservedRefs) < maxPreservedMediaRefs; i-- {
-		for _, ref := range toSummarize[i].MediaRefs {
-			preservedRefs = append(preservedRefs, preservedMediaRef(toSummarize[i], ref))
-			if len(preservedRefs) >= maxPreservedMediaRefs {
-				break
-			}
-		}
-	}
-
 	summary := providers.Message{
 		Role:      "user",
 		Content:   "[Summary of earlier conversation]\n" + summaryContent,
-		MediaRefs: preservedRefs,
+		MediaRefs: preservedMediaRefs(toSummarize),
 	}
 	result := make([]providers.Message, 0, 1+keepCount)
 	result = append(result, summary)
