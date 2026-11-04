@@ -156,6 +156,11 @@
       }
     },
     "mediaChain": {
+      "imageInput": "사용자 이미지",
+      "imageInputAuto": "자동",
+      "imageInputInline": "인라인 전송",
+      "imageInputFileRef": "read_image로만 읽기",
+      "imageInputHint": "기본 제공자가 비전을 지원하면 인라인으로 보내고, 그렇지 않으면 read_image로 읽습니다.",
       "providerChainSuffix": "— 공급자 체인",
       "description": "공급자 폴백을 구성하고 순서를 지정합니다. 드래그하여 순서 변경 — 활성화된 첫 번째 공급자가 먼저 시도됩니다.",
       "newProvider": "새 공급자",

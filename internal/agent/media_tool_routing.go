@@ -11,9 +11,56 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
+// deferImagesToReadImage reports whether user images stay out of the main request
+// and are reached only through the read_image tool (file-ref mode).
+//
+// settings.image_input forces either mode. Without it, a configured read_image
+// provider alone no longer disables inline images: every model is assumed to have
+// vision, and file-ref remains only for main providers that declare they lack it.
+func (l *Loop) deferImagesToReadImage() bool {
+	switch l.readImageInputMode() {
+	case readImageInputInline:
+		return false
+	case readImageInputFileRef:
+		return true
+	}
+	if !l.hasReadImageProvider() {
+		return false
+	}
+	return declaresNoVision(l.provider)
+}
+
+// declaresNoVision reports whether a provider explicitly lacks vision. The fallback
+// wrapper declares nothing itself, so its primary provider decides.
+func declaresNoVision(p providers.Provider) bool {
+	if fallback, ok := p.(*providers.ModelFallbackProvider); ok {
+		p = fallback.PrimaryProvider()
+	}
+	aware, ok := p.(providers.CapabilitiesAware)
+	return ok && !aware.Capabilities().Vision
+}
+
+const (
+	readImageInputInline  = "inline"
+	readImageInputFileRef = "file_ref"
+)
+
+// readImageInputMode returns the explicit settings.image_input of read_image, if any.
+func (l *Loop) readImageInputMode() string {
+	raw, ok := l.builtinToolSettings["read_image"]
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	var settings struct {
+		ImageInput string `json:"image_input"`
+	}
+	if json.Unmarshal(raw, &settings) != nil {
+		return ""
+	}
+	return settings.ImageInput
+}
+
 // hasReadImageProvider checks if the read_image builtin tool has a dedicated provider configured.
-// When true, images should NOT be attached inline to the main LLM — instead the agent
-// uses the read_image tool which routes to the configured vision provider.
 // Supports both legacy flat format {"provider":"X"} and chain format {"providers":[...]}.
 func (l *Loop) hasReadImageProvider() bool {
 	if l.builtinToolSettings == nil {

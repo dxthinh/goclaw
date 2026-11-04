@@ -382,17 +382,8 @@ func (l *Loop) maybeSummarize(ctx context.Context, sessionKey string, midLoopCom
 		}
 		resp := &providers.ChatResponse{Content: summaryContent}
 
-		// Collect MediaRefs from messages about to be truncated (keep up to 30 most recent).
-		const maxPreservedMediaRefs = 30
-		var preservedRefs []providers.MediaRef
-		for i := len(toSummarize) - 1; i >= 0 && len(preservedRefs) < maxPreservedMediaRefs; i-- {
-			for _, ref := range toSummarize[i].MediaRefs {
-				preservedRefs = append(preservedRefs, ref)
-				if len(preservedRefs) >= maxPreservedMediaRefs {
-					break
-				}
-			}
-		}
+		// Collect MediaRefs from messages about to be truncated.
+		preservedRefs := preservedMediaRefs(toSummarize)
 
 		l.sessions.SetSummary(sctx, sessionKey, SanitizeAssistantContent(resp.Content))
 		l.sessions.TruncateHistory(sctx, sessionKey, keepLast)
@@ -402,9 +393,9 @@ func (l *Loop) maybeSummarize(ctx context.Context, sessionKey string, midLoopCom
 			kept := l.sessions.GetHistory(sctx, sessionKey)
 			if len(kept) > 0 {
 				kept[0].MediaRefs = append(preservedRefs, kept[0].MediaRefs...)
-				// Cap total refs on this message at maxPreservedMediaRefs.
-				if len(kept[0].MediaRefs) > maxPreservedMediaRefs {
-					kept[0].MediaRefs = kept[0].MediaRefs[:maxPreservedMediaRefs]
+				// Cap total refs on this message at maxPreservedMediaRefs, newest kept.
+				if excess := len(kept[0].MediaRefs) - maxPreservedMediaRefs; excess > 0 {
+					kept[0].MediaRefs = kept[0].MediaRefs[excess:]
 				}
 				l.sessions.SetHistory(sctx, sessionKey, kept)
 			}

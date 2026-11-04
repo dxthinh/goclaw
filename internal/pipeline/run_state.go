@@ -142,4 +142,6 @@ type MediaResult struct {
 	// Prompt is the generation prompt for AI-generated media (e.g. create_image).
 	// Empty for user-uploaded or non-generated files.
 	Prompt string
+	// Caption is the text the file was sent with; kept on the session's MediaRef.
+	Caption string
 }

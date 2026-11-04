@@ -230,6 +230,11 @@
       }
     },
     "mediaChain": {
+      "imageInput": "User images",
+      "imageInputAuto": "Auto",
+      "imageInputInline": "Send inline",
+      "imageInputFileRef": "Read through read_image only",
+      "imageInputHint": "Auto sends images inline when the main provider supports vision, otherwise through read_image.",
       "providerChainSuffix": "— Provider Chain",
       "description": "Configure and order provider fallbacks. Drag to reorder — the first enabled provider is tried first.",
       "newProvider": "New Provider",

@@ -172,6 +172,18 @@ Memory layers: L1 (`memory_search`) returns ranked abstracts; L2 (`memory_expand
 | `read_document` | Extract and analyze documents (PDF, DOCX, images). Supports local-first extraction via pdftotext/pandoc before falling back to cloud vision (opt-in via config) |
 | `read_video` | Analyze/transcribe video content |
 
+`read_image` settings accept an optional `image_input`: `inline` always attaches
+user images to the main request, `file_ref` keeps them out and leaves them to
+`read_image`. Without it, every model is assumed to have vision, so images are
+inline unless a `read_image` provider is configured and the main provider declares
+`Vision: false` (Ollama and ACP today). Use `file_ref` for a text-only model behind
+a provider that declares vision, such as an OpenAI-compatible endpoint.
+
+Files the assistant already sent are never reloaded as images, because providers
+only send images on user messages. They appear in history as runtime-only tags
+with a `desc` attribute (generation prompt, send caption, or file name), and the
+model reads one through its `media_id` when needed. These tags are not persisted.
+
 Image attachments keep absolute paths only in internal `MediaRef` storage.
 Model-visible `<media:image>` tags expose an exact media ID plus a logical path
 such as `.uploads/photo.jpg` or delegated `inputs/photo.jpg`. Image tools resolve

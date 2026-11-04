@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,6 +59,31 @@ func parseTestByteRange(header string, total int64) (start, end int64, ok bool) 
 		e = total - 1
 	}
 	return s, e, true
+}
+
+func TestResolveVideoFilePrefersNewestDuplicateID(t *testing.T) {
+	workspace := t.TempDir()
+	var refs []providers.MediaRef
+	for _, dir := range []string{"old", "new"} {
+		path := filepath.Join(workspace, dir, "clip.mp4")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, providers.MediaRef{ID: "clip.mp4", Kind: "video", MimeType: "video/mp4", Path: path})
+	}
+
+	tool := NewReadVideoTool(nil, testMediaPathLoader{})
+	ctx := WithMediaVideoRefs(WithToolWorkspace(context.Background(), workspace), refs)
+	gotPath, _, err := tool.resolveVideoFile(ctx, "clip.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(filepath.Dir(gotPath)) != "new" {
+		t.Fatalf("duplicate media ID resolved to %q, want the newest", gotPath)
+	}
 }
 
 func TestReadVideo_BothMediaIdAndUrl_Error(t *testing.T) {

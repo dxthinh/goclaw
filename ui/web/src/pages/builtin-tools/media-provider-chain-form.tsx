@@ -21,8 +21,15 @@ import { Button } from "@/components/ui/button";
 import { DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useProviders } from "@/pages/providers/hooks/use-providers";
 import { SortableProviderCard } from "./media-sortable-provider-card";
-import type { ProviderEntry } from "./media-provider-chain-helpers";
-import { formatToolTitle, parseInitialEntries } from "./media-provider-chain-helpers";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { ImageInputMode, ProviderEntry } from "./media-provider-chain-helpers";
+import {
+  buildChainSettings,
+  formatToolTitle,
+  parseImageInputMode,
+  parseInitialEntries,
+} from "./media-provider-chain-helpers";
 
 interface MediaProviderChainFormProps {
   toolName: string;
@@ -46,7 +53,9 @@ export function MediaProviderChainForm({
   const [entries, setEntries] = useState<ProviderEntry[]>(() =>
     parseInitialEntries(initialSettings, providers),
   );
+  const [imageInput, setImageInput] = useState<ImageInputMode>(() => parseImageInputMode(initialSettings));
   const [saving, setSaving] = useState(false);
+  const isReadImage = toolName === "read_image";
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -92,7 +101,7 @@ export function MediaProviderChainForm({
     setSaving(true);
     try {
       const serialized = entries.map(({ id: _id, ...rest }) => rest);
-      await onSave({ providers: serialized });
+      await onSave(buildChainSettings(initialSettings, serialized, isReadImage ? imageInput : null));
     } catch {
       // toast shown by hook
     } finally {
@@ -137,6 +146,23 @@ export function MediaProviderChainForm({
           <Plus className="size-3.5 mr-1.5" />
           {t("builtin.mediaChain.addProvider")}
         </Button>
+
+        {isReadImage && (
+          <div className="space-y-1.5 pt-2">
+            <Label>{t("builtin.mediaChain.imageInput")}</Label>
+            <Select value={imageInput} onValueChange={(value) => setImageInput(value as ImageInputMode)}>
+              <SelectTrigger className="text-base md:text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("builtin.mediaChain.imageInputAuto")}</SelectItem>
+                <SelectItem value="inline">{t("builtin.mediaChain.imageInputInline")}</SelectItem>
+                <SelectItem value="file_ref">{t("builtin.mediaChain.imageInputFileRef")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("builtin.mediaChain.imageInputHint")}</p>
+          </div>
+        )}
       </div>
 
       <DialogFooter>

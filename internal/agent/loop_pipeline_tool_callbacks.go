@@ -277,6 +277,7 @@ func syncBridgeToState(bridgeRS *runState, state *pipeline.RunState, action tool
 				Size:        mr.Size,
 				AsVoice:     mr.AsVoice,
 				Prompt:      mr.Prompt,
+				Caption:     mr.Caption,
 			})
 		}
 	}

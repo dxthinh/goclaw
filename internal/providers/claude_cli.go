@@ -162,7 +162,7 @@ func (p *ClaudeCLIProvider) Capabilities() ProviderCapabilities {
 		ToolCalling:      true,
 		StreamWithTools:  true,
 		Thinking:         true,
-		Vision:           false,
+		Vision:           true,
 		CacheControl:     false,
 		MaxContextWindow: 200_000,
 		TokenizerID:      "cl100k_base",

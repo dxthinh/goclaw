@@ -131,3 +131,89 @@ func TestThinkThenTool_BudgetRetry_DoesNotReexecuteStaleToolCalls(t *testing.T) 
 		t.Fatalf("stale tool call re-executed %d time(s); want 0", executed)
 	}
 }
+
+func TestKeepStoppedAnnounceInput(t *testing.T) {
+	tests := []struct {
+		name      string
+		hide      bool
+		runKind   string
+		message   string
+		wantSaved bool
+	}{
+		{"announce keeps result", true, "announce", "task #9 done", true},
+		{"visible input is saved by the flush", false, "announce", "task #9 done", false},
+		{"other hidden runs stay hidden", true, "delegate", "secret", false},
+		{"empty announce adds nothing", true, "announce", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := defaultState()
+			state.Input.HideInput = tt.hide
+			state.Input.RunKind = tt.runKind
+			state.Input.Message = tt.message
+
+			keepStoppedAnnounceInput(state)
+
+			pending := state.Messages.Pending()
+			if !tt.wantSaved {
+				if len(pending) != 0 {
+					t.Fatalf("pending = %+v, want none", pending)
+				}
+				return
+			}
+			if len(pending) != 1 || pending[0].Role != "user" || pending[0].Content != tt.message {
+				t.Fatalf("pending = %+v", pending)
+			}
+		})
+	}
+}
+
+func TestKeepStoppedAnnounceInputTruncates(t *testing.T) {
+	state := defaultState()
+	state.Input.HideInput = true
+	state.Input.RunKind = "announce"
+	state.Input.TeamID = "team-1"
+	state.Input.Message = strings.Repeat("ả", maxStoppedAnnounceRunes+10)
+
+	keepStoppedAnnounceInput(state)
+
+	got := state.Messages.Pending()[0].Content
+	if strings.Count(got, "ả") != maxStoppedAnnounceRunes || !strings.Contains(got, "team_tasks get") {
+		t.Fatalf("unexpected truncation, runes of body = %d", strings.Count(got, "ả"))
+	}
+}
+
+func TestKeepStoppedAnnounceInputSubagentHasNoTeamHint(t *testing.T) {
+	state := defaultState()
+	state.Input.HideInput = true
+	state.Input.RunKind = "announce"
+	state.Input.Message = strings.Repeat("ả", maxStoppedAnnounceRunes+10)
+
+	keepStoppedAnnounceInput(state)
+
+	got := state.Messages.Pending()[0].Content
+	if !strings.HasSuffix(got, "[Truncated.]") || strings.Contains(got, "team_tasks") {
+		t.Fatalf("subagent announce truncated as %q", got[len(got)-40:])
+	}
+}
+
+// The stop path must order the saved result before the notice FinalizeStage adds.
+func TestStopForContextBudgetKeepsAnnounceResult(t *testing.T) {
+	stage := NewThinkStage(&PipelineDeps{})
+	state := defaultState()
+	state.Input.HideInput = true
+	state.Input.RunKind = "announce"
+	state.Input.Message = "task #10 done"
+
+	if err := stage.stopForContextBudget(context.Background(), state, ErrContextBudgetExceeded); err != nil {
+		t.Fatal(err)
+	}
+
+	pending := state.Messages.Pending()
+	if stage.Result() != AbortRun || len(pending) != 1 || pending[0].Content != "task #10 done" {
+		t.Fatalf("result = %v, pending = %+v", stage.Result(), pending)
+	}
+	if state.Observe.FinalContent == "" {
+		t.Fatal("stop notice was not set")
+	}
+}

@@ -81,6 +81,31 @@ func TestResolveDocumentFileRequiresExactMediaID(t *testing.T) {
 	}
 }
 
+func TestResolveDocumentFilePrefersNewestDuplicateID(t *testing.T) {
+	workspace := t.TempDir()
+	var refs []providers.MediaRef
+	for _, dir := range []string{"old", "new"} {
+		path := filepath.Join(workspace, dir, "report.pdf")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, providers.MediaRef{ID: "report.pdf", Kind: "document", MimeType: "application/pdf", Path: path})
+	}
+
+	tool := NewReadDocumentTool(nil, nil)
+	ctx := WithMediaDocRefs(WithToolWorkspace(context.Background(), workspace), refs)
+	gotPath, _, err := tool.resolveDocumentFile(ctx, "report.pdf", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(filepath.Dir(gotPath)) != "new" {
+		t.Fatalf("duplicate media ID resolved to %q, want the newest", gotPath)
+	}
+}
+
 func TestResolveDocumentFileInvalidMediaIDReturnsError(t *testing.T) {
 	refs := []providers.MediaRef{
 		{ID: uuid.NewString(), Kind: "document", Path: "/workspace/.uploads/old.pdf", MimeType: "application/pdf"},

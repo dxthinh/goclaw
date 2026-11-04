@@ -131,3 +131,31 @@ export function parseInitialEntries(
 
   return [];
 }
+
+/** read_image only: how user images reach the main model. "auto" stores no key. */
+export type ImageInputMode = "auto" | "inline" | "file_ref";
+
+export function parseImageInputMode(settings: Record<string, unknown>): ImageInputMode {
+  const mode = settings.image_input;
+  return mode === "inline" || mode === "file_ref" ? mode : "auto";
+}
+
+/**
+ * Rebuilds settings from the form, keeping keys the form does not manage. The legacy
+ * flat provider and model were migrated into the chain, so they must not outlive it.
+ */
+export function buildChainSettings(
+  initialSettings: Record<string, unknown>,
+  providers: Omit<ProviderEntry, "id">[],
+  imageInput: ImageInputMode | null,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...initialSettings, providers };
+  delete next.provider;
+  delete next.model;
+  if (imageInput === "auto") {
+    delete next.image_input;
+  } else if (imageInput) {
+    next.image_input = imageInput;
+  }
+  return next;
+}
