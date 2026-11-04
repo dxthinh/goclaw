@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -583,6 +583,18 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 	var content string
 	var media []agent.MediaResult
 
+	// Read attachments first: declared deliverables count as output, so a member
+	// that finishes with NO_REPLY still delivers them.
+	var taskUUID uuid.UUID
+	var attachments []store.TeamTaskAttachmentData
+	if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" && deps.TeamStore != nil {
+		if parsed, err := uuid.Parse(taskIDStr); err == nil {
+			taskUUID = parsed
+			attachments, _ = deps.TeamStore.ListTaskAttachments(ctx, taskUUID)
+		}
+	}
+
+	var missingDeliverables []string
 	if outcome.Err != nil {
 		slog.Error("teammate message: agent run failed", "error", outcome.Err)
 		errMsg := outcome.Err.Error()
@@ -593,45 +605,82 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 	} else if outcome.Result == nil {
 		slog.Warn("teammate message: nil result without error", "from", senderID)
 		return "", nil, false
-	} else if normalized, shouldDeliver := normalizeAgentOutboundContent(
-		outcome.Result.Content,
-		len(outcome.Result.Media),
-	); !shouldDeliver {
-		slog.Info("teammate message: suppressed silent/empty reply", "from", senderID)
-		return "", nil, false
 	} else {
+		media, missingDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments)
+		normalized, shouldDeliver := normalizeAgentOutboundContent(outcome.Result.Content, len(media))
+		if !shouldDeliver {
+			slog.Info("teammate message: suppressed silent/empty reply", "from", senderID)
+			return "", nil, false
+		}
 		content = normalized
-		media = outcome.Result.Media
 	}
 
 	// Append member comments & attachments so leader sees them in the announce.
-	if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" && deps.TeamStore != nil {
-		if taskUUID, err := uuid.Parse(taskIDStr); err == nil {
-			if comments, err := deps.TeamStore.ListRecentTaskComments(ctx, taskUUID, 5); err == nil && len(comments) > 0 {
-				var parts []string
-				for _, c := range comments {
-					author := c.AgentKey
-					if author == "" {
-						author = "system"
-					}
-					text := c.Content
-					if len([]rune(text)) > 500 {
-						text = string([]rune(text)[:500]) + "..."
-					}
-					parts = append(parts, fmt.Sprintf("- [%s]: %s", author, text))
+	if taskUUID != uuid.Nil {
+		if comments, err := deps.TeamStore.ListRecentTaskComments(ctx, taskUUID, 5); err == nil && len(comments) > 0 {
+			var parts []string
+			for _, c := range comments {
+				author := c.AgentKey
+				if author == "" {
+					author = "system"
 				}
-				content += "\n\n[Member notes]\n" + strings.Join(parts, "\n")
-			}
-			if attachments, err := deps.TeamStore.ListTaskAttachments(ctx, taskUUID); err == nil && len(attachments) > 0 {
-				content += "\n\n[Attached files in team workspace]"
-				for _, a := range attachments {
-					content += "\n- " + filepath.Base(a.Path)
+				text := c.Content
+				if len([]rune(text)) > 500 {
+					text = string([]rune(text)[:500]) + "..."
 				}
+				parts = append(parts, fmt.Sprintf("- [%s]: %s", author, text))
 			}
+			content += "\n\n[Member notes]\n" + strings.Join(parts, "\n")
+		}
+		if len(attachments) > 0 {
+			content += "\n\n[Attached files in team workspace]"
+			for _, a := range attachments {
+				content += "\n- " + a.Path
+			}
+			if len(media) == 0 && outcome.Err == nil {
+				content += "\n[Member did not declare final files, so none are attached to your reply. Use send_file if any listed file should reach the user.]"
+			}
+		}
+		for _, path := range missingDeliverables {
+			content += "\n[Declared final file no longer exists and was not attached: " + path + "]"
 		}
 	}
 
 	return content, media, true
+}
+
+// mergeDeliverableMedia adds a task's declared deliverables to the media the member
+// queued through send_file, without duplicates. The paths were validated when the
+// task was completed (only MarkTaskDeliverables tags a row as a deliverable), so
+// only existence is checked here. Returns the paths of files that have since gone.
+func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamTaskAttachmentData) ([]agent.MediaResult, []string) {
+	seen := make(map[string]struct{}, len(queued))
+	media := make([]agent.MediaResult, 0, len(queued)+len(attachments))
+	for _, mr := range queued {
+		if _, dup := seen[mr.Path]; !dup {
+			seen[mr.Path] = struct{}{}
+			media = append(media, mr)
+		}
+	}
+
+	var missing []string
+	for i := range attachments {
+		att := &attachments[i]
+		if !att.IsDeliverable() {
+			continue
+		}
+		if _, dup := seen[att.Path]; dup {
+			continue
+		}
+		seen[att.Path] = struct{}{}
+		if fi, err := os.Stat(att.Path); err != nil || !fi.Mode().IsRegular() {
+			slog.Warn("teammate message: declared deliverable is gone", "path", att.Path, "error", err)
+			missing = append(missing, att.Path)
+			continue
+		}
+		media = append(media, agent.MediaResult{Path: att.Path, ContentType: att.MimeType, Size: att.FileSize})
+	}
+	return media, missing
 }
 
 // resolveTeammateLeadAgent resolves the lead agent key for routing a teammate announce.

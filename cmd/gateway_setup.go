@@ -255,11 +255,7 @@ func setupToolRegistry(
 	// memory.db, .media/, delegate/ etc. via list_files/read_file.
 	// Non-shared agents are already isolated by resolvePath boundary check, but
 	// deny paths add defense-in-depth.
-	internalDenyPaths := []string{
-		"config.json", "memory.db", "memory.db-wal", "memory.db-shm",
-		"goclaw.db", "goclaw.db-wal", "goclaw.db-shm",
-		"memory/", ".media/", ".uploads/", "delegate/",
-	}
+	internalDenyPaths := tools.InternalDenyPaths
 	// read_file: allow .media/ access (uploaded documents accessed via AllowPaths
 	// for backward compat; new uploads go to per-user .uploads/ within workspace).
 	readFileDenyPaths := []string{
