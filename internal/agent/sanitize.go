@@ -57,6 +57,7 @@ func SanitizeAssistantContent(content string) string {
 
 	// 7. Strip MEDIA: paths from LLM output (media delivered separately)
 	content = stripMediaPaths(content)
+	content = stripAssistantMediaTags(content)
 
 	// 8. Strip leading blank lines (preserve indentation)
 	content = stripLeadingBlankLines(content)

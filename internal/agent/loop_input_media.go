@@ -147,6 +147,9 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 	// references safe regardless of whether images are also attached inline.
 	l.enrichImagePaths(messages, tools.ToolWorkspaceFromCtx(ctx))
 
+	// 2f-iii. List assistant files as text; their bytes are never reloaded.
+	enrichAssistantMediaTags(messages)
+
 	// 2g. Collect all media file paths for team workspace auto-collect.
 	// When the leader calls team_tasks(create), these paths are copied to the
 	// team workspace so members can access attached files.

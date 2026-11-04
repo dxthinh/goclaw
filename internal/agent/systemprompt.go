@@ -675,6 +675,7 @@ func buildToolingSection(toolNames []string, hasSandbox bool, shellDenyGroups ma
 			"### Media Files",
 			`When users send media (<media:image id="..." path="...">, <media:video id="...">, <media:audio id="...">, <media:document path="...">), use the corresponding read_* tool with the exact path/media_id from the tag. Never reconstruct or guess an absolute workspace path. For archives (.zip, .tar.gz, etc.), use exec with the document path to inspect/extract the archive.`,
 			"You have full vision/audio/video capabilities. NEVER say you cannot see images or files.",
+			"History may list files attached to your earlier replies as tags with a desc attribute. Those files were already sent; read one with its media_id only when you need to inspect it. Never copy these tags into a reply.",
 		)
 	}
 

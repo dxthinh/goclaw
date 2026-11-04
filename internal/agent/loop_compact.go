@@ -118,7 +118,7 @@ func (l *Loop) compactMessagesInPlace(ctx context.Context, messages []providers.
 	var preservedRefs []providers.MediaRef
 	for i := len(toSummarize) - 1; i >= 0 && len(preservedRefs) < maxPreservedMediaRefs; i-- {
 		for _, ref := range toSummarize[i].MediaRefs {
-			preservedRefs = append(preservedRefs, ref)
+			preservedRefs = append(preservedRefs, preservedMediaRef(toSummarize[i], ref))
 			if len(preservedRefs) >= maxPreservedMediaRefs {
 				break
 			}

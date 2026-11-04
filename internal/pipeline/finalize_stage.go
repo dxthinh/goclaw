@@ -122,6 +122,7 @@ func (s *FinalizeStage) Execute(ctx context.Context, state *RunState) error {
 			Kind:     kind,
 			Path:     mr.Path,
 			Prompt:   mr.Prompt,
+			Caption:  mr.Caption,
 		})
 	}
 	state.Messages.AppendPending(assistantMsg)

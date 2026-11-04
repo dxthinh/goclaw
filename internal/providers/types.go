@@ -133,12 +133,17 @@ type VideoContent struct {
 // Stored in session JSONB (~60 bytes each) instead of megabytes for base64.
 // On reload, MediaRefs are resolved to file paths and loaded into Images (for images).
 type MediaRef struct {
-	ID       string `json:"id"`               // unique media ID (uuid)
-	MimeType string `json:"mime_type"`        // e.g. "image/jpeg", "application/pdf"
-	Kind     string `json:"kind"`             // "image", "video", "audio", "document"
-	Path     string `json:"path,omitempty"`   // absolute workspace path (persisted for /v1/files/ serving)
-	Prompt   string `json:"prompt,omitempty"` // prompt that generated this asset, if known
+	ID       string `json:"id"`                // unique media ID (uuid)
+	MimeType string `json:"mime_type"`         // e.g. "image/jpeg", "application/pdf"
+	Kind     string `json:"kind"`              // "image", "video", "audio", "document"
+	Path     string `json:"path,omitempty"`    // absolute workspace path (persisted for /v1/files/ serving)
+	Prompt   string `json:"prompt,omitempty"`  // prompt that generated this asset, if known
+	Caption  string `json:"caption,omitempty"` // caption the file was sent with, if any
+	Origin   string `json:"origin,omitempty"`  // MediaOriginAssistant when compaction moved an assistant ref to another message
 }
+
+// MediaOriginAssistant marks a MediaRef produced by the assistant.
+const MediaOriginAssistant = "assistant"
 
 // Message represents a conversation message.
 type Message struct {

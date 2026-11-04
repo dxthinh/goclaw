@@ -534,7 +534,7 @@ func (l *Loop) enrichImagePaths(messages []providers.Message, workspace string) 
 		content := messages[i].Content
 		changed := false
 		for _, ref := range messages[i].MediaRefs {
-			if ref.Kind != "image" {
+			if ref.Kind != "image" || isAssistantMediaRef(messages[i], ref) {
 				continue
 			}
 			p := ref.Path
@@ -718,7 +718,13 @@ func (l *Loop) reloadMediaForMessages(msgs []providers.Message, maxMessages int)
 			if ref.Kind != "image" {
 				continue
 			}
+			// Assistant images still count toward the window, so the set of user
+			// images sent to the provider does not change, but no provider sends
+			// them: loading them would only inflate the request budget.
 			hasImageRef = true
+			if isAssistantMediaRef(msgs[i], ref) {
+				continue
+			}
 			p := ref.Path
 			if p == "" && l.mediaStore != nil {
 				var err error
