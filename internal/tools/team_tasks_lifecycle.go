@@ -48,22 +48,40 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 		return ErrorResult("result is required for complete action")
 	}
 
+	// Validate before completing: a wrong path must stay fixable by the model,
+	// and a completed task cannot be completed again with the right one.
+	deliverables, err := resolveTaskDeliverables(ctx, args["deliverables"])
+	if err != nil {
+		return ErrorResult(err.Error())
+	}
+	if len(deliverables) > 0 {
+		if err := checkDeliverablesInTaskRun(ctx, taskID); err != nil {
+			return ErrorResult(err.Error())
+		}
+	}
+
 	// Auto-claim if the task is still pending (saves an extra tool call).
 	// ClaimTask is atomic — only one agent can succeed, others get an error.
 	// Ignore claim error: task may already be in_progress (claimed by us or someone else).
 	_ = t.manager.Store().ClaimTask(ctx, taskID, agentID, team.ID)
 
+	if len(deliverables) > 0 {
+		if err := t.checkDeliverablesAllowed(ctx, team, taskID, agentID); err != nil {
+			return ErrorResult(err.Error())
+		}
+	}
+
 	if err := t.manager.Store().CompleteTask(ctx, taskID, team.ID, result); err != nil {
 		// Fast path: check in-memory turn flags before hitting DB again.
 		if flags := TaskActionFlagsFromCtx(ctx); flags != nil && flags.Completed {
-			return NewResult(fmt.Sprintf("Task %s already completed.", taskID))
+			return NewResult(fmt.Sprintf("Task %s already completed.%s", taskID, t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)))
 		}
 		// Slow path: re-query to determine actual status.
 		if current, getErr := t.manager.Store().GetTask(ctx, taskID); getErr == nil && current != nil {
 			switch current.Status {
 			case store.TeamTaskStatusCompleted:
 				recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
-				return NewResult(fmt.Sprintf("Task %s already completed.", taskID))
+				return NewResult(fmt.Sprintf("Task %s already completed.%s", taskID, t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)))
 			case store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled:
 				return NewResult(fmt.Sprintf("Task %s is %s — cannot complete.", taskID, current.Status))
 			case store.TeamTaskStatusPending:
@@ -82,6 +100,7 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	}
 	// Record action flag after successful store operation.
 	recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
+	registered := t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)
 
 	ownerKey := t.manager.AgentKeyFromID(ctx, agentID)
 	// Fetch task for TaskNumber/Subject needed by notification subscriber.
@@ -110,7 +129,7 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	// (post-turn), not mid-turn. This prevents dependent tasks from completing and
 	// announcing to the leader before this agent's own run finishes.
 
-	return NewResult(fmt.Sprintf("Task %s completed. Dependent tasks will be dispatched after this turn ends.", taskID))
+	return NewResult(fmt.Sprintf("Task %s completed.%s Dependent tasks will be dispatched after this turn ends.", taskID, registered))
 }
 
 func (t *TeamTasksTool) executeCancel(ctx context.Context, args map[string]any) *Result {

@@ -14,7 +14,15 @@ const (
 	RunTimelineItemTypeToolCall         = "tool.call"
 	RunTimelineItemTypeToolResult       = "tool.result"
 	RunTimelineItemTypeRunStatus        = "run.status"
+	RunTimelineItemTypeDelivery         = "delivery"
 )
+
+// RunTimelineDeliverySeqBase starts the seq range for items written after a run
+// has ended, such as attachment deliveries. RunTimelineRecorder numbers run events
+// in memory from 1 and writes them asynchronously with an upsert on seq, so a
+// late item sharing that range could be overwritten by a run.completed still in
+// flight. Lists order by seq, so these items always follow the run's own.
+const RunTimelineDeliverySeqBase = 1_000_000
 
 const (
 	RunTimelineStatusStarted   = "started"
@@ -60,6 +68,9 @@ type RunTimelineListOpts struct {
 // RunTimelineStore appends and lists archived agent run timeline entries.
 type RunTimelineStore interface {
 	AppendRunTimelineItem(ctx context.Context, item *RunTimelineItem) error
+	// AppendRunTimelineItemNextSeq appends an item after the run's own events, in
+	// the RunTimelineDeliverySeqBase range. It assigns item.Seq and never overwrites.
+	AppendRunTimelineItemNextSeq(ctx context.Context, item *RunTimelineItem) error
 	ListRunTimelineItems(ctx context.Context, opts RunTimelineListOpts) ([]RunTimelineItem, error)
 	// RecoverInterruptedRuns reconciles runs left mid-execution when the gateway
 	// stopped: a run with a "started" run.status item but no terminal

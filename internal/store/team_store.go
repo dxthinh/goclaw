@@ -171,6 +171,11 @@ type TaskSibling struct {
 	AttachmentTime time.Time `db:"created_at"`
 }
 
+// TaskAttachmentDeliverableMetadata marks an attachment as a final file for the
+// user. Only MarkTaskDeliverables writes it, after the tool has validated the path
+// and stored its canonical form, which announce delivery re-checks before sending.
+const TaskAttachmentDeliverableMetadata = `{"role":"deliverable"}`
+
 // TeamTaskAttachmentData represents a file attached to a team task (path-based, no FK to workspace).
 type TeamTaskAttachmentData struct {
 	ID                uuid.UUID       `json:"id" db:"id"`
@@ -186,6 +191,14 @@ type TeamTaskAttachmentData struct {
 	Metadata          json.RawMessage `json:"metadata,omitempty" db:"metadata"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
 	DownloadURL       string          `json:"download_url,omitempty" db:"-"` // signed URL, populated at delivery time
+}
+
+// IsDeliverable reports whether the attachment was declared a final file for the user.
+func (a *TeamTaskAttachmentData) IsDeliverable() bool {
+	var meta struct {
+		Role string `json:"role"`
+	}
+	return json.Unmarshal(a.Metadata, &meta) == nil && meta.Role == "deliverable"
 }
 
 // TeamUserGrant represents a user's access grant to a team.
@@ -255,6 +268,9 @@ type TaskCommentStore interface {
 	ListTaskEvents(ctx context.Context, taskID uuid.UUID) ([]TeamTaskEventData, error)
 	ListTeamEvents(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]TeamTaskEventData, error)
 	AttachFileToTask(ctx context.Context, att *TeamTaskAttachmentData) error
+	// MarkTaskDeliverables attaches each file if needed and tags it as a deliverable,
+	// including files already attached automatically. att.Metadata is ignored.
+	MarkTaskDeliverables(ctx context.Context, atts []*TeamTaskAttachmentData) error
 	GetAttachment(ctx context.Context, attachmentID uuid.UUID) (*TeamTaskAttachmentData, error)
 	ListTaskAttachments(ctx context.Context, taskID uuid.UUID) ([]TeamTaskAttachmentData, error)
 	DetachFileFromTask(ctx context.Context, taskID uuid.UUID, path string) error

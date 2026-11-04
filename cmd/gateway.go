@@ -809,6 +809,7 @@ func runGateway() {
 	channelMgr.SetSystemMessages(systemmessages.NewResolver(cfg))
 	deps.channelMgr = channelMgr
 	server.SetChannelManager(channelMgr)
+	channelMgr.SetDeliveryRecorder(newDeliveryRecorder(pgStores.RunTimeline, traceCollector, pgStores.Sessions))
 
 	// Wire channel member resolver into permission grant paths (WS + HTTP) so
 	// file_writer grants coming from the Web UI auto-enrich their metadata.

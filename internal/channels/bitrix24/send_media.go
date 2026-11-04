@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
 // maxOutboundMediaBytesFallback caps a single outbound file when the channel
@@ -40,8 +41,8 @@ func (c *Channel) outboundMediaCap() int64 {
 // never drops the text and we never double-post.
 //
 // Best-effort: a file that fails to read or upload is logged and skipped.
-// Returns the first error encountered for caller visibility; the text path runs
-// regardless of what this returns.
+// Returns a channels.MediaDeliveryError listing the skipped files; the text path
+// runs regardless of what this returns.
 func (c *Channel) sendMedia(ctx context.Context, msg bus.OutboundMessage) error {
 	client := c.Client()
 	botID := c.BotID()
@@ -50,23 +51,23 @@ func (c *Channel) sendMedia(ctx context.Context, msg bus.OutboundMessage) error 
 	}
 
 	media := msg.Media
+	var failed []channels.MediaFailure
 	if len(media) > maxOutboundFiles {
 		slog.Warn("bitrix24: too many outbound attachments, capping",
 			"chat_id", msg.ChatID, "total", len(media), "cap", maxOutboundFiles)
+		failed = channels.AllMediaFailed(media[maxOutboundFiles:],
+			fmt.Errorf("bitrix24: over the %d attachment limit per message", maxOutboundFiles))
 		media = media[:maxOutboundFiles]
 	}
 
-	var firstErr error
 	for _, m := range media {
 		if err := c.uploadOneFile(ctx, client, botID, msg.ChatID, m); err != nil {
 			slog.Warn("bitrix24: media upload failed, skipping file",
 				"chat_id", msg.ChatID, "path", m.URL, "err", err)
-			if firstErr == nil {
-				firstErr = err
-			}
+			failed = append(failed, channels.MediaFailure{Media: m, Err: err})
 		}
 	}
-	return firstErr
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
 }
 
 // uploadOneFile reads a local file, Base64-encodes it, and posts it to the chat

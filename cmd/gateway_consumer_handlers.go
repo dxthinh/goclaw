@@ -341,7 +341,7 @@ func handleTeammateMessage(
 		}
 
 		// Build announce content from outcome + task comments/attachments.
-		announceContent, announceMedia, ok := buildTeammateAnnounce(ctx, outcome, senderID, inMeta, deps)
+		announceContent, announceMedia, ok := buildTeammateAnnounce(ctx, outcome, senderID, inMeta, taskActionFlags.Deliverables, deps)
 		if !ok {
 			return
 		}
@@ -578,11 +578,29 @@ func buildTaskBoardSnapshot(ctx context.Context, teamStore store.TeamStore, team
 }
 
 // buildTeammateAnnounce constructs announce content from agent outcome + task comments/attachments.
+// declared holds the paths this run declared as deliverables: only those are sent,
+// so files declared by an earlier run of the same task do not go out again.
 // Returns content, media, and whether to proceed with the announce.
-func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, senderID string, inMeta map[string]string, deps *ConsumerDeps) (string, []agent.MediaResult, bool) {
+func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, senderID string, inMeta map[string]string, declared []string, deps *ConsumerDeps) (string, []agent.MediaResult, bool) {
 	var content string
 	var media []agent.MediaResult
 
+	// Read attachments first: declared deliverables count as output, so a member
+	// that finishes with NO_REPLY still delivers them.
+	var taskUUID uuid.UUID
+	var attachments []store.TeamTaskAttachmentData
+	var attachmentsErr error
+	if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" && deps.TeamStore != nil {
+		if parsed, err := uuid.Parse(taskIDStr); err == nil {
+			taskUUID = parsed
+			attachments, attachmentsErr = deps.TeamStore.ListTaskAttachments(ctx, taskUUID)
+			if attachmentsErr != nil {
+				slog.Warn("teammate message: read task attachments failed", "task_id", taskUUID, "error", attachmentsErr)
+			}
+		}
+	}
+
+	var rejectedDeliverables []string
 	if outcome.Err != nil {
 		slog.Error("teammate message: agent run failed", "error", outcome.Err)
 		errMsg := outcome.Err.Error()
@@ -590,48 +608,122 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 			errMsg = errMsg[:500] + "..."
 		}
 		content = fmt.Sprintf("[FAILED] %s", errMsg)
+		// The run can fail after the member completed the task. The task stays
+		// completed and this is its only announce, so its files must still go out.
+		// declared is set only by a successful complete in this run.
+		media, rejectedDeliverables = mergeDeliverableMedia(nil, attachments, declared)
+		if len(media) > 0 {
+			content += "\n[The task was completed before this error. Its declared final files are attached to your reply.]"
+		}
 	} else if outcome.Result == nil {
 		slog.Warn("teammate message: nil result without error", "from", senderID)
 		return "", nil, false
-	} else if normalized, shouldDeliver := normalizeAgentOutboundContent(
-		outcome.Result.Content,
-		len(outcome.Result.Media),
-	); !shouldDeliver {
-		slog.Info("teammate message: suppressed silent/empty reply", "from", senderID)
-		return "", nil, false
 	} else {
+		media, rejectedDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments, declared)
+		normalized, shouldDeliver := normalizeAgentOutboundContent(outcome.Result.Content, len(media))
+		// Without the attachment list, a silent reply may still have declared files:
+		// announce anyway so the lead can check.
+		if !shouldDeliver && attachmentsErr == nil {
+			slog.Info("teammate message: suppressed silent/empty reply", "from", senderID)
+			return "", nil, false
+		}
 		content = normalized
-		media = outcome.Result.Media
 	}
 
 	// Append member comments & attachments so leader sees them in the announce.
-	if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" && deps.TeamStore != nil {
-		if taskUUID, err := uuid.Parse(taskIDStr); err == nil {
-			if comments, err := deps.TeamStore.ListRecentTaskComments(ctx, taskUUID, 5); err == nil && len(comments) > 0 {
-				var parts []string
-				for _, c := range comments {
-					author := c.AgentKey
-					if author == "" {
-						author = "system"
-					}
-					text := c.Content
-					if len([]rune(text)) > 500 {
-						text = string([]rune(text)[:500]) + "..."
-					}
-					parts = append(parts, fmt.Sprintf("- [%s]: %s", author, text))
+	if taskUUID != uuid.Nil {
+		if attachmentsErr != nil {
+			content += "\n[Could not read this task's attachments, so any declared final files are not attached. Check them with team_tasks(action=\"get\") and use send_file.]"
+		}
+		if comments, err := deps.TeamStore.ListRecentTaskComments(ctx, taskUUID, 5); err == nil && len(comments) > 0 {
+			var parts []string
+			for _, c := range comments {
+				author := c.AgentKey
+				if author == "" {
+					author = "system"
 				}
-				content += "\n\n[Member notes]\n" + strings.Join(parts, "\n")
-			}
-			if attachments, err := deps.TeamStore.ListTaskAttachments(ctx, taskUUID); err == nil && len(attachments) > 0 {
-				content += "\n\n[Attached files in team workspace]"
-				for _, a := range attachments {
-					content += "\n- " + filepath.Base(a.Path)
+				text := c.Content
+				if len([]rune(text)) > 500 {
+					text = string([]rune(text)[:500]) + "..."
 				}
+				parts = append(parts, fmt.Sprintf("- [%s]: %s", author, text))
 			}
+			content += "\n\n[Member notes]\n" + strings.Join(parts, "\n")
+		}
+		if len(attachments) > 0 {
+			content += "\n\n[Attached files in team workspace]"
+			for _, a := range attachments {
+				content += "\n- " + a.Path
+			}
+			if len(media) == 0 && outcome.Err == nil {
+				content += "\n[Member did not declare final files, so none are attached to your reply. Use send_file if any listed file should reach the user.]"
+			}
+		}
+		for _, path := range rejectedDeliverables {
+			content += "\n[Declared final file failed the delivery check and was not attached: " + path + "]"
 		}
 	}
 
 	return content, media, true
+}
+
+// mergeDeliverableMedia adds the deliverables this run declared to the media the
+// member queued through send_file, without duplicates. Tagged attachments that this
+// run did not declare are left out. Returns the paths it refused.
+func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamTaskAttachmentData, declared []string) ([]agent.MediaResult, []string) {
+	declaredHere := make(map[string]struct{}, len(declared))
+	for _, path := range declared {
+		declaredHere[path] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(queued))
+	media := make([]agent.MediaResult, 0, len(queued)+len(attachments))
+	for _, mr := range queued {
+		if _, dup := seen[mr.Path]; !dup {
+			seen[mr.Path] = struct{}{}
+			media = append(media, mr)
+		}
+	}
+
+	var rejected []string
+	for i := range attachments {
+		att := &attachments[i]
+		if !att.IsDeliverable() {
+			continue
+		}
+		if _, ok := declaredHere[att.Path]; !ok {
+			continue
+		}
+		if _, dup := seen[att.Path]; dup {
+			continue
+		}
+		seen[att.Path] = struct{}{}
+		if err := verifyDeliverableUnchanged(att.Path); err != nil {
+			slog.Warn("security.deliverable_rejected", "path", att.Path, "error", err)
+			rejected = append(rejected, att.Path)
+			continue
+		}
+		media = append(media, agent.MediaResult{Path: att.Path, ContentType: att.MimeType, Size: att.FileSize})
+	}
+	return media, rejected
+}
+
+// verifyDeliverableUnchanged is the last check before a file leaves for a channel.
+// The path was validated and stored in canonical form when the task was completed,
+// but the workspace stays writable until now: a sandboxed agent could swap the file
+// or a parent folder for a symlink to a host file the gateway can read. So the leaf
+// must still be a plain file, and resolving the path must still give the same path.
+func verifyDeliverableUnchanged(path string) error {
+	if err := tools.ValidateRegularFileForRead(path); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	if resolved != filepath.Clean(path) {
+		return fmt.Errorf("path now resolves to %s", resolved)
+	}
+	return nil
 }
 
 // resolveTeammateLeadAgent resolves the lead agent key for routing a teammate announce.

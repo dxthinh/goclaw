@@ -210,7 +210,13 @@ func (ch *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 
 	switch msg.Metadata["pancake_mode"] {
 	case "comment":
-		return ch.sendCommentReply(ctx, msg)
+		// Comment replies are text-only. Report attachments as undelivered
+		// instead of dropping them silently.
+		failed := channels.AllMediaFailed(msg.Media, channels.ErrMediaUnsupported)
+		if msg.Content == "" {
+			return channels.MediaDeliveryResult(msg.Media, failed, nil)
+		}
+		return channels.MediaDeliveryResult(msg.Media, failed, ch.sendCommentReply(ctx, msg))
 	default: // "inbox" or unset — existing behavior
 		return ch.sendInboxReply(ctx, msg)
 	}
@@ -222,21 +228,17 @@ func (ch *Channel) sendInboxReply(ctx context.Context, msg bus.OutboundMessage) 
 	text := FormatOutbound(msg.Content, ch.platform)
 
 	// Handle media attachments.
-	attachmentIDs, err := ch.handleMediaAttachments(ctx, msg)
-	if err != nil {
-		slog.Warn("pancake: media upload failed, sending text only",
-			"page_id", ch.pageID, "err", err)
-	}
+	attachmentIDs, failed := ch.handleMediaAttachments(ctx, msg)
 
 	// Deliver uploaded media first, then follow with text chunks if needed.
 	if len(attachmentIDs) > 0 {
 		if err := ch.apiClient.SendAttachmentMessage(ctx, conversationID, attachmentIDs); err != nil {
 			ch.handleAPIError(err)
-			return err
+			failed = channels.AllMediaFailed(msg.Media, err)
 		}
-		if text == "" {
-			return nil
-		}
+	}
+	if text == "" {
+		return channels.MediaDeliveryResult(msg.Media, failed, nil)
 	}
 
 	// Text-only: split into platform-appropriate chunks.
@@ -250,10 +252,10 @@ func (ch *Channel) sendInboxReply(ctx context.Context, msg bus.OutboundMessage) 
 		if err := ch.apiClient.SendMessage(ctx, conversationID, part); err != nil {
 			ch.handleAPIError(err)
 			ch.forgetOutboundEcho(conversationID, part)
-			return err
+			return channels.MediaDeliveryResult(msg.Media, failed, err)
 		}
 	}
-	return nil
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
 }
 
 // sendCommentReply posts a public reply to a comment and optionally sends a

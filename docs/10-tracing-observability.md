@@ -63,6 +63,24 @@ flowchart TD
     AGENT --> LLM3["LLM Call Span 3"]
 ```
 
+### Delivery Records
+
+Attachments upload after the run ends, so a failed upload cannot show up as a tool
+error. Each outbound attachment is recorded on the producing run instead
+(`cmd/gateway_delivery_recorder.go`):
+
+- A `run_timeline_items` row with `item_type="delivery"`, `status` `completed` or
+  `failed`, the file name as `title`, the error as `preview`, and `metadata`
+  holding `path`, `content_type`, `attempts` and `error`. These rows use `seq`
+  values from `RunTimelineDeliverySeqBase` (1,000,000) upward, so they sort after
+  the run's own events and cannot collide with a late `run.completed` write.
+- An `event` span named `delivery` on the run's trace, when tracing is on.
+- On failure, a `[System]` note in the session, so the agent knows on its next turn.
+
+The link travels in `OutboundMessage.Metadata` (`delivery_run_id`,
+`delivery_session_key`, `delivery_trace_id`). Run IDs of announce, subagent-announce
+and cron runs carry a unique suffix so that each execution has its own timeline.
+
 ### Token Aggregation
 
 Token counts are aggregated **only from `llm_call` spans** (not `agent` spans) to avoid double-counting. The `BatchUpdateTraceAggregates()` method sums `input_tokens` and `output_tokens` from spans where `span_type = 'llm_call'` and writes the totals to the parent trace record.

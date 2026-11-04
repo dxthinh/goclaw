@@ -1,10 +1,13 @@
 package mcp
 
 import (
+	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
+	mcpclient "github.com/mark3labs/mcp-go/client"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -544,5 +547,24 @@ func TestStripEmptyOptionalArgs_KeepsAllCapsBusinessCode(t *testing.T) {
 	}
 	if _, ok := cleaned["note"]; ok {
 		t.Error("multi-word all-caps placeholder should still be stripped")
+	}
+}
+
+// Both failures happen before a request is sent, so repeating them cannot run the
+// tool twice.
+func TestBridgeToolPreRequestFailuresAreRetryable(t *testing.T) {
+	var clientPtr atomic.Pointer[mcpclient.Client]
+	var connected atomic.Bool
+	tool := NewBridgeTool("srv", mcpgo.Tool{Name: "t"}, &clientPtr, "", 5, &connected, uuid.New(), nil)
+
+	disconnected := tool.Execute(context.Background(), map[string]any{})
+	if !disconnected.IsError || !disconnected.Retryable {
+		t.Fatalf("disconnected result = %+v", disconnected)
+	}
+
+	connected.Store(true)
+	noClient := tool.Execute(context.Background(), map[string]any{})
+	if !noClient.IsError || !noClient.Retryable {
+		t.Fatalf("no-client result = %+v", noClient)
 	}
 }

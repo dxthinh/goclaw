@@ -296,7 +296,7 @@ func (l *Loop) emitToolSpanStart(ctx context.Context, start time.Time, toolName,
 // emitToolSpanEnd finalizes a running tool span with execution results.
 // Uses EmitSpanUpdate (channel send) — safe after ctx cancellation.
 // Goroutine-safe: only does a channel send via EmitSpanUpdate.
-func (l *Loop) emitToolSpanEnd(ctx context.Context, spanID uuid.UUID, start time.Time, result *tools.Result) {
+func (l *Loop) emitToolSpanEnd(ctx context.Context, spanID uuid.UUID, start time.Time, result *tools.Result, retries toolRetries) {
 	if spanID == uuid.Nil {
 		return // tracing disabled
 	}
@@ -350,6 +350,18 @@ func (l *Loop) emitToolSpanEnd(ctx context.Context, spanID uuid.UUID, start time
 		model := result.Model
 		if cost := l.calculateLLMCost(ctx, provider, model, result.Usage); cost > 0 {
 			updates["total_cost"] = cost
+		}
+	}
+
+	if retries.attempts > 1 {
+		meta := map[string]any{}
+		if raw, ok := updates["metadata"].([]byte); ok {
+			_ = json.Unmarshal(raw, &meta)
+		}
+		meta["attempts"] = retries.attempts
+		meta["retry_errors"] = retries.errors
+		if b, err := json.Marshal(meta); err == nil {
+			updates["metadata"] = b
 		}
 	}
 

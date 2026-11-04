@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 )
 
 const (
@@ -31,6 +32,7 @@ type telegramMediaSendItem struct {
 	followUpText string
 	groupable    bool
 	asVoice      bool
+	carriesText  bool // caption or followUpText holds the message body, not a per-file caption
 }
 
 type telegramMediaChunk struct {
@@ -38,18 +40,24 @@ type telegramMediaChunk struct {
 	grouped bool
 }
 
-func (c *Channel) prepareTelegramMediaItems(msg bus.OutboundMessage) ([]telegramMediaSendItem, error) {
+// prepareTelegramMediaItems builds the send list. Files Telegram would reject are
+// returned as failures without blocking the others. The message body rides on the
+// first sendable file; if there is none, it is returned as leftoverText (HTML).
+func (c *Channel) prepareTelegramMediaItems(msg bus.OutboundMessage) (items []telegramMediaSendItem, failed []channels.MediaFailure, leftoverText string) {
 	content := msg.Content
-	items := make([]telegramMediaSendItem, 0, len(msg.Media))
+	items = make([]telegramMediaSendItem, 0, len(msg.Media))
 	for _, media := range msg.Media {
 		if err := c.validateOutboundMediaSize(media.URL); err != nil {
-			return nil, err
+			failed = append(failed, channels.MediaFailure{Media: media, Err: err})
+			continue
 		}
 
 		caption := media.Caption
+		carriesText := false
 		if caption == "" && content != "" {
 			caption = content
 			content = ""
+			carriesText = true
 		}
 
 		var followUpText string
@@ -69,9 +77,24 @@ func (c *Channel) prepareTelegramMediaItems(msg bus.OutboundMessage) ([]telegram
 			followUpText: followUpText,
 			groupable:    groupable,
 			asVoice:      asVoice,
+			carriesText:  carriesText,
 		})
 	}
-	return items, nil
+	if content != "" {
+		leftoverText = markdownToTelegramHTML(content)
+	}
+	return items, failed, leftoverText
+}
+
+// undeliveredText returns the message body stranded by this item's failed send.
+func (item telegramMediaSendItem) undeliveredText() string {
+	if !item.carriesText {
+		return ""
+	}
+	if item.followUpText != "" {
+		return item.followUpText
+	}
+	return item.caption
 }
 
 func classifyTelegramOutboundMedia(media bus.MediaAttachment, metadata map[string]string) (telegramMediaKind, bool, bool) {

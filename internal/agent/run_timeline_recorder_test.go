@@ -17,6 +17,10 @@ type recordingTimelineStore struct {
 	items []store.RunTimelineItem
 }
 
+func (s *recordingTimelineStore) AppendRunTimelineItemNextSeq(ctx context.Context, item *store.RunTimelineItem) error {
+	return s.AppendRunTimelineItem(ctx, item)
+}
+
 func (s *recordingTimelineStore) AppendRunTimelineItem(_ context.Context, item *store.RunTimelineItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

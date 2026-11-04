@@ -43,7 +43,10 @@
       "toolResult": "tool result",
       "trace": "trace",
       "activity": "activity",
-      "failed": "failed"
+      "failed": "failed",
+      "delivery": "file delivered",
+      "deliveryFailed": "file not delivered",
+      "attempts": "{{count}} attempts"
     }
   },
   "toast": {

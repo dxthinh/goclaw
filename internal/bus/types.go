@@ -59,6 +59,16 @@ const (
 	MetaForwardOriginChatID  = "forward_origin_chat_id"
 )
 
+// Metadata keys tying an outbound message with attachments back to the agent run
+// that produced it. The dispatcher records each attachment's delivery outcome
+// against this run after the run itself has finished.
+const (
+	MetaDeliveryRunID      = "delivery_run_id"
+	MetaDeliverySessionKey = "delivery_session_key"
+	MetaDeliveryTraceID    = "delivery_trace_id"
+	MetaDeliveryUserID     = "delivery_user_id"
+)
+
 // MediaAttachment represents a media file to be sent with a message.
 type MediaAttachment struct {
 	URL         string `json:"url"`                    // file path or URL

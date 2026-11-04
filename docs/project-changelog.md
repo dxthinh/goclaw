@@ -4,6 +4,32 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+## 2026-11-04
+
+### Guaranteed delivery of team task files
+
+**Features**
+
+- `team_tasks(action="complete")` accepts `deliverables`, the final files for the
+  user. The completion announce attaches them to the lead's reply with no tool call.
+- Web UI Run timeline shows a `delivery` item per file, with attempts and error.
+- Tools can mark errors `Retryable`; `web_fetch`, `web_search` and MCP tools (when
+  disconnected) now retry transient failures.
+
+**Fixes**
+
+- Channels no longer report success when an upload fails. Zalo Personal, Feishu,
+  Slack, Bitrix24, Pancake, WhatsApp and Telegram return per-file failures.
+- Transient upload failures are retried without re-sending text; lasting failures
+  notify the chat and are recorded on the run's timeline and trace.
+- In assigned tasks, generated media is no longer sent automatically as a draft.
+- Slack no longer drops attachments on media-only messages or when a placeholder is
+  edited. Facebook, Zalo OA and Pancake comments report attachments as unsupported
+  instead of dropping them. Webhook sends to these channels now return an error.
+- Announce, subagent-announce and cron runs get unique run IDs, so their timelines
+  no longer mix between executions.
+- `send_file` reports "Queued" rather than "Sent".
+
 ## 2026-07-08
 
 ### Passive memory extraction tuning

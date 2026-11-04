@@ -81,6 +81,7 @@ type Manager struct {
 	mu               sync.RWMutex
 	contactCollector *store.ContactCollector
 	systemMessages   *systemmessages.Resolver
+	deliveryRecorder DeliveryRecorder
 }
 
 type asyncTask struct {

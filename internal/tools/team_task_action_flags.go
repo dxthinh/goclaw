@@ -15,6 +15,11 @@ type TaskActionFlags struct {
 	Progressed bool // team_tasks(action="progress")
 	Commented  bool // team_tasks(action="comment")
 	Claimed    bool // team_tasks(action="claim")
+
+	// Deliverables holds the canonical paths this run declared as final files for
+	// its own task. The run's announce sends these and nothing else, so files
+	// declared by an earlier run of the same task are never sent again.
+	Deliverables []string
 }
 
 // HasAny returns true if the member interacted with the task system at all.

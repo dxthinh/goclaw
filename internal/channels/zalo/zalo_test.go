@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 )
 
@@ -550,5 +552,31 @@ func TestZaloAPIResponse_Roundtrip(t *testing.T) {
 	}
 	if !got.OK {
 		t.Error("OK field lost in round-trip")
+	}
+}
+
+// The OA API cannot send local files: Send must report them as undelivered rather
+// than return success, and the text must still go out.
+func TestSend_LocalMediaReportedAsUnsupported(t *testing.T) {
+	sends := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sends++
+		_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
+	}))
+	defer srv.Close()
+	ch := newTestChannel(t, srv.URL)
+
+	err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "user-7",
+		Content: "hello",
+		Media:   []bus.MediaAttachment{{URL: "/tmp/a.png"}},
+	})
+
+	mde, ok := channels.AsMediaDeliveryError(err)
+	if !ok || len(mde.Failed) != 1 || !errors.Is(err, channels.ErrMediaUnsupported) {
+		t.Fatalf("Send error = %v, want unsupported media failure", err)
+	}
+	if sends != 1 {
+		t.Fatalf("text sends = %d, want 1", sends)
 	}
 }

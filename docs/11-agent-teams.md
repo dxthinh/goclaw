@@ -144,7 +144,7 @@ flowchart TD
 |--------|-------------|-------------|
 | `create` | Create task with subject, description, priority, assignee, blocked_by | Lead/Admin |
 | `claim` | Atomically claim a pending task | Members |
-| `complete` | Mark task done with result summary | Members/Agents |
+| `complete` | Mark task done with result summary and optional `deliverables` (final file paths to send to the user) | Members/Agents |
 | `approve` | Approve completed task (human-in-the-loop) | Admin/Human |
 | `reject` | Reject task with reason, mark as cancelled, inject message to lead | Admin/Human |
 | `cancel` | Cancel task with reason | Lead |
@@ -301,6 +301,40 @@ Workspace files can be attached to tasks:
 - Auto-links files created during task execution
 - Metadata captures which agent/user attached the file
 
+#### Task Deliverables
+
+`team_tasks(action="complete", deliverables=[...])` declares which files are the
+final output for the user. This is what decides delivery, not what the member's
+tools happened to produce:
+
+- Only the task owner or the team lead can declare deliverables. This does not change
+  who can complete a task.
+- Deliverables can only be declared from the member run working on that task, since
+  that run's announce is what sends them. A call from anywhere else, such as a lead
+  run, is rejected before the task changes, and the model is told to use `send_file`.
+- Paths are validated like `send_file` (inside the workspace, not an internal file,
+  regular, not a hardlink, non-empty). One bad path rejects the call and the task
+  stays open, so the model can correct it.
+- Valid files are tagged `metadata.role="deliverable"` in `team_task_attachments`,
+  including files already attached automatically. Only `MarkTaskDeliverables` writes
+  this tag.
+- Right before sending, each file is checked again. If it or a parent folder was
+  swapped for a symlink or hardlink since validation, it is not sent, a
+  `security.deliverable_rejected` line is logged, and the announce tells the lead.
+- The completion announce attaches deliverables and any `send_file` files to the
+  lead's reply automatically. The lead needs no tool call. Deliverables still go out
+  if the run fails after the task was completed.
+- An announce sends only the files its own run declared. Files declared by an
+  earlier run of the same task, for example before a retry, are not sent again.
+- If the attachment list cannot be read, the announce says so, so the lead can check
+  the task.
+- In a run with an assigned task, `create_image`, `create_video`, `create_audio` and
+  `tts` output is attached to the task but not sent, since it may be a draft. Chat
+  runs outside a task still send it automatically. Images a model generates natively,
+  without a tool, are still sent: the member has no path to declare for them.
+- With nothing declared and nothing sent, no file goes out. The announce lists the
+  attachment paths and tells the lead, who can use `send_file`.
+
 ### Review Workflow
 
 Tasks can require human approval before final completion. When creating a task, pass `require_approval: true`:
@@ -447,7 +481,7 @@ Each dispatched task includes in its message to the member:
 - Task number, ID, subject, and description
 - Team workspace path (if configured)
 - List of attached files (from task metadata)
-- Instructions for available actions: progress, comment, blocker, complete
+- Instructions for available actions: progress, comment, blocker, complete (with `deliverables`)
 - Completed blocker results (for unblocked tasks)
 - Recent comments (for re-dispatched tasks after reject/retry)
 

@@ -81,11 +81,13 @@ func (l *Loop) makeExecuteToolCall(req *RunRequest, bridgeRS *runState) func(ctx
 		if actorUserID == "" {
 			actorUserID = resolveActorUserID(req.UserID, req.SenderID, req.PeerKind, req.ChannelType)
 		}
-		result := l.executeToolForActor(ctx, registryName, tc.Arguments,
-			req.Channel, req.ChatID, req.PeerKind, req.SessionKey, actorUserID)
+		result, retries := executeWithTransientRetry(ctx, registryName, func() *tools.Result {
+			return l.executeToolForActor(ctx, registryName, tc.Arguments,
+				req.Channel, req.ChatID, req.PeerKind, req.SessionKey, actorUserID)
+		})
 		toolDuration := time.Since(toolStart)
 
-		l.emitToolSpanEnd(ctx, toolSpanID, toolStart, result)
+		l.emitToolSpanEnd(ctx, toolSpanID, toolStart, result, retries)
 		l.recordToolCallUsage(ctx, state, registryName, result)
 		l.recordToolUsageEvent(ctx, req, registryName, tc.Name, tc.ID, tc.Arguments, toolStart, result, toolSpanID)
 
@@ -157,12 +159,14 @@ func (l *Loop) makeExecuteToolRaw(req *RunRequest) func(ctx context.Context, tc 
 		if actorUserID == "" {
 			actorUserID = resolveActorUserID(req.UserID, req.SenderID, req.PeerKind, req.ChannelType)
 		}
-		result := l.executeToolForActor(ctx, registryName, tc.Arguments,
-			req.Channel, req.ChatID, req.PeerKind, req.SessionKey, actorUserID)
+		result, retries := executeWithTransientRetry(ctx, registryName, func() *tools.Result {
+			return l.executeToolForActor(ctx, registryName, tc.Arguments,
+				req.Channel, req.ChatID, req.PeerKind, req.SessionKey, actorUserID)
+		})
 		dur := time.Since(start)
 
 		// Emit tool span end inside goroutine to prevent orphaned spans on ctx cancellation.
-		l.emitToolSpanEnd(ctx, spanID, start, result)
+		l.emitToolSpanEnd(ctx, spanID, start, result, retries)
 
 		msg := providers.Message{
 			Role:       "tool",

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -146,6 +147,9 @@ func (b *baseNoopTeamStore) ListTeamEvents(_ context.Context, _ uuid.UUID, _, _ 
 }
 func (b *baseNoopTeamStore) AttachFileToTask(_ context.Context, _ *store.TeamTaskAttachmentData) error {
 	return fmt.Errorf("not implemented: AttachFileToTask")
+}
+func (b *baseNoopTeamStore) MarkTaskDeliverables(_ context.Context, _ []*store.TeamTaskAttachmentData) error {
+	return fmt.Errorf("not implemented: MarkTaskDeliverables")
 }
 func (b *baseNoopTeamStore) GetAttachment(_ context.Context, _ uuid.UUID) (*store.TeamTaskAttachmentData, error) {
 	return nil, fmt.Errorf("not implemented: GetAttachment")
@@ -642,6 +646,26 @@ func (s *mockTaskStore) ListTaskEvents(_ context.Context, taskID uuid.UUID) ([]s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.events[taskID], nil
+}
+
+func (s *mockTaskStore) MarkTaskDeliverables(_ context.Context, atts []*store.TeamTaskAttachmentData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, att := range atts {
+		att.Metadata = json.RawMessage(store.TaskAttachmentDeliverableMetadata)
+		existing := s.attachments[att.TaskID]
+		found := false
+		for i := range existing {
+			if existing[i].Path == att.Path {
+				existing[i].Metadata = att.Metadata
+				found = true
+			}
+		}
+		if !found {
+			s.attachments[att.TaskID] = append(existing, *att)
+		}
+	}
+	return nil
 }
 
 func (s *mockTaskStore) AttachFileToTask(_ context.Context, att *store.TeamTaskAttachmentData) error {

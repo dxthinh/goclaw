@@ -160,6 +160,58 @@ func (s *PGTeamStore) ListTeamEvents(ctx context.Context, teamID uuid.UUID, limi
 // Attachments (path-based, no FK to workspace files)
 // ============================================================
 
+// MarkTaskDeliverables implements store.TeamStore. It upserts rather than inserts
+// because AttachFileToTask's DO NOTHING would leave auto-attached files untagged.
+func (s *PGTeamStore) MarkTaskDeliverables(ctx context.Context, atts []*store.TeamTaskAttachmentData) error {
+	if len(atts) == 0 {
+		return nil
+	}
+	tid := tenantIDForInsert(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after commit
+
+	inserted := 0
+	for _, att := range atts {
+		if att.ID == uuid.Nil {
+			att.ID = store.GenNewID()
+		}
+		att.CreatedAt = time.Now()
+		att.Metadata = json.RawMessage(store.TaskAttachmentDeliverableMetadata)
+
+		var isInsert bool
+		err := tx.QueryRowContext(ctx,
+			`INSERT INTO team_task_attachments (id, task_id, team_id, chat_id, path, file_size, mime_type, created_by_agent_id, created_by_sender_id, metadata, created_at, tenant_id)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			 ON CONFLICT (task_id, path) DO UPDATE SET
+			  metadata = team_task_attachments.metadata || EXCLUDED.metadata,
+			  file_size = EXCLUDED.file_size
+			 WHERE team_task_attachments.tenant_id = EXCLUDED.tenant_id
+			 RETURNING (xmax = 0)`,
+			att.ID, att.TaskID, att.TeamID, att.ChatID, att.Path,
+			att.FileSize, att.MimeType, att.CreatedByAgentID,
+			sql.NullString{String: att.CreatedBySenderID, Valid: att.CreatedBySenderID != ""},
+			att.Metadata, att.CreatedAt, tid,
+		).Scan(&isInsert)
+		if err != nil {
+			return err
+		}
+		if isInsert {
+			inserted++
+		}
+	}
+	if inserted > 0 {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE team_tasks SET attachment_count = attachment_count + $1 WHERE id = $2 AND tenant_id = $3`,
+			inserted, atts[0].TaskID, tid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *PGTeamStore) AttachFileToTask(ctx context.Context, att *store.TeamTaskAttachmentData) error {
 	if att.ID == uuid.Nil {
 		att.ID = store.GenNewID()

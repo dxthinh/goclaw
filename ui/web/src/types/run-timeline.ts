@@ -3,7 +3,8 @@ export type RunTimelineItemType =
   | "assistant.message"
   | "tool.call"
   | "tool.result"
-  | "run.status";
+  | "run.status"
+  | "delivery";
 
 export interface RunTimelineItem {
   id: string;

@@ -48,6 +48,11 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Result summary (required for complete)",
 			},
+			"deliverables": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Exact paths of the final files to deliver to the user (for complete). Include files produced by exec or post-processing. Do not list drafts or intermediate files: listed files are sent as they are, and unlisted files are not sent.",
+			},
 			"text": map[string]any{
 				"type":        "string",
 				"description": "Text content: comment text, cancel/reject reason, progress update, or ask_user reminder question (must be a question asking the user for input/decision)",

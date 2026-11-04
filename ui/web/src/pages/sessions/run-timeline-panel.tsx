@@ -9,6 +9,7 @@ import {
   Clock,
   ExternalLink,
   MessageSquareText,
+  Paperclip,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -72,6 +73,9 @@ export function RunTimelinePanel({ items, loading }: RunTimelinePanelProps) {
                   )}
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{formatDate(item.created_at)}</span>
+                    {getDeliveryAttempts(item) > 1 && (
+                      <span>{t("detail.timeline.attempts", { count: getDeliveryAttempts(item) })}</span>
+                    )}
                     {item.tool_call_id && <span>{item.tool_call_id}</span>}
                     {item.trace_id && (
                       <Button asChild variant="ghost" size="sm" className="h-6 gap-1 px-1 text-xs">
@@ -94,6 +98,20 @@ export function RunTimelinePanel({ items, loading }: RunTimelinePanelProps) {
 }
 
 export function getRunTimelineDisplay(item: Pick<RunTimelineItem, "item_type" | "status">) {
+  if (item.item_type === "delivery" && item.status === "failed") {
+    return {
+      icon: Paperclip,
+      dotClass: "bg-destructive/10 text-destructive",
+      labelKey: "detail.timeline.deliveryFailed",
+    };
+  }
+  if (item.item_type === "delivery") {
+    return {
+      icon: Paperclip,
+      dotClass: statusDotClass(item.status),
+      labelKey: "detail.timeline.delivery",
+    };
+  }
   if (item.status === "failed") {
     return {
       icon: XCircle,
@@ -127,6 +145,12 @@ export function getRunTimelineDisplay(item: Pick<RunTimelineItem, "item_type" | 
     dotClass: statusDotClass(item.status),
     labelKey: "detail.timeline.runStatus",
   };
+}
+
+export function getDeliveryAttempts(item: Pick<RunTimelineItem, "item_type" | "metadata">): number {
+  if (item.item_type !== "delivery") return 0;
+  const attempts = item.metadata?.attempts;
+  return typeof attempts === "number" ? attempts : 0;
 }
 
 function statusDotClass(status: RunTimelineItem["status"]) {
