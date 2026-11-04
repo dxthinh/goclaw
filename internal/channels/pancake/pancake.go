@@ -234,7 +234,7 @@ func (ch *Channel) sendInboxReply(ctx context.Context, msg bus.OutboundMessage) 
 	if len(attachmentIDs) > 0 {
 		if err := ch.apiClient.SendAttachmentMessage(ctx, conversationID, attachmentIDs); err != nil {
 			ch.handleAPIError(err)
-			return err
+			failed = channels.AllMediaFailed(msg.Media, err)
 		}
 	}
 	if text == "" {

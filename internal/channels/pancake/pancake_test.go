@@ -1307,3 +1307,50 @@ func TestSend_CommentModeReportsMediaAsUnsupported(t *testing.T) {
 		t.Fatalf("Send error = %v, want unsupported media failure", err)
 	}
 }
+
+// failingAttachmentTransport accepts uploads and text but rejects attachment messages.
+type failingAttachmentTransport struct{ uploadAwareTransport }
+
+func (t failingAttachmentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.uploadAwareTransport.RoundTrip(req)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err == nil && bytes.Contains(t.bodies[len(t.bodies)-1], []byte("content_ids")) {
+		resp.StatusCode = http.StatusServiceUnavailable
+		resp.Body = io.NopCloser(strings.NewReader(`{"success":false}`))
+	}
+	return resp, err
+}
+
+// Uploaded files whose attachment message fails must stay retryable, and the text
+// must still go out.
+func TestSend_InboxAttachmentMessageFailureKeepsText(t *testing.T) {
+	ch, transport := newChannelWithMultiCapture(t, pancakeInstanceConfig{})
+	ch.apiClient.httpClient = &http.Client{Transport: failingAttachmentTransport{uploadAwareTransport{transport}}}
+	file := filepath.Join(t.TempDir(), "file.png")
+	if err := os.WriteFile(file, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "conv-123",
+		Content: "see attached",
+		Media:   []bus.MediaAttachment{{URL: file}},
+	})
+
+	mde, ok := channels.AsMediaDeliveryError(err)
+	if !ok || len(mde.Failed) != 1 || mde.TextErr != nil {
+		t.Fatalf("Send error = %v, want the file failed and the text sent", err)
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	sawText := false
+	for _, body := range transport.bodies {
+		if strings.Contains(string(body), "see attached") {
+			sawText = true
+		}
+	}
+	if !sawText {
+		t.Fatal("text was not sent")
+	}
+}

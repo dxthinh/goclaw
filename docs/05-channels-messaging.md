@@ -132,8 +132,10 @@ happens after the reply. The outcome of each attachment is settled in
   `*channels.MediaDeliveryError` listing the files that failed, instead of logging
   and returning success. Files not listed were delivered. Zalo Personal, Feishu,
   Slack, Bitrix24, Pancake, WhatsApp and Telegram do this. For Telegram, a failed
-  album chunk counts as failed for all its files. Discord sends all files in one
-  request, so its failure applies to the whole message and is not retried.
+  album chunk counts as failed for all its files. Text and attachments do not block
+  each other: a failed text send still attempts the files, and the reverse. Discord
+  sends all files in one request, so its failure applies to the whole message and is
+  not retried.
 - **Text-only channels.** Zalo OA, Facebook and Pancake comment replies report
   attachments as failed with `ErrMediaUnsupported` rather than dropping them.
 - **Retry.** Files that failed with a transient error (network, timeout, rate limit,
