@@ -91,8 +91,15 @@ func TestDeliverOutbound_RetriesOnlyFailedMediaWithoutText(t *testing.T) {
 
 	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
 		Channel: "zp", ChatID: "c1", Content: "done",
-		Media:    []bus.MediaAttachment{{URL: "/a.png"}, {URL: "/b.png"}},
-		Metadata: map[string]string{"local_key": "lk", "reply_to_message_id": "9"},
+		Media: []bus.MediaAttachment{{URL: "/a.png"}, {URL: "/b.png"}},
+		Metadata: map[string]string{
+			"local_key":              "lk",
+			"group_id":               "g1",
+			"feishu_reply_target_id": "om_1",
+			"bitrix_visibility":      "whisper",
+			"reply_to_message_id":    "9",
+			"placeholder_key":        "ph",
+		},
 	})
 
 	if len(ch.sends) != 2 {
@@ -102,8 +109,15 @@ func TestDeliverOutbound_RetriesOnlyFailedMediaWithoutText(t *testing.T) {
 	if retry.Content != "" || len(retry.Media) != 1 || retry.Media[0].URL != "/b.png" {
 		t.Fatalf("retry must carry only the failed file and no text: %+v", retry)
 	}
-	if retry.Metadata["reply_to_message_id"] != "" || retry.Metadata["local_key"] != "lk" {
-		t.Fatalf("retry metadata = %v", retry.Metadata)
+	// The retry must reach the same thread, group and visibility as the first send,
+	// without repeating first-send side effects.
+	for key, want := range map[string]string{
+		"local_key": "lk", "group_id": "g1", "feishu_reply_target_id": "om_1", "bitrix_visibility": "whisper",
+		"reply_to_message_id": "", "placeholder_key": "",
+	} {
+		if got := retry.Metadata[key]; got != want {
+			t.Errorf("retry metadata %s = %q, want %q", key, got, want)
+		}
 	}
 	if got := rec.outcomes["/a.png"]; got.Attempts != 1 || got.Err != nil {
 		t.Fatalf("/a.png outcome = %+v", got)
@@ -271,5 +285,39 @@ func TestDeliverOutbound_UnknownChannelRecordsFiles(t *testing.T) {
 
 	if got := rec.outcomes["/a.png"]; !errors.Is(got.Err, errChannelNotRegistered) || got.Attempts != 0 {
 		t.Fatalf("outcome = %+v, want a not-registered failure with no attempt", got)
+	}
+}
+
+func TestDeliverOutbound_NoticeKeepsRouting(t *testing.T) {
+	noBackoff(t)
+	mgr, ch, _ := newDeliveryFixture(failMedia(errors.New("file is too big"), "/a.png"))
+
+	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
+		Channel: "zp", ChatID: "c1",
+		Media:    []bus.MediaAttachment{{URL: "/a.png"}},
+		Metadata: map[string]string{"group_id": "g1", "reply_to_message_id": "9"},
+	})
+
+	notice := ch.sends[len(ch.sends)-1]
+	if notice.Metadata["group_id"] != "g1" || notice.Metadata["reply_to_message_id"] != "" {
+		t.Fatalf("notice metadata = %v", notice.Metadata)
+	}
+}
+
+func TestDeliverOutbound_NoNoticeUnderPublicComment(t *testing.T) {
+	noBackoff(t)
+	mgr, ch, rec := newDeliveryFixture(failMedia(ErrMediaUnsupported, "/a.png"))
+
+	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
+		Channel: "zp", ChatID: "c1", Content: "reply",
+		Media:    []bus.MediaAttachment{{URL: "/a.png"}},
+		Metadata: map[string]string{"reply_to_comment_id": "cmt-1"},
+	})
+
+	if len(ch.sends) != 1 {
+		t.Fatalf("sends = %+v, want no notice under a comment", ch.sends)
+	}
+	if rec.outcomes["/a.png"].Err == nil {
+		t.Fatal("the failure must still be recorded")
 	}
 }

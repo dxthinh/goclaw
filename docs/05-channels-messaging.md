@@ -142,7 +142,8 @@ happens after the reply. The outcome of each attachment is settled in
   order, so other chats on that shard can wait up to 13s. There is no retry when the
   channel's health is `failed`.
 - **Failure notice.** Files still undelivered after that trigger one notice in the
-  chat through `handleSendFailure`.
+  chat through `handleSendFailure`, in the same thread or group. Public comment
+  replies get no notice; the failure stays in the log and the delivery record.
 - **Record.** Every outcome is recorded against the producing run, see
   [Tracing](./10-tracing-observability.md#delivery-records).
 

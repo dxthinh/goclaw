@@ -182,14 +182,12 @@ func (m *Manager) retryFailedMedia(ctx context.Context, channel Channel, msg bus
 	return attempts
 }
 
-// mediaRetryMeta keeps routing fields plus what changes how a file is rendered.
-// Reply and placeholder fields already served the first Send.
+// mediaRetryMeta keeps routing fields, so the file lands in the same thread, group
+// and visibility as the first Send, plus what changes how a file is rendered. Reply
+// and placeholder fields already served the first Send.
 func mediaRetryMeta(orig map[string]string) map[string]string {
-	meta := sendErrorMeta(orig)
+	meta := CopyFollowupRoutingMeta(orig)
 	if v := orig["audio_as_voice"]; v != "" {
-		if meta == nil {
-			meta = make(map[string]string, 1)
-		}
 		meta["audio_as_voice"] = v
 	}
 	return meta

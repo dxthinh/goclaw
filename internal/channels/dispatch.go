@@ -277,7 +277,9 @@ func (m *Manager) handleSendFailure(sendCtx context.Context, channel Channel, ms
 		return
 	}
 
-	if len(msg.Media) > 0 {
+	// A comment reply is public: a delivery notice has no place under a customer's
+	// comment. The failure stays in the log and the delivery record.
+	if len(msg.Media) > 0 && msg.Metadata["reply_to_comment_id"] == "" {
 		notifyMsg := bus.OutboundMessage{
 			Channel:  msg.Channel,
 			ChatID:   msg.ChatID,
@@ -466,19 +468,11 @@ func formatChannelSendError(err error) string {
 	return "⚠️ Failed to deliver message. Check bot logs for details."
 }
 
-// sendErrorMeta copies only the routing fields from outbound metadata.
-// Strips reply_to_message_id, placeholder_key, audio_as_voice, etc.
-// that could cause unintended side effects on the error notification.
+// sendErrorMeta copies only the routing fields from outbound metadata, so the notice
+// lands where the message was going. Strips reply_to_message_id, placeholder_key,
+// audio_as_voice, etc. that could cause unintended side effects on the notification.
 func sendErrorMeta(orig map[string]string) map[string]string {
-	if orig == nil {
-		return nil
-	}
-	meta := make(map[string]string)
-	for _, k := range []string{"local_key", "message_thread_id"} {
-		if v := orig[k]; v != "" {
-			meta[k] = v
-		}
-	}
+	meta := CopyFollowupRoutingMeta(orig)
 	if len(meta) == 0 {
 		return nil
 	}
