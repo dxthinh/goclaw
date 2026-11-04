@@ -11,9 +11,47 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
+// deferImagesToReadImage reports whether user images stay out of the main request
+// and are reached only through the read_image tool (file-ref mode).
+//
+// settings.image_input forces either mode. Without it, a configured read_image
+// provider alone no longer disables inline images: file-ref remains only for main
+// providers that lack vision or do not declare it, which is why that mode exists.
+func (l *Loop) deferImagesToReadImage() bool {
+	switch l.readImageInputMode() {
+	case readImageInputInline:
+		return false
+	case readImageInputFileRef:
+		return true
+	}
+	if !l.hasReadImageProvider() {
+		return false
+	}
+	aware, ok := l.provider.(providers.CapabilitiesAware)
+	return !ok || !aware.Capabilities().Vision
+}
+
+const (
+	readImageInputInline  = "inline"
+	readImageInputFileRef = "file_ref"
+)
+
+// readImageInputMode returns the explicit settings.image_input of read_image, if any.
+func (l *Loop) readImageInputMode() string {
+	raw, ok := l.builtinToolSettings["read_image"]
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	var settings struct {
+		ImageInput string `json:"image_input"`
+	}
+	if json.Unmarshal(raw, &settings) != nil {
+		return ""
+	}
+	return settings.ImageInput
+}
+
 // hasReadImageProvider checks if the read_image builtin tool has a dedicated provider configured.
-// When true, images should NOT be attached inline to the main LLM — instead the agent
-// uses the read_image tool which routes to the configured vision provider.
 // Supports both legacy flat format {"provider":"X"} and chain format {"providers":[...]}.
 func (l *Loop) hasReadImageProvider() bool {
 	if l.builtinToolSettings == nil {

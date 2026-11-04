@@ -51,10 +51,10 @@ func collectRefsByKind(messages []providers.Message, currentRefs []providers.Med
 // with refs for tool access. Returns updated context, modified messages, and current-turn media refs.
 func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages []providers.Message) (context.Context, []providers.Message, []providers.MediaRef) {
 	// 1b. Determine image routing strategy.
-	// If read_image tool has a dedicated vision provider, images are NOT attached inline
-	// to the main LLM — the agent calls read_image tool instead. This avoids sending
-	// images to providers that don't support vision or have strict content filters.
-	deferToReadImageTool := l.hasReadImageProvider()
+	// In file-ref mode images are NOT attached inline to the main LLM — the agent calls
+	// read_image tool instead. This avoids sending images to providers that don't support
+	// vision or have strict content filters.
+	deferToReadImageTool := l.deferImagesToReadImage()
 
 	if !deferToReadImageTool {
 		// Inline mode: reload historical images directly into messages for main provider.

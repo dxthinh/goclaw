@@ -144,6 +144,11 @@
       }
     },
     "mediaChain": {
+      "imageInput": "用户图片",
+      "imageInputAuto": "自动",
+      "imageInputInline": "内联发送",
+      "imageInputFileRef": "仅通过 read_image 读取",
+      "imageInputHint": "主提供商支持视觉时自动内联发送,否则通过 read_image 读取。",
       "addProvider": "添加Provider",
       "cancel": "取消",
       "description": "配置并排序Provider回退。拖动以重新排序 — 第一个启用的Provider将被优先尝试。",

@@ -106,7 +106,8 @@ export function MediaProviderChainForm({ tool, onSave, onClose }: MediaProviderC
     setError('')
     try {
       const serialized = chain.map(({ id: _id, ...rest }) => rest)
-      await onSave(tool.name, { providers: serialized })
+      // Keep settings this form does not manage, such as read_image's image_input.
+      await onSave(tool.name, { ...(tool.settings as Record<string, unknown> | undefined), providers: serialized })
       onClose()
     } catch (err) {
       setError((err as Error).message || 'Failed to save')

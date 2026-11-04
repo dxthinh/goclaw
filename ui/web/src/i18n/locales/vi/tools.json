@@ -230,6 +230,11 @@
       }
     },
     "mediaChain": {
+      "imageInput": "Ảnh người dùng",
+      "imageInputAuto": "Tự động",
+      "imageInputInline": "Gửi inline",
+      "imageInputFileRef": "Chỉ đọc qua read_image",
+      "imageInputHint": "Tự động gửi inline nếu provider chính hỗ trợ vision, nếu không thì đọc qua read_image.",
       "providerChainSuffix": "— Chuỗi provider",
       "description": "Cấu hình và sắp xếp các provider dự phòng. Kéo để sắp xếp lại — provider đầu tiên được thử trước.",
       "newProvider": "Provider mới",
