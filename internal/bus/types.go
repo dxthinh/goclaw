@@ -66,6 +66,7 @@ const (
 	MetaDeliveryRunID      = "delivery_run_id"
 	MetaDeliverySessionKey = "delivery_session_key"
 	MetaDeliveryTraceID    = "delivery_trace_id"
+	MetaDeliveryUserID     = "delivery_user_id"
 )
 
 // MediaAttachment represents a media file to be sent with a message.

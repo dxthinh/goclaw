@@ -256,7 +256,7 @@ func processSubagentAnnounceLoop(
 				}
 				appendMediaToOutbound(&outMsg, outcome.Result.Media)
 				attachDeliveryTrace(&outMsg, deliveryTrace{
-					runID: outcome.Result.RunID, sessionKey: r.SessionKey, traceID: outcome.Result.TraceID, tenantID: r.TenantID,
+					runID: outcome.Result.RunID, sessionKey: r.SessionKey, userID: r.UserID, traceID: outcome.Result.TraceID, tenantID: r.TenantID,
 				})
 				msgBus.PublishOutbound(outMsg)
 			}

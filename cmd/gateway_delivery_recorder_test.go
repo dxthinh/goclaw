@@ -56,6 +56,7 @@ func deliveredMsg(traceID uuid.UUID) bus.OutboundMessage {
 		Metadata: map[string]string{
 			bus.MetaDeliveryRunID:      "run-1",
 			bus.MetaDeliverySessionKey: "agent:lead:zp:group:c1",
+			bus.MetaDeliveryUserID:     "user-1",
 			bus.MetaDeliveryTraceID:    traceID.String(),
 		},
 	}
@@ -76,7 +77,7 @@ func TestDeliveryRecorder_SuccessWritesTimelineAndSpanOnly(t *testing.T) {
 	}
 	item := timeline.items[0]
 	if item.ItemType != store.RunTimelineItemTypeDelivery || item.Status != store.RunTimelineStatusCompleted ||
-		item.Title != "final.png" || item.RunID != "run-1" || item.TraceID == nil || *item.TraceID != traceID {
+		item.Title != "final.png" || item.RunID != "run-1" || item.UserID != "user-1" || item.TraceID == nil || *item.TraceID != traceID {
 		t.Fatalf("item = %+v", item)
 	}
 	var meta map[string]any
@@ -134,8 +135,8 @@ func TestAttachDeliveryTrace(t *testing.T) {
 
 	withMedia := bus.OutboundMessage{Metadata: shared}
 	appendMediaToOutbound(&withMedia, []agent.MediaResult{{Path: "/ws/a.png"}})
-	attachDeliveryTrace(&withMedia, deliveryTrace{runID: "run-1", sessionKey: "s", traceID: traceID, tenantID: tenantID})
-	if withMedia.Metadata[bus.MetaDeliveryRunID] != "run-1" || withMedia.Metadata["local_key"] != "lk" || withMedia.TenantID != tenantID {
+	attachDeliveryTrace(&withMedia, deliveryTrace{runID: "run-1", sessionKey: "s", userID: "user-1", traceID: traceID, tenantID: tenantID})
+	if withMedia.Metadata[bus.MetaDeliveryRunID] != "run-1" || withMedia.Metadata[bus.MetaDeliveryUserID] != "user-1" || withMedia.Metadata["local_key"] != "lk" || withMedia.TenantID != tenantID {
 		t.Fatalf("msg = %+v", withMedia)
 	}
 	if _, leaked := shared[bus.MetaDeliveryRunID]; leaked {

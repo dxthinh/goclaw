@@ -199,7 +199,7 @@ func makeCronJobHandler(sched *scheduler.Scheduler, msgBus *bus.MessageBus, cfg 
 
 		// If job wants delivery to a channel, send the agent response to the target chat.
 		deliverCronOutput(msgBus, job, result.Content, result.Media, peerKind, deliveryTrace{
-			runID: result.RunID, sessionKey: sessionKey, traceID: result.TraceID, tenantID: job.TenantID,
+			runID: result.RunID, sessionKey: sessionKey, userID: job.UserID, traceID: result.TraceID, tenantID: job.TenantID,
 		})
 
 		cronResult := &store.CronJobResult{

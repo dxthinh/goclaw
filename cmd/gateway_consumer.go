@@ -241,6 +241,7 @@ func truncateForReminder(content string, maxLen int) string {
 type deliveryTrace struct {
 	runID      string
 	sessionKey string
+	userID     string // owner of the run; non-admin timeline reads filter on it
 	traceID    uuid.UUID
 	tenantID   uuid.UUID
 }
@@ -255,10 +256,11 @@ func attachDeliveryTrace(msg *bus.OutboundMessage, trace deliveryTrace) {
 	if msg.TenantID == uuid.Nil {
 		msg.TenantID = trace.tenantID
 	}
-	meta := make(map[string]string, len(msg.Metadata)+3)
+	meta := make(map[string]string, len(msg.Metadata)+4)
 	maps.Copy(meta, msg.Metadata)
 	meta[bus.MetaDeliveryRunID] = trace.runID
 	meta[bus.MetaDeliverySessionKey] = trace.sessionKey
+	meta[bus.MetaDeliveryUserID] = trace.userID
 	if trace.traceID != uuid.Nil {
 		meta[bus.MetaDeliveryTraceID] = trace.traceID.String()
 	}

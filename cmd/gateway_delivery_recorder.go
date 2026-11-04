@@ -109,6 +109,7 @@ func (r *deliveryRecorder) record(outcome channels.DeliveryOutcome) {
 			RunID:      runID,
 			SessionKey: sessionKey,
 			AgentID:    agentID,
+			UserID:     msg.Metadata[bus.MetaDeliveryUserID],
 			Channel:    msg.Channel,
 			ChatID:     msg.ChatID,
 			ItemType:   store.RunTimelineItemTypeDelivery,
