@@ -330,7 +330,8 @@ tools happened to produce:
   the task.
 - In a run with an assigned task, `create_image`, `create_video`, `create_audio` and
   `tts` output is attached to the task but not sent, since it may be a draft. Chat
-  runs outside a task still send it automatically.
+  runs outside a task still send it automatically. Images a model generates natively,
+  without a tool, are still sent: the member has no path to declare for them.
 - With nothing declared and nothing sent, no file goes out. The announce lists the
   attachment paths and tells the lead, who can use `send_file`.
 

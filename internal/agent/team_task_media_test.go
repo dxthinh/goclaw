@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/pipeline"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
@@ -64,5 +66,33 @@ func TestAssignedTaskStillQueuesSendFile(t *testing.T) {
 
 	if len(state.mediaResults) != 1 || state.mediaResults[0].Path != final {
 		t.Fatalf("media = %+v, want the final file", state.mediaResults)
+	}
+}
+
+// The final-reply path a run really takes: a quoted MEDIA token is stripped and sends
+// nothing, so quoting a create_image result cannot bring a draft back.
+func TestQuotedMediaTokenInFinalReplySendsNothing(t *testing.T) {
+	workspace := t.TempDir()
+	draft := filepath.Join(workspace, "draft.png")
+	if err := os.WriteFile(draft, []byte("draft"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stage := pipeline.NewFinalizeStage(&pipeline.PipelineDeps{
+		SanitizeContent: SanitizeAssistantContent,
+		FlushMessages:   func(context.Context, string, []providers.Message) error { return nil },
+		UpdateMetadata:  func(context.Context, string, providers.Usage, providers.Usage, int) error { return nil },
+	})
+	state := pipeline.NewRunState(&pipeline.RunInput{SessionKey: "s", TeamTaskID: "task"}, nil, "", nil)
+	state.Observe.FinalContent = "Done.\nMEDIA:" + draft
+
+	if err := stage.Execute(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(state.Tool.MediaResults) != 0 {
+		t.Fatalf("media = %+v, want none", state.Tool.MediaResults)
+	}
+	if strings.Contains(state.Observe.FinalContent, "MEDIA:") {
+		t.Fatalf("token reached the reply: %q", state.Observe.FinalContent)
 	}
 }
