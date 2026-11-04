@@ -16,10 +16,9 @@ import (
 // maxTaskDeliverables caps how many final files one task can declare.
 const maxTaskDeliverables = 20
 
-// resolveTaskDeliverables validates the paths a member declares as final files.
-// This is the only gate for these files: announce delivery sends them without
-// confining them again, so it applies the same checks as send_file. All bad paths
-// are reported at once so the model can fix them in one call.
+// resolveTaskDeliverables validates the paths a member declares as final files,
+// with the same checks as send_file. All bad paths are reported at once so the
+// model can fix them in one call.
 func resolveTaskDeliverables(ctx context.Context, raw any) ([]*store.TeamTaskAttachmentData, error) {
 	if raw == nil {
 		return nil, nil
@@ -68,12 +67,12 @@ func resolveTaskDeliverable(ctx context.Context, path, workspace string, allowed
 	if err := checkDeniedPath(resolved, workspace, InternalDenyPaths); err != nil {
 		return nil, err
 	}
+	if err := ValidateRegularFileForRead(resolved); err != nil {
+		return nil, fmt.Errorf("not a regular file: %w", err)
+	}
 	fi, err := os.Stat(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("file not found")
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("not a regular file")
 	}
 	if fi.Size() == 0 {
 		return nil, fmt.Errorf("file is empty")
@@ -83,6 +82,20 @@ func resolveTaskDeliverable(ctx context.Context, path, workspace string, allowed
 		FileSize: fi.Size(),
 		MimeType: mimeFromExt(filepath.Ext(resolved)),
 	}, nil
+}
+
+// checkDeliverablesAllowed lets only the task owner or the team lead declare files.
+// Declared files go straight to the user, so a teammate must not be able to add
+// files to someone else's task, including one that has already completed.
+func (t *TeamTasksTool) checkDeliverablesAllowed(ctx context.Context, team *store.TeamData, taskID, agentID uuid.UUID) error {
+	task, err := t.manager.Store().GetTask(ctx, taskID)
+	if err != nil || task == nil {
+		return fmt.Errorf("cannot verify task owner, deliverables not registered: %w", err)
+	}
+	if agentID == team.LeadAgentID || (task.OwnerAgentID != nil && *task.OwnerAgentID == agentID) {
+		return nil
+	}
+	return fmt.Errorf("only the task owner or the team lead can declare deliverables for task %s", taskID)
 }
 
 // registerDeliverables stores validated deliverables and returns a sentence for the

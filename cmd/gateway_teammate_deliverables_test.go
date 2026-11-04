@@ -32,7 +32,12 @@ func (s *stubAttachmentStore) ListRecentTaskComments(context.Context, uuid.UUID,
 
 func writeAnnounceFile(t *testing.T, name string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
+	// Stored deliverable paths are canonical, and TempDir may sit behind a symlink.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -112,18 +117,67 @@ func TestTeammateAnnounceReportsDeclaredFileGone(t *testing.T) {
 
 	content, media, _ := announceFor(t, &agent.RunResult{Content: "done"}, deliverableAttachment(gone))
 
-	if len(media) != 0 || !strings.Contains(content, "no longer exists") {
+	if len(media) != 0 || !strings.Contains(content, "failed the delivery check") {
 		t.Fatalf("media = %+v, content = %q", media, content)
 	}
 }
 
-// Only MarkTaskDeliverables tags a row, and the announce sends tagged rows without
-// confining them again. Plain metadata must never read as a deliverable.
+// Only MarkTaskDeliverables tags a row, after validating its path. Plain metadata
+// must never read as a deliverable.
 func TestAttachmentMetadataIsNotDeliverableUnlessTagged(t *testing.T) {
 	for _, raw := range []string{``, `{}`, `{"role":"attachment"}`, `not json`} {
 		att := store.TeamTaskAttachmentData{Metadata: json.RawMessage(raw)}
 		if att.IsDeliverable() {
 			t.Errorf("metadata %q read as deliverable", raw)
 		}
+	}
+}
+
+// The file was valid when the task completed, then swapped before the announce. The
+// gateway must not follow the swap and upload what it points to.
+func TestTeammateAnnounceRefusesDeliverableSwappedAfterValidation(t *testing.T) {
+	secret := writeAnnounceFile(t, "secret.txt")
+
+	swaps := map[string]func(t *testing.T, path string){
+		"file replaced by symlink": func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(secret, path); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"file replaced by hardlink": func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Link(secret, path); err != nil {
+				t.Skipf("hardlink not available: %v", err)
+			}
+		},
+		"parent folder replaced by symlink": func(t *testing.T, path string) {
+			dir := filepath.Dir(path)
+			if err := os.Rename(dir, dir+".real"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(dir+".real", dir); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, swap := range swaps {
+		t.Run(name, func(t *testing.T) {
+			poster := writeAnnounceFile(t, "poster.png")
+			swap(t, poster)
+
+			content, media, ok := announceFor(t, &agent.RunResult{Content: "done"}, deliverableAttachment(poster))
+
+			if !ok || len(media) != 0 {
+				t.Fatalf("media = %+v, the swapped file must not be sent", media)
+			}
+			if !strings.Contains(content, "failed the delivery check") {
+				t.Fatalf("content = %q", content)
+			}
+		})
 	}
 }

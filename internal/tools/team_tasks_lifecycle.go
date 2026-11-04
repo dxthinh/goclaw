@@ -60,6 +60,12 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	// Ignore claim error: task may already be in_progress (claimed by us or someone else).
 	_ = t.manager.Store().ClaimTask(ctx, taskID, agentID, team.ID)
 
+	if len(deliverables) > 0 {
+		if err := t.checkDeliverablesAllowed(ctx, team, taskID, agentID); err != nil {
+			return ErrorResult(err.Error())
+		}
+	}
+
 	if err := t.manager.Store().CompleteTask(ctx, taskID, team.ID, result); err != nil {
 		// Fast path: check in-memory turn flags before hitting DB again.
 		if flags := TaskActionFlagsFromCtx(ctx); flags != nil && flags.Completed {

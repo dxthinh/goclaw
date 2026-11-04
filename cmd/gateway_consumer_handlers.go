@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -594,7 +594,7 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 		}
 	}
 
-	var missingDeliverables []string
+	var rejectedDeliverables []string
 	if outcome.Err != nil {
 		slog.Error("teammate message: agent run failed", "error", outcome.Err)
 		errMsg := outcome.Err.Error()
@@ -606,7 +606,7 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 		slog.Warn("teammate message: nil result without error", "from", senderID)
 		return "", nil, false
 	} else {
-		media, missingDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments)
+		media, rejectedDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments)
 		normalized, shouldDeliver := normalizeAgentOutboundContent(outcome.Result.Content, len(media))
 		if !shouldDeliver {
 			slog.Info("teammate message: suppressed silent/empty reply", "from", senderID)
@@ -641,8 +641,8 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 				content += "\n[Member did not declare final files, so none are attached to your reply. Use send_file if any listed file should reach the user.]"
 			}
 		}
-		for _, path := range missingDeliverables {
-			content += "\n[Declared final file no longer exists and was not attached: " + path + "]"
+		for _, path := range rejectedDeliverables {
+			content += "\n[Declared final file failed the delivery check and was not attached: " + path + "]"
 		}
 	}
 
@@ -650,9 +650,7 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 }
 
 // mergeDeliverableMedia adds a task's declared deliverables to the media the member
-// queued through send_file, without duplicates. The paths were validated when the
-// task was completed (only MarkTaskDeliverables tags a row as a deliverable), so
-// only existence is checked here. Returns the paths of files that have since gone.
+// queued through send_file, without duplicates. Returns the paths it refused.
 func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamTaskAttachmentData) ([]agent.MediaResult, []string) {
 	seen := make(map[string]struct{}, len(queued))
 	media := make([]agent.MediaResult, 0, len(queued)+len(attachments))
@@ -663,7 +661,7 @@ func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamT
 		}
 	}
 
-	var missing []string
+	var rejected []string
 	for i := range attachments {
 		att := &attachments[i]
 		if !att.IsDeliverable() {
@@ -673,14 +671,33 @@ func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamT
 			continue
 		}
 		seen[att.Path] = struct{}{}
-		if fi, err := os.Stat(att.Path); err != nil || !fi.Mode().IsRegular() {
-			slog.Warn("teammate message: declared deliverable is gone", "path", att.Path, "error", err)
-			missing = append(missing, att.Path)
+		if err := verifyDeliverableUnchanged(att.Path); err != nil {
+			slog.Warn("security.deliverable_rejected", "path", att.Path, "error", err)
+			rejected = append(rejected, att.Path)
 			continue
 		}
 		media = append(media, agent.MediaResult{Path: att.Path, ContentType: att.MimeType, Size: att.FileSize})
 	}
-	return media, missing
+	return media, rejected
+}
+
+// verifyDeliverableUnchanged is the last check before a file leaves for a channel.
+// The path was validated and stored in canonical form when the task was completed,
+// but the workspace stays writable until now: a sandboxed agent could swap the file
+// or a parent folder for a symlink to a host file the gateway can read. So the leaf
+// must still be a plain file, and resolving the path must still give the same path.
+func verifyDeliverableUnchanged(path string) error {
+	if err := tools.ValidateRegularFileForRead(path); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	if resolved != filepath.Clean(path) {
+		return fmt.Errorf("path now resolves to %s", resolved)
+	}
+	return nil
 }
 
 // resolveTeammateLeadAgent resolves the lead agent key for routing a teammate announce.

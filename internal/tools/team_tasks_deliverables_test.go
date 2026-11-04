@@ -143,3 +143,82 @@ func TestCompleteDeliverablesAllowedInLiteEdition(t *testing.T) {
 		t.Fatal("deliverables travel on complete, which Lite must allow")
 	}
 }
+
+func TestCompleteRejectsHardlinkDeliverable(t *testing.T) {
+	ws := t.TempDir()
+	real := writeDeliverable(t, ws, "real.png", "poster")
+	hard := filepath.Join(ws, "hard.png")
+	if err := os.Link(real, hard); err != nil {
+		t.Skipf("hardlink not available: %v", err)
+	}
+
+	_, _, res := completeWithDeliverables(t, ws, []any{hard})
+
+	if !res.IsError || !strings.Contains(res.ForLLM, hard) {
+		t.Fatalf("result = %+v, want the hardlink rejected", res)
+	}
+}
+
+func runCompleteAs(t *testing.T, callerID uuid.UUID, ownerID uuid.UUID, status string, deliverable bool) (*mockBackend, uuid.UUID, *Result) {
+	t.Helper()
+	ws := t.TempDir()
+	mb, tool, _, _, ctx := newTestTeamSetup()
+	taskID := uuid.New()
+	preloadTask(mb, &store.TeamTaskData{
+		BaseModel:    store.BaseModel{ID: taskID},
+		TeamID:       testTeamID,
+		Subject:      "work",
+		Status:       status,
+		OwnerAgentID: &ownerID,
+	})
+	ctx = WithTaskActionFlags(store.WithAgentID(ctx, callerID), &TaskActionFlags{})
+	ctx = WithToolWorkspace(ctx, ws)
+	ctx = WithToolTeamWorkspace(ctx, ws)
+	args := map[string]any{"action": "complete", "task_id": taskID.String(), "result": "done"}
+	if deliverable {
+		args["deliverables"] = []any{writeDeliverable(t, ws, "final.png", "poster")}
+	}
+	return mb, taskID, tool.Execute(ctx, args)
+}
+
+func TestDeliverablesRestrictedToOwnerOrLead(t *testing.T) {
+	cases := []struct {
+		name      string
+		caller    uuid.UUID
+		status    string
+		wantAdded bool
+	}{
+		{"owner on active task", testMemberID, store.TeamTaskStatusInProgress, true},
+		{"owner on completed task", testMemberID, store.TeamTaskStatusCompleted, true},
+		{"lead on active task", testLeadID, store.TeamTaskStatusInProgress, true},
+		{"teammate on active task", testMember2ID, store.TeamTaskStatusInProgress, false},
+		{"teammate on completed task", testMember2ID, store.TeamTaskStatusCompleted, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mb, taskID, res := runCompleteAs(t, tc.caller, testMemberID, tc.status, true)
+
+			atts, _ := mb.Store().ListTaskAttachments(context.Background(), taskID)
+			if tc.wantAdded {
+				if res.IsError || len(atts) != 1 {
+					t.Fatalf("result = %+v, attachments = %+v", res, atts)
+				}
+				return
+			}
+			if !res.IsError || len(atts) != 0 {
+				t.Fatalf("result = %+v, attachments = %+v, want rejected", res, atts)
+			}
+			if task := readTask(mb, taskID); task.Status != tc.status {
+				t.Fatalf("status = %q, a rejected call must not change the task", task.Status)
+			}
+		})
+	}
+}
+
+// The owner check applies to deliverables only: who may complete a task is unchanged.
+func TestCompleteWithoutDeliverablesKeepsPermissions(t *testing.T) {
+	_, _, res := runCompleteAs(t, testMember2ID, testMemberID, store.TeamTaskStatusInProgress, false)
+	if res.IsError {
+		t.Fatalf("result = %+v", res)
+	}
+}

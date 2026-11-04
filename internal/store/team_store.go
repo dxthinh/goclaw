@@ -172,8 +172,8 @@ type TaskSibling struct {
 }
 
 // TaskAttachmentDeliverableMetadata marks an attachment as a final file for the
-// user. Only MarkTaskDeliverables writes it, after the tool has validated the path:
-// announce delivery relies on this to send such files without confining them again.
+// user. Only MarkTaskDeliverables writes it, after the tool has validated the path
+// and stored its canonical form, which announce delivery re-checks before sending.
 const TaskAttachmentDeliverableMetadata = `{"role":"deliverable"}`
 
 // TeamTaskAttachmentData represents a file attached to a team task (path-based, no FK to workspace).

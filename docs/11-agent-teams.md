@@ -307,12 +307,17 @@ Workspace files can be attached to tasks:
 final output for the user. This is what decides delivery, not what the member's
 tools happened to produce:
 
+- Only the task owner or the team lead can declare deliverables. This does not change
+  who can complete a task.
 - Paths are validated like `send_file` (inside the workspace, not an internal file,
-  regular, non-empty). One bad path rejects the call and the task stays open, so the
-  model can correct it.
+  regular, not a hardlink, non-empty). One bad path rejects the call and the task
+  stays open, so the model can correct it.
 - Valid files are tagged `metadata.role="deliverable"` in `team_task_attachments`,
   including files already attached automatically. Only `MarkTaskDeliverables` writes
-  this tag, and delivery relies on that.
+  this tag.
+- Right before sending, each file is checked again. If it or a parent folder was
+  swapped for a symlink or hardlink since validation, it is not sent, a
+  `security.deliverable_rejected` line is logged, and the announce tells the lead.
 - The completion announce attaches deliverables and any `send_file` files to the
   lead's reply automatically. The lead needs no tool call.
 - In a run with an assigned task, `create_image`, `create_video`, `create_audio` and
