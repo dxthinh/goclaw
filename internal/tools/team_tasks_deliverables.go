@@ -101,9 +101,22 @@ func (t *TeamTasksTool) checkDeliverablesAllowed(ctx context.Context, team *stor
 	return fmt.Errorf("only the task owner or the team lead can declare deliverables for task %s", taskID)
 }
 
-// registerDeliverables stores validated deliverables and returns a sentence for the
-// tool result. A store failure is reported to the model without failing the call,
-// because the task is already complete at this point.
+// checkDeliverablesInTaskRun accepts deliverables only from the member run working
+// on this task. That run's announce is the only thing that sends declared files, and
+// it sends only what the run itself declared. Declared anywhere else, such as a lead
+// run or a member run for another task, the files would be stored and never sent.
+func checkDeliverablesInTaskRun(ctx context.Context, taskID uuid.UUID) error {
+	runTaskID, err := uuid.Parse(TeamTaskIDFromCtx(ctx))
+	if TaskActionFlagsFromCtx(ctx) != nil && err == nil && runTaskID == taskID {
+		return nil
+	}
+	return fmt.Errorf("deliverables for task %s can only be declared by the run working on that task, so nothing would send them from here. Call complete without deliverables, and use send_file to send the files to the user", taskID)
+}
+
+// registerDeliverables stores validated deliverables, adds them to this run's
+// declared files, and returns a sentence for the tool result. A store failure is
+// reported to the model without failing the call, because the task is already
+// complete at this point.
 func (t *TeamTasksTool) registerDeliverables(ctx context.Context, teamID, taskID, agentID uuid.UUID, atts []*store.TeamTaskAttachmentData) string {
 	if len(atts) == 0 {
 		return ""
@@ -119,5 +132,10 @@ func (t *TeamTasksTool) registerDeliverables(ctx context.Context, teamID, taskID
 		slog.Warn("team_tasks: register deliverables failed", "task_id", taskID, "error", err)
 		return " Warning: could not register deliverables, so they will not be sent automatically."
 	}
+	recordTaskAction(ctx, func(f *TaskActionFlags) {
+		for _, att := range atts {
+			f.Deliverables = append(f.Deliverables, att.Path)
+		}
+	})
 	return fmt.Sprintf(" Deliverables registered: %d.", len(atts))
 }

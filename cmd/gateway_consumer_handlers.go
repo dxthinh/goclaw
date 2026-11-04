@@ -341,7 +341,7 @@ func handleTeammateMessage(
 		}
 
 		// Build announce content from outcome + task comments/attachments.
-		announceContent, announceMedia, ok := buildTeammateAnnounce(ctx, outcome, senderID, inMeta, deps)
+		announceContent, announceMedia, ok := buildTeammateAnnounce(ctx, outcome, senderID, inMeta, taskActionFlags.Deliverables, deps)
 		if !ok {
 			return
 		}
@@ -578,8 +578,10 @@ func buildTaskBoardSnapshot(ctx context.Context, teamStore store.TeamStore, team
 }
 
 // buildTeammateAnnounce constructs announce content from agent outcome + task comments/attachments.
+// declared holds the paths this run declared as deliverables: only those are sent,
+// so files declared by an earlier run of the same task do not go out again.
 // Returns content, media, and whether to proceed with the announce.
-func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, senderID string, inMeta map[string]string, deps *ConsumerDeps) (string, []agent.MediaResult, bool) {
+func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, senderID string, inMeta map[string]string, declared []string, deps *ConsumerDeps) (string, []agent.MediaResult, bool) {
 	var content string
 	var media []agent.MediaResult
 
@@ -608,7 +610,8 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 		content = fmt.Sprintf("[FAILED] %s", errMsg)
 		// The run can fail after the member completed the task. The task stays
 		// completed and this is its only announce, so its files must still go out.
-		media, rejectedDeliverables = mergeDeliverableMedia(nil, attachments)
+		// declared is set only by a successful complete in this run.
+		media, rejectedDeliverables = mergeDeliverableMedia(nil, attachments, declared)
 		if len(media) > 0 {
 			content += "\n[The task was completed before this error. Its declared final files are attached to your reply.]"
 		}
@@ -616,7 +619,7 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 		slog.Warn("teammate message: nil result without error", "from", senderID)
 		return "", nil, false
 	} else {
-		media, rejectedDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments)
+		media, rejectedDeliverables = mergeDeliverableMedia(outcome.Result.Media, attachments, declared)
 		normalized, shouldDeliver := normalizeAgentOutboundContent(outcome.Result.Content, len(media))
 		// Without the attachment list, a silent reply may still have declared files:
 		// announce anyway so the lead can check.
@@ -664,9 +667,14 @@ func buildTeammateAnnounce(ctx context.Context, outcome scheduler.RunOutcome, se
 	return content, media, true
 }
 
-// mergeDeliverableMedia adds a task's declared deliverables to the media the member
-// queued through send_file, without duplicates. Returns the paths it refused.
-func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamTaskAttachmentData) ([]agent.MediaResult, []string) {
+// mergeDeliverableMedia adds the deliverables this run declared to the media the
+// member queued through send_file, without duplicates. Tagged attachments that this
+// run did not declare are left out. Returns the paths it refused.
+func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamTaskAttachmentData, declared []string) ([]agent.MediaResult, []string) {
+	declaredHere := make(map[string]struct{}, len(declared))
+	for _, path := range declared {
+		declaredHere[path] = struct{}{}
+	}
 	seen := make(map[string]struct{}, len(queued))
 	media := make([]agent.MediaResult, 0, len(queued)+len(attachments))
 	for _, mr := range queued {
@@ -680,6 +688,9 @@ func mergeDeliverableMedia(queued []agent.MediaResult, attachments []store.TeamT
 	for i := range attachments {
 		att := &attachments[i]
 		if !att.IsDeliverable() {
+			continue
+		}
+		if _, ok := declaredHere[att.Path]; !ok {
 			continue
 		}
 		if _, dup := seen[att.Path]; dup {

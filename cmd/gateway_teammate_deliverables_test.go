@@ -50,11 +50,28 @@ func deliverableAttachment(path string) store.TeamTaskAttachmentData {
 	return store.TeamTaskAttachmentData{Path: path, MimeType: "image/png", Metadata: json.RawMessage(store.TaskAttachmentDeliverableMetadata)}
 }
 
+// announceFor builds the announce of a run that declared every deliverable among
+// attachments.
 func announceFor(t *testing.T, result *agent.RunResult, attachments ...store.TeamTaskAttachmentData) (string, []agent.MediaResult, bool) {
+	t.Helper()
+	return announceWith(t, scheduler.RunOutcome{Result: result}, declaredIn(attachments), attachments...)
+}
+
+func announceWith(t *testing.T, outcome scheduler.RunOutcome, declared []string, attachments ...store.TeamTaskAttachmentData) (string, []agent.MediaResult, bool) {
 	t.Helper()
 	deps := &ConsumerDeps{TeamStore: &stubAttachmentStore{attachments: attachments}}
 	meta := map[string]string{tools.MetaTeamTaskID: uuid.NewString()}
-	return buildTeammateAnnounce(context.Background(), scheduler.RunOutcome{Result: result}, "member", meta, deps)
+	return buildTeammateAnnounce(context.Background(), outcome, "member", meta, declared, deps)
+}
+
+func declaredIn(attachments []store.TeamTaskAttachmentData) []string {
+	var paths []string
+	for i := range attachments {
+		if attachments[i].IsDeliverable() {
+			paths = append(paths, attachments[i].Path)
+		}
+	}
+	return paths
 }
 
 // Task #4 of the incident: nine drafts attached automatically, the real posters
@@ -188,10 +205,9 @@ func TestTeammateAnnounceRefusesDeliverableSwappedAfterValidation(t *testing.T) 
 // completed and no other announce follows, so the declared files must go out here.
 func TestTeammateAnnounceKeepsDeclaredFilesAfterRunError(t *testing.T) {
 	poster := writeAnnounceFile(t, "poster.png")
-	deps := &ConsumerDeps{TeamStore: &stubAttachmentStore{attachments: []store.TeamTaskAttachmentData{deliverableAttachment(poster)}}}
-	meta := map[string]string{tools.MetaTeamTaskID: uuid.NewString()}
 
-	content, media, ok := buildTeammateAnnounce(context.Background(), scheduler.RunOutcome{Err: errors.New("model call failed")}, "member", meta, deps)
+	content, media, ok := announceWith(t, scheduler.RunOutcome{Err: errors.New("model call failed")},
+		[]string{poster}, deliverableAttachment(poster))
 
 	if !ok || len(media) != 1 || media[0].Path != poster {
 		t.Fatalf("ok = %v, media = %+v", ok, media)
@@ -202,10 +218,7 @@ func TestTeammateAnnounceKeepsDeclaredFilesAfterRunError(t *testing.T) {
 }
 
 func TestTeammateAnnounceRunErrorWithoutDeclaredFilesStaysFailed(t *testing.T) {
-	deps := &ConsumerDeps{TeamStore: &stubAttachmentStore{}}
-	meta := map[string]string{tools.MetaTeamTaskID: uuid.NewString()}
-
-	content, media, ok := buildTeammateAnnounce(context.Background(), scheduler.RunOutcome{Err: errors.New("model call failed")}, "member", meta, deps)
+	content, media, ok := announceWith(t, scheduler.RunOutcome{Err: errors.New("model call failed")}, nil)
 
 	if !ok || len(media) != 0 || strings.Contains(content, "completed before this error") {
 		t.Fatalf("ok = %v, media = %+v, content = %q", ok, media, content)
@@ -220,10 +233,40 @@ func TestTeammateAnnounceReportsAttachmentReadFailure(t *testing.T) {
 
 	for _, reply := range []string{"done", "NO_REPLY"} {
 		outcome := scheduler.RunOutcome{Result: &agent.RunResult{Content: reply}}
-		content, media, ok := buildTeammateAnnounce(context.Background(), outcome, "member", meta, deps)
+		content, media, ok := buildTeammateAnnounce(context.Background(), outcome, "member", meta, nil, deps)
 
 		if !ok || len(media) != 0 || !strings.Contains(content, "Could not read this task's attachments") {
 			t.Fatalf("reply %q: ok = %v, media = %+v, content = %q", reply, ok, media, content)
 		}
+	}
+}
+
+// A retried task keeps the deliverable tags of its earlier run. The retry run's
+// announce must send only what the retry run declared, not the old files again.
+func TestTeammateAnnounceSkipsDeliverablesOfEarlierRun(t *testing.T) {
+	v1 := writeAnnounceFile(t, "poster_v1.png")
+	v2 := writeAnnounceFile(t, "poster_v2.png")
+	attachments := []store.TeamTaskAttachmentData{deliverableAttachment(v1), deliverableAttachment(v2)}
+
+	_, media, ok := announceWith(t, scheduler.RunOutcome{Result: &agent.RunResult{Content: "done"}}, []string{v2}, attachments...)
+	if !ok || len(media) != 1 || media[0].Path != v2 {
+		t.Fatalf("media = %+v, want only the retry's poster_v2", media)
+	}
+
+	_, media, _ = announceWith(t, scheduler.RunOutcome{Result: &agent.RunResult{Content: "done"}}, nil, attachments...)
+	if len(media) != 0 {
+		t.Fatalf("media = %+v, a run that declared nothing must not resend old deliverables", media)
+	}
+}
+
+// The retry run failed before completing. The earlier run's files must not be
+// attached, and the announce must not claim the task was completed.
+func TestTeammateAnnounceRunErrorSkipsDeliverablesOfEarlierRun(t *testing.T) {
+	v1 := writeAnnounceFile(t, "poster_v1.png")
+
+	content, media, ok := announceWith(t, scheduler.RunOutcome{Err: errors.New("model call failed")}, nil, deliverableAttachment(v1))
+
+	if !ok || len(media) != 0 || strings.Contains(content, "completed before this error") {
+		t.Fatalf("ok = %v, media = %+v, content = %q", ok, media, content)
 	}
 }

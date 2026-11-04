@@ -309,6 +309,9 @@ tools happened to produce:
 
 - Only the task owner or the team lead can declare deliverables. This does not change
   who can complete a task.
+- Deliverables can only be declared from the member run working on that task, since
+  that run's announce is what sends them. A call from anywhere else, such as a lead
+  run, is rejected before the task changes, and the model is told to use `send_file`.
 - Paths are validated like `send_file` (inside the workspace, not an internal file,
   regular, not a hardlink, non-empty). One bad path rejects the call and the task
   stays open, so the model can correct it.
@@ -321,6 +324,8 @@ tools happened to produce:
 - The completion announce attaches deliverables and any `send_file` files to the
   lead's reply automatically. The lead needs no tool call. Deliverables still go out
   if the run fails after the task was completed.
+- An announce sends only the files its own run declared. Files declared by an
+  earlier run of the same task, for example before a retry, are not sent again.
 - If the attachment list cannot be read, the announce says so, so the lead can check
   the task.
 - In a run with an assigned task, `create_image`, `create_video`, `create_audio` and

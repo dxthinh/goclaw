@@ -39,6 +39,7 @@ func completeWithDeliverables(t *testing.T, workspace string, deliverables []any
 	})
 	ctx = store.WithAgentID(ctx, memberID)
 	ctx = WithTaskActionFlags(ctx, &TaskActionFlags{})
+	ctx = WithTeamTaskID(ctx, taskID.String())
 	ctx = WithToolWorkspace(ctx, workspace)
 	ctx = WithToolTeamWorkspace(ctx, workspace)
 	return mb, taskID, tool.Execute(ctx, map[string]any{
@@ -172,6 +173,7 @@ func runCompleteAs(t *testing.T, callerID uuid.UUID, ownerID uuid.UUID, status s
 		OwnerAgentID: &ownerID,
 	})
 	ctx = WithTaskActionFlags(store.WithAgentID(ctx, callerID), &TaskActionFlags{})
+	ctx = WithTeamTaskID(ctx, taskID.String())
 	ctx = WithToolWorkspace(ctx, ws)
 	ctx = WithToolTeamWorkspace(ctx, ws)
 	args := map[string]any{"action": "complete", "task_id": taskID.String(), "result": "done"}
@@ -235,6 +237,7 @@ func TestDeliverablesRejectedForTaskOfAnotherTeam(t *testing.T) {
 		Status:    store.TeamTaskStatusCompleted,
 	})
 	ctx = WithTaskActionFlags(store.WithAgentID(ctx, testLeadID), &TaskActionFlags{})
+	ctx = WithTeamTaskID(ctx, taskID.String())
 	ctx = WithToolWorkspace(ctx, ws)
 	ctx = WithToolTeamWorkspace(ctx, ws)
 
@@ -251,5 +254,98 @@ func TestDeliverablesRejectedForTaskOfAnotherTeam(t *testing.T) {
 	atts, _ := mb.Store().ListTaskAttachments(context.Background(), taskID)
 	if len(atts) != 0 {
 		t.Fatalf("attachments = %+v, want none on a foreign task", atts)
+	}
+}
+
+// Declared files are sent only by the announce of the run working on the task. A
+// call from any other run would store them where nothing sends them, so it must be
+// rejected before the task changes.
+func TestDeliverablesRejectedOutsideTheTaskRun(t *testing.T) {
+	cases := map[string]func(ctx context.Context, taskID uuid.UUID) context.Context{
+		"lead run without task flags": func(ctx context.Context, taskID uuid.UUID) context.Context {
+			return WithTeamTaskID(WithTaskActionFlags(ctx, nil), taskID.String())
+		},
+		"member run for another task": func(ctx context.Context, _ uuid.UUID) context.Context {
+			return WithTeamTaskID(WithTaskActionFlags(ctx, &TaskActionFlags{}), uuid.NewString())
+		},
+		"run without a task": func(ctx context.Context, _ uuid.UUID) context.Context {
+			return WithTaskActionFlags(ctx, &TaskActionFlags{})
+		},
+	}
+	for _, status := range []string{store.TeamTaskStatusInProgress, store.TeamTaskStatusCompleted} {
+		for name, runCtx := range cases {
+			t.Run(status+"/"+name, func(t *testing.T) {
+				ws := t.TempDir()
+				mb, tool, _, memberID, ctx := newTestTeamSetup()
+				taskID := uuid.New()
+				preloadTask(mb, &store.TeamTaskData{
+					BaseModel:    store.BaseModel{ID: taskID},
+					TeamID:       testTeamID,
+					Subject:      "work",
+					Status:       status,
+					OwnerAgentID: &memberID,
+				})
+				ctx = runCtx(store.WithAgentID(ctx, memberID), taskID)
+				ctx = WithToolWorkspace(ctx, ws)
+				ctx = WithToolTeamWorkspace(ctx, ws)
+
+				res := tool.Execute(ctx, map[string]any{
+					"action":       "complete",
+					"task_id":      taskID.String(),
+					"result":       "done",
+					"deliverables": []any{writeDeliverable(t, ws, "final.png", "poster")},
+				})
+
+				if !res.IsError || !strings.Contains(res.ForLLM, "send_file") {
+					t.Fatalf("result = %+v, want rejected with a send_file hint", res)
+				}
+				if atts, _ := mb.Store().ListTaskAttachments(context.Background(), taskID); len(atts) != 0 {
+					t.Fatalf("attachments = %+v, want none", atts)
+				}
+				if task := readTask(mb, taskID); task.Status != status {
+					t.Fatalf("status = %q, a rejected call must not change the task", task.Status)
+				}
+			})
+		}
+	}
+}
+
+// The run records what it declared, which is all its announce will send. This holds
+// when the task was already completed: the same run's announce still follows.
+func TestDeliverablesRecordedOnTheRun(t *testing.T) {
+	for _, status := range []string{store.TeamTaskStatusInProgress, store.TeamTaskStatusCompleted} {
+		t.Run(status, func(t *testing.T) {
+			ws := t.TempDir()
+			mb, tool, _, memberID, ctx := newTestTeamSetup()
+			taskID := uuid.New()
+			preloadTask(mb, &store.TeamTaskData{
+				BaseModel:    store.BaseModel{ID: taskID},
+				TeamID:       testTeamID,
+				Subject:      "work",
+				Status:       status,
+				OwnerAgentID: &memberID,
+			})
+			flags := &TaskActionFlags{}
+			ctx = WithTaskActionFlags(store.WithAgentID(ctx, memberID), flags)
+			ctx = WithTeamTaskID(ctx, taskID.String())
+			ctx = WithToolWorkspace(ctx, ws)
+			ctx = WithToolTeamWorkspace(ctx, ws)
+			final := writeDeliverable(t, ws, "final.png", "poster")
+
+			res := tool.Execute(ctx, map[string]any{
+				"action":       "complete",
+				"task_id":      taskID.String(),
+				"result":       "done",
+				"deliverables": []any{final},
+			})
+
+			if res.IsError || !strings.Contains(res.ForLLM, "Deliverables registered: 1") {
+				t.Fatalf("result = %+v", res)
+			}
+			atts, _ := mb.Store().ListTaskAttachments(context.Background(), taskID)
+			if len(atts) != 1 || len(flags.Deliverables) != 1 || flags.Deliverables[0] != atts[0].Path {
+				t.Fatalf("flags.Deliverables = %v, attachments = %+v", flags.Deliverables, atts)
+			}
+		})
 	}
 }

@@ -54,6 +54,11 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
+	if len(deliverables) > 0 {
+		if err := checkDeliverablesInTaskRun(ctx, taskID); err != nil {
+			return ErrorResult(err.Error())
+		}
+	}
 
 	// Auto-claim if the task is still pending (saves an extra tool call).
 	// ClaimTask is atomic — only one agent can succeed, others get an error.
