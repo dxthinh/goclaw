@@ -67,7 +67,7 @@ func (c *Channel) sendMedia(ctx context.Context, msg bus.OutboundMessage) error 
 			failed = append(failed, channels.MediaFailure{Media: m, Err: err})
 		}
 	}
-	return channels.MediaDeliveryResult(failed, nil)
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
 }
 
 // uploadOneFile reads a local file, Base64-encodes it, and posts it to the chat

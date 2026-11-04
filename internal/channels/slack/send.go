@@ -70,7 +70,7 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 			ts := pTS.(string)
 			_, _, _ = c.api.DeleteMessage(channelID, ts)
 		}
-		return channels.MediaDeliveryResult(failed, nil)
+		return channels.MediaDeliveryResult(msg.Media, failed, nil)
 	}
 
 	content = markdownToSlackMrkdwn(content)
@@ -89,16 +89,16 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 
 		if _, _, _, editErr := c.api.UpdateMessage(channelID, ts, opts...); editErr == nil {
 			if remaining != "" {
-				return channels.MediaDeliveryResult(failed, c.sendChunked(channelID, remaining, threadTS))
+				return channels.MediaDeliveryResult(msg.Media, failed, c.sendChunked(channelID, remaining, threadTS))
 			}
-			return channels.MediaDeliveryResult(failed, nil)
+			return channels.MediaDeliveryResult(msg.Media, failed, nil)
 		} else {
 			slog.Warn("slack placeholder edit failed, sending new message",
 				"channel_id", channelID, "error", editErr)
 		}
 	}
 
-	return channels.MediaDeliveryResult(failed, c.sendChunked(channelID, content, threadTS))
+	return channels.MediaDeliveryResult(msg.Media, failed, c.sendChunked(channelID, content, threadTS))
 }
 
 // sendChunked sends message chunks using markdown-aware splitting.

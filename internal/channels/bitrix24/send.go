@@ -82,7 +82,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		}
 	}
 
-	return channels.MediaDeliveryResult(failed, c.sendTextBody(ctx, msg))
+	return channels.MediaDeliveryResult(msg.Media, failed, c.sendTextBody(ctx, msg))
 }
 
 // sendTextBody converts, chunks and posts the text part of an outbound message.

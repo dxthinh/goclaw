@@ -140,6 +140,9 @@ func (m *Manager) deliverOutbound(ctx context.Context, msg bus.OutboundMessage) 
 
 	if !exists {
 		slog.Warn("unknown channel for outbound message", "channel", msg.Channel)
+		for _, media := range msg.Media {
+			m.recordDelivery(ctx, msg, media, 0, errChannelNotRegistered)
+		}
 		return
 	}
 

@@ -259,7 +259,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		}
 	}
 
-	return channels.MediaDeliveryResult(failed, nil)
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
 }
 
 // --- Connection modes ---

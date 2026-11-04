@@ -405,7 +405,7 @@ func (c *Channel) sendMediaMessage(ctx context.Context, chatID int64, msg bus.Ou
 		}
 	}
 	sendFollowUp(leftoverText)
-	return channels.MediaDeliveryResult(failed, textErr)
+	return channels.MediaDeliveryResult(msg.Media, failed, textErr)
 }
 
 func (c *Channel) validateOutboundMediaSize(path string) error {

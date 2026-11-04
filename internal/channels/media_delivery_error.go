@@ -17,15 +17,19 @@ type MediaFailure struct {
 // MediaDeliveryError reports a partial Send: the channel attempted every
 // attachment, and the ones in Failed did not reach the chat. Anything not listed
 // was delivered, so the dispatcher can retry only the failures without
-// re-sending files or text the user already has.
+// re-sending files or text the user already has. Failed is empty when every file
+// arrived and only the text failed.
 //
-// TextErr is set when the text body failed as well. Text is never retried.
+// TextErr is set when the text body failed. Text is never retried.
 type MediaDeliveryError struct {
 	Failed  []MediaFailure
 	TextErr error
 }
 
 func (e *MediaDeliveryError) Error() string {
+	if len(e.Failed) == 0 {
+		return fmt.Sprintf("attachments delivered, text failed: %v", e.TextErr)
+	}
 	parts := make([]string, 0, len(e.Failed)+1)
 	for _, f := range e.Failed {
 		parts = append(parts, fmt.Sprintf("%s: %v", f.Media.URL, f.Err))
@@ -49,10 +53,12 @@ func (e *MediaDeliveryError) Unwrap() []error {
 }
 
 // MediaDeliveryResult builds the return value of a channel Send that collected
-// per-attachment failures. It returns nil when everything was delivered, and
-// textErr alone when no attachment failed.
-func MediaDeliveryResult(failed []MediaFailure, textErr error) error {
-	if len(failed) == 0 {
+// per-attachment failures, given the attachments it was asked to send. It returns
+// nil when everything was delivered and a plain textErr for a text-only message.
+// A message with attachments always gets a MediaDeliveryError on failure: a plain
+// error would tell the dispatcher that nothing is known about those files.
+func MediaDeliveryResult(media []bus.MediaAttachment, failed []MediaFailure, textErr error) error {
+	if len(failed) == 0 && (textErr == nil || len(media) == 0) {
 		return textErr
 	}
 	return &MediaDeliveryError{Failed: failed, TextErr: textErr}

@@ -63,7 +63,7 @@ func failMedia(err error, urls ...string) func(bus.OutboundMessage) error {
 				}
 			}
 		}
-		return MediaDeliveryResult(failed, nil)
+		return MediaDeliveryResult(msg.Media, failed, nil)
 	}
 }
 
@@ -232,5 +232,44 @@ func TestIsTransientSendError(t *testing.T) {
 		if isTransientSendError(err) {
 			t.Errorf("isTransientSendError(%v) = true", err)
 		}
+	}
+}
+
+// Files that reached the chat stay recorded as delivered when only the text fails:
+// a false failure would add a misleading session note and invite a duplicate send.
+func TestDeliverOutbound_TextFailureKeepsDeliveredFiles(t *testing.T) {
+	noBackoff(t)
+	textErr := errors.New("text rejected")
+	mgr, ch, rec := newDeliveryFixture(func(msg bus.OutboundMessage) error {
+		return MediaDeliveryResult(msg.Media, nil, textErr)
+	})
+
+	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
+		Channel: "zp", ChatID: "c1", Content: "done",
+		Media: []bus.MediaAttachment{{URL: "/a.png"}, {URL: "/b.png"}},
+	})
+
+	for _, url := range []string{"/a.png", "/b.png"} {
+		if got := rec.outcomes[url]; got.Err != nil || got.Attempts != 1 {
+			t.Fatalf("%s outcome = %+v, want delivered", url, got)
+		}
+	}
+	if len(ch.sends) != 1 {
+		t.Fatalf("sends = %+v, want no retry and no media notice", ch.sends)
+	}
+}
+
+// A channel removed between enqueue and dispatch cannot take a notice, but the
+// files must not vanish from the record.
+func TestDeliverOutbound_UnknownChannelRecordsFiles(t *testing.T) {
+	mgr, _, rec := newDeliveryFixture()
+
+	mgr.deliverOutbound(context.Background(), bus.OutboundMessage{
+		Channel: "removed", ChatID: "c1",
+		Media: []bus.MediaAttachment{{URL: "/a.png"}},
+	})
+
+	if got := rec.outcomes["/a.png"]; !errors.Is(got.Err, errChannelNotRegistered) || got.Attempts != 0 {
+		t.Fatalf("outcome = %+v, want a not-registered failure with no attempt", got)
 	}
 }

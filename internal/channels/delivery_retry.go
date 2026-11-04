@@ -17,6 +17,10 @@ import (
 // shard (see defaultOutboundShards) wait for at most the sum of these delays.
 var deliveryRetryBackoff = []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}
 
+// errChannelNotRegistered marks attachments whose channel was removed or failed to
+// register between enqueue and dispatch. Nothing was attempted.
+var errChannelNotRegistered = errors.New("channel is not registered")
+
 // DeliveryOutcome is the final result of delivering one attachment.
 type DeliveryOutcome struct {
 	Msg      bus.OutboundMessage

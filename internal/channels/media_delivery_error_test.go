@@ -13,20 +13,34 @@ func TestMediaDeliveryResult(t *testing.T) {
 
 	textErr := errors.New("text down")
 	mediaErr := errors.New("upload down")
-	failed := AllMediaFailed([]bus.MediaAttachment{{URL: "/a.png"}, {URL: "/b.png"}}, mediaErr)
+	media := []bus.MediaAttachment{{URL: "/a.png"}, {URL: "/b.png"}}
+	failed := AllMediaFailed(media, mediaErr)
 
-	if err := MediaDeliveryResult(nil, nil); err != nil {
+	if err := MediaDeliveryResult(media, nil, nil); err != nil {
 		t.Fatalf("no failures: got %v, want nil", err)
 	}
-	if err := MediaDeliveryResult(nil, textErr); !errors.Is(err, textErr) {
-		t.Fatalf("text only: got %v, want textErr", err)
+
+	textOnly := MediaDeliveryResult(nil, nil, textErr)
+	if !errors.Is(textOnly, textErr) {
+		t.Fatalf("text-only message: got %v, want textErr", textOnly)
 	}
-	if _, ok := AsMediaDeliveryError(MediaDeliveryResult(nil, textErr)); ok {
-		t.Fatal("text-only failure must not look like a media failure")
+	if _, ok := AsMediaDeliveryError(textOnly); ok {
+		t.Fatal("a text-only message must not look like a media failure")
 	}
 
-	err := MediaDeliveryResult(failed, textErr)
-	mde, ok := AsMediaDeliveryError(err)
+	// Every file arrived and only the text failed: the error must say so, or the
+	// dispatcher would record delivered files as failed.
+	filesFine := MediaDeliveryResult(media, nil, textErr)
+	mde, ok := AsMediaDeliveryError(filesFine)
+	if !ok || len(mde.Failed) != 0 || !errors.Is(filesFine, textErr) {
+		t.Fatalf("text failed after files: got %#v", filesFine)
+	}
+	if !strings.Contains(filesFine.Error(), "text down") {
+		t.Fatalf("Error() = %q", filesFine.Error())
+	}
+
+	err := MediaDeliveryResult(media, failed, textErr)
+	mde, ok = AsMediaDeliveryError(err)
 	if !ok || len(mde.Failed) != 2 || !errors.Is(mde.TextErr, textErr) {
 		t.Fatalf("got %#v, want 2 failures and textErr", err)
 	}

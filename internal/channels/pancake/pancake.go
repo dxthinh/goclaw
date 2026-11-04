@@ -214,9 +214,9 @@ func (ch *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		// instead of dropping them silently.
 		failed := channels.AllMediaFailed(msg.Media, channels.ErrMediaUnsupported)
 		if msg.Content == "" {
-			return channels.MediaDeliveryResult(failed, nil)
+			return channels.MediaDeliveryResult(msg.Media, failed, nil)
 		}
-		return channels.MediaDeliveryResult(failed, ch.sendCommentReply(ctx, msg))
+		return channels.MediaDeliveryResult(msg.Media, failed, ch.sendCommentReply(ctx, msg))
 	default: // "inbox" or unset — existing behavior
 		return ch.sendInboxReply(ctx, msg)
 	}
@@ -238,7 +238,7 @@ func (ch *Channel) sendInboxReply(ctx context.Context, msg bus.OutboundMessage) 
 		}
 	}
 	if text == "" {
-		return channels.MediaDeliveryResult(failed, nil)
+		return channels.MediaDeliveryResult(msg.Media, failed, nil)
 	}
 
 	// Text-only: split into platform-appropriate chunks.
@@ -252,10 +252,10 @@ func (ch *Channel) sendInboxReply(ctx context.Context, msg bus.OutboundMessage) 
 		if err := ch.apiClient.SendMessage(ctx, conversationID, part); err != nil {
 			ch.handleAPIError(err)
 			ch.forgetOutboundEcho(conversationID, part)
-			return channels.MediaDeliveryResult(failed, err)
+			return channels.MediaDeliveryResult(msg.Media, failed, err)
 		}
 	}
-	return channels.MediaDeliveryResult(failed, nil)
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
 }
 
 // sendCommentReply posts a public reply to a comment and optionally sends a

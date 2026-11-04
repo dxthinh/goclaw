@@ -127,9 +127,9 @@ func (c *Channel) Send(_ context.Context, msg bus.OutboundMessage) error {
 	// undelivered instead of dropping them silently.
 	failed := channels.AllMediaFailed(msg.Media, channels.ErrMediaUnsupported)
 	if msg.Content == "" && len(failed) > 0 {
-		return channels.MediaDeliveryResult(failed, nil)
+		return channels.MediaDeliveryResult(msg.Media, failed, nil)
 	}
-	return channels.MediaDeliveryResult(failed, c.sendContent(msg))
+	return channels.MediaDeliveryResult(msg.Media, failed, c.sendContent(msg))
 }
 
 // sendContent delivers the text body, or a photo when it holds a "[photo:URL]" marker.

@@ -59,7 +59,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if msg.Content != "" {
 		textErr = c.sendChunkedText(ctx, sess, msg.ChatID, threadType, msg.Content)
 	}
-	return channels.MediaDeliveryResult(failed, textErr)
+	return channels.MediaDeliveryResult(msg.Media, failed, textErr)
 }
 
 // sendImage uploads and sends an image file to a Zalo thread.

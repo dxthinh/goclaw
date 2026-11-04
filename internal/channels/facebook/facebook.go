@@ -210,9 +210,9 @@ func (ch *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	// instead of dropping them silently.
 	failed := channels.AllMediaFailed(msg.Media, channels.ErrMediaUnsupported)
 	if msg.Content == "" {
-		return channels.MediaDeliveryResult(failed, nil)
+		return channels.MediaDeliveryResult(msg.Media, failed, nil)
 	}
-	return channels.MediaDeliveryResult(failed, ch.sendText(ctx, msg))
+	return channels.MediaDeliveryResult(msg.Media, failed, ch.sendText(ctx, msg))
 }
 
 // sendText delivers the text body to Messenger or as a comment reply.

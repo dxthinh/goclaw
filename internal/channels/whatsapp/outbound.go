@@ -96,7 +96,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 				Conversation: new(chunk),
 			}
 			if _, err := c.client.SendMessage(c.ctx, chatJID, waMsg); err != nil {
-				return channels.MediaDeliveryResult(failed, fmt.Errorf("send whatsapp message: %w", err))
+				return channels.MediaDeliveryResult(msg.Media, failed, fmt.Errorf("send whatsapp message: %w", err))
 			}
 		}
 	}
@@ -109,7 +109,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	}
 	go c.sendPresence(chatJID, types.ChatPresencePaused)
 
-	return channels.MediaDeliveryResult(failed, nil)
+	return channels.MediaDeliveryResult(msg.Media, failed, nil)
 }
 
 // sendMediaAttachment reads one local file and sends it with the given caption.
