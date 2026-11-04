@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
@@ -93,7 +94,7 @@ func (t *ReadImageTool) Parameters() map[string]any {
 			},
 			"media_id": map[string]any{
 				"type":        "string",
-				"description": "Optional exact media ID from a <media:image id=\"...\"> tag for in-process tool execution. Claude CLI/MCP callers should use the tag's logical path.",
+				"description": "Optional exact media ID from a <media:image id=\"...\"> tag for in-process tool execution. Takes priority over path. Claude CLI/MCP callers should use the tag's logical path.",
 			},
 			"url": map[string]any{
 				"type":        "string",
@@ -120,8 +121,13 @@ func (t *ReadImageTool) Execute(ctx context.Context, args map[string]any) *Resul
 	if imgPath != "" && imgURL != "" && mediaID == "" {
 		return ErrorResult("Both 'path' and 'url' parameters cannot be specified. Choose only one.")
 	}
-	if mediaID != "" && (imgPath != "" || imgURL != "") {
-		return ErrorResult("Only one of 'path', 'url', or 'media_id' may be specified.")
+	if mediaID != "" && imgURL != "" {
+		return ErrorResult("Only one of 'url' or 'media_id' may be specified.")
+	}
+	// <media:image> tags expose both id and path, so models often echo both.
+	// The ID is the exact reference; the path adds nothing and must not fail the call.
+	if mediaID != "" {
+		imgPath = ""
 	}
 
 	// If path is provided, load image from workspace file
@@ -194,7 +200,9 @@ func resolveImageMediaRef(ctx context.Context, mediaID string) (providers.MediaR
 	if mediaID == "latest" {
 		return refs[len(refs)-1], nil
 	}
-	for _, ref := range refs {
+	// Newest first: assistant file IDs are base names, so a revised file can reuse
+	// the ID of an older one and must win over it.
+	for _, ref := range slices.Backward(refs) {
 		if ref.ID == mediaID {
 			return ref, nil
 		}

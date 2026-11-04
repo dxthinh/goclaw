@@ -61,6 +61,52 @@ func TestResolveImageMediaRefRequiresExactID(t *testing.T) {
 	}
 }
 
+func TestResolveImageMediaRefPrefersNewestDuplicateID(t *testing.T) {
+	ctx := WithMediaImageRefs(context.Background(), []providers.MediaRef{
+		{ID: "poster.png", Kind: "image", Path: "old/poster.png"},
+		{ID: "poster.png", Kind: "image", Path: "new/poster.png"},
+	})
+
+	got, err := resolveImageMediaRef(ctx, "poster.png")
+	if err != nil || got.Path != "new/poster.png" {
+		t.Fatalf("duplicate media ID = %#v, %v", got, err)
+	}
+}
+
+func TestReadImage_MediaIDWithPath_UsesMediaID(t *testing.T) {
+	tool := NewReadImageTool(nil)
+	ctx := WithMediaImageRefs(context.Background(), []providers.MediaRef{
+		{ID: "real-id", Kind: "image", Path: "missing/from-ref.png"},
+	})
+
+	res := tool.Execute(ctx, map[string]any{
+		"prompt":   "describe this",
+		"media_id": "real-id",
+		"path":     "ignored/from-path.png",
+	})
+
+	if !res.IsError {
+		t.Fatal("expected the missing ref file to fail")
+	}
+	if strings.Contains(res.ForLLM, "Only one of") || strings.Contains(res.ForLLM, "from-path") {
+		t.Fatalf("path was not ignored: %s", res.ForLLM)
+	}
+}
+
+func TestReadImage_MediaIDWithURL_Error(t *testing.T) {
+	tool := NewReadImageTool(nil)
+
+	res := tool.Execute(context.Background(), map[string]any{
+		"prompt":   "describe this",
+		"media_id": "real-id",
+		"url":      "https://example.com/image.png",
+	})
+
+	if !res.IsError || !strings.Contains(res.ForLLM, "Only one of") {
+		t.Fatalf("expected conflict error, got: %s", res.ForLLM)
+	}
+}
+
 func TestReadImage_AnthropicURL_Error(t *testing.T) {
 	tool := NewReadImageTool(nil)
 
