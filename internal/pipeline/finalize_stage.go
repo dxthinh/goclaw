@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/nextlevelbuilder/goclaw/internal/hooks"
@@ -40,6 +41,10 @@ func (s *FinalizeStage) Execute(ctx context.Context, state *RunState) error {
 	if state.Observe.FinalContent != "" && s.deps.SanitizeContent != nil {
 		state.Observe.FinalContent = s.deps.SanitizeContent(state.Observe.FinalContent)
 	}
+
+	// 1a. Lấy mẫu cho bộ chấm memory trước khi thêm postscript và câu trả lời dự phòng,
+	// vì bộ chấm phải thấy đúng nội dung do model viết.
+	s.submitMemoryEval(ctx, state)
 
 	// 1b. Skill evolution postscript (matching v2 loop_finalize.go:52-57).
 	if s.deps.SkillPostscript != nil && state.Observe.FinalContent != "" && state.StopReason == "" {
@@ -240,6 +245,46 @@ func (s *FinalizeStage) recordPromptShape(ctx context.Context, state *RunState) 
 func runCalledLLM(state *RunState) bool {
 	usage := state.Think.TotalUsage
 	return state.Think.LastResponse != nil || usage.PromptTokens > 0 || usage.CompletionTokens > 0
+}
+
+// submitMemoryEval đưa run vào bộ chấm memory. Bỏ qua run lỗi, câu trả lời rỗng và NO_REPLY
+// vì không có câu trả lời hoàn chỉnh để đánh giá memory đã được dùng hay chưa. Lỗi ở đây
+// không được ảnh hưởng tới luồng trả lời.
+func (s *FinalizeStage) submitMemoryEval(ctx context.Context, state *RunState) {
+	if s.deps.SubmitMemoryEval == nil || state.ExitCode == AbortRun || state.StopReason != "" {
+		return
+	}
+	answer := state.Observe.FinalContent
+	if strings.TrimSpace(answer) == "" || (s.deps.IsSilentReply != nil && s.deps.IsSilentReply(answer)) {
+		return
+	}
+	defer safego.Recover(nil, "metric", "memory_eval_submit")
+	s.deps.SubmitMemoryEval(ctx, MemoryEvalRun{
+		Question:      state.Input.Message,
+		Answer:        answer,
+		MemorySection: state.Context.MemorySection,
+		ToolMessages:  currentRunToolMessages(state.Messages),
+	})
+}
+
+// currentRunToolMessages trả tin nhắn tool của run hiện tại, gồm cả phần checkpoint đã chuyển
+// sang history. Ranh giới là tin user cuối trong history: tin user chèn giữa run chỉ làm mất
+// bớt mẫu chứ không kéo nhầm kết quả của lượt trước.
+func currentRunToolMessages(messages *MessageBuffer) []providers.Message {
+	history, pending := messages.History(), messages.Pending()
+	start := len(history)
+	for start > 0 && history[start-1].Role != "user" {
+		start--
+	}
+	var out []providers.Message
+	for _, group := range [][]providers.Message{history[start:], pending} {
+		for _, msg := range group {
+			if msg.Role == "tool" {
+				out = append(out, msg)
+			}
+		}
+	}
+	return out
 }
 
 // processMedia populates file sizes and deduplicates media results.

@@ -24,6 +24,7 @@ import (
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	memorypkg "github.com/nextlevelbuilder/goclaw/internal/memory"
+	"github.com/nextlevelbuilder/goclaw/internal/memoryeval"
 	"github.com/nextlevelbuilder/goclaw/internal/orchestration"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
@@ -63,6 +64,7 @@ func wireExtras(
 	usageCapSvc *usagecaps.Service,
 	mcpOAuthProvider mcpbridge.OAuthTokenProvider, // nil = OAuth injection disabled
 	childRunAdmission *orchestration.ChildRunAdmission,
+	submitMemoryEval func(memoryeval.Candidate), // nil = không chấm memory
 ) (*tools.ContextFileInterceptor, *mcpbridge.Pool, *media.Store, tools.PostTurnProcessor) {
 	// 1. Build cache instances (in-memory or Redis depending on build tags)
 	agentCtxCache, userCtxCache := makeCaches(redisClient)
@@ -272,6 +274,7 @@ func wireExtras(
 		Workspace:              workspace,
 		TTSAutoMode:            appCfg.Tts.Auto,
 		AutoInjector:           autoInjector,
+		SubmitMemoryEval:       submitMemoryEval,
 		EvolutionMetricsStore:  stores.EvolutionMetrics,
 		DomainBus:              domainBus,
 		HookDispatcher:         hookDispatcher,

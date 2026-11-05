@@ -141,6 +141,18 @@ type PipelineDeps struct {
 	// RecordPromptShape ghi metric prompt/shape cuối run có gọi LLM. Được gọi từ goroutine
 	// nền, ctx không hủy theo run. nil = không ghi.
 	RecordPromptShape func(ctx context.Context, shape PromptShape)
+	// SubmitMemoryEval đưa run đã kết thúc tốt vào bộ chấm memory. Được gọi đồng bộ trong
+	// finalize nên không được chặn. nil = không chấm.
+	SubmitMemoryEval func(ctx context.Context, run MemoryEvalRun)
+}
+
+// MemoryEvalRun là phần dữ liệu của run mà bộ chấm memory cần. Chứa nội dung hội thoại nên
+// chỉ được giữ trong bộ nhớ.
+type MemoryEvalRun struct {
+	Question      string
+	Answer        string
+	MemorySection string              // rỗng khi run không có memory hoặc memory đã bị bỏ
+	ToolMessages  []providers.Message // các tin nhắn role tool của run hiện tại
 }
 
 // FireHook is nil-safe. Returns FireResult{Decision: DecisionAllow} when no

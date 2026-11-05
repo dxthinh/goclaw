@@ -16,6 +16,7 @@ import (
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/memory"
+	"github.com/nextlevelbuilder/goclaw/internal/memoryeval"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
 	"github.com/nextlevelbuilder/goclaw/internal/skills"
@@ -108,6 +109,8 @@ type Loop struct {
 	// v3 memory/retrieval flags removed — always true at runtime.
 	// Memory flush runs if callback != nil; auto-inject runs if AutoInjector != nil.
 	autoInjector memory.AutoInjector // v3 L0 memory auto-inject (nil = disabled)
+	// submitMemoryEval nhận ứng viên chấm memory cuối run, không được chặn (nil = tắt).
+	submitMemoryEval func(memoryeval.Candidate)
 
 	eventPub        bus.EventPublisher      // currently unused by Loop; kept for future use
 	domainBus       eventbus.DomainEventBus // V3 domain event bus for consolidation pipeline
@@ -319,6 +322,8 @@ type LoopConfig struct {
 
 	// v3 memory/retrieval flags removed — always true at runtime.
 	AutoInjector memory.AutoInjector // v3 L0 memory auto-inject (nil = disabled)
+	// SubmitMemoryEval nhận ứng viên chấm memory cuối run, không được chặn (nil = tắt).
+	SubmitMemoryEval func(memoryeval.Candidate)
 
 	// Per-agent DB overrides (nil = use global defaults)
 	RestrictToWs *bool
@@ -538,6 +543,7 @@ func NewLoop(cfg LoopConfig) *Loop {
 		dataDir:                cfg.DataDir,
 		workspaceSharing:       cfg.WorkspaceSharing,
 		autoInjector:           cfg.AutoInjector,
+		submitMemoryEval:       cfg.SubmitMemoryEval,
 		restrictToWs:           cfg.RestrictToWs,
 		subagentsCfg:           cfg.SubagentsCfg,
 		memoryCfg:              cfg.MemoryCfg,

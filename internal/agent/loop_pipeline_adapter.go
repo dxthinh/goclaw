@@ -12,10 +12,12 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/eventbus"
 	"github.com/nextlevelbuilder/goclaw/internal/memory"
+	"github.com/nextlevelbuilder/goclaw/internal/memoryeval"
 	"github.com/nextlevelbuilder/goclaw/internal/pipeline"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tokencount"
+	"github.com/nextlevelbuilder/goclaw/internal/tracing"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -195,6 +197,7 @@ func (l *Loop) buildPipelineDeps(req *RunRequest, bridgeRS *runState) pipeline.P
 		BootstrapCleanup:  cb.bootstrapCleanup,
 		MaybeSummarize:    cb.maybeSummarize,
 		RecordPromptShape: l.makeRecordPromptShape(req),
+		SubmitMemoryEval:  l.makeSubmitMemoryEval(),
 	}
 }
 
@@ -361,6 +364,37 @@ func (l *Loop) kpiMetricsStore() store.EvolutionMetricsStore {
 		}
 	}
 	return l.evolutionMetricsStore
+}
+
+// makeSubmitMemoryEval tạo callback đưa run đã kết thúc vào bộ chấm memory. Tên tool được
+// chuẩn hóa giống metric tool vì tin nhắn giữ tên thô, có thể mang tiền tố theo agent.
+// Tenant lấy từ ctx; thiếu tenant thì CandidatesFromRun không tạo ứng viên nào.
+func (l *Loop) makeSubmitMemoryEval() func(ctx context.Context, run pipeline.MemoryEvalRun) {
+	if l.submitMemoryEval == nil {
+		return nil
+	}
+	return func(ctx context.Context, run pipeline.MemoryEvalRun) {
+		results := make([]memoryeval.ToolResult, 0, len(run.ToolMessages))
+		for _, msg := range run.ToolMessages {
+			results = append(results, memoryeval.ToolResult{
+				Name:    l.canonicalToolName(l.resolveToolCallName(msg.ToolName)),
+				Content: msg.Content,
+				IsError: msg.IsError,
+			})
+		}
+		candidates := memoryeval.CandidatesFromRun(memoryeval.RunSnapshot{
+			TenantID:      store.TenantIDFromContext(ctx),
+			AgentID:       l.agentUUID,
+			TraceID:       tracing.TraceIDFromContext(ctx),
+			Question:      run.Question,
+			Answer:        run.Answer,
+			MemorySection: run.MemorySection,
+			ToolResults:   results,
+		})
+		for _, candidate := range candidates {
+			l.submitMemoryEval(candidate)
+		}
+	}
 }
 
 // makeRecordPromptShape tạo callback ghi metric prompt/shape. Pipeline đã gọi nó từ
