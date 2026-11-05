@@ -18,7 +18,8 @@
   "tabs": {
     "documents": "Documents",
     "episodic": "Episodic Memory",
-    "effectiveness": "Effectiveness"
+    "effectiveness": "Effectiveness",
+    "knowledgeGraph": "Knowledge Graph"
   },
   "columns": {
     "path": "Path",
