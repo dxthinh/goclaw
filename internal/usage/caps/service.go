@@ -24,6 +24,8 @@ var (
 type Service struct {
 	store     store.UsageCapStore
 	providers store.ProviderStore
+	// events nhận usage event của mọi lời gọi qua Chat. Nil thì không ghi.
+	events store.UsageEventStore
 }
 
 func NewService(s store.UsageCapStore, providers store.ProviderStore) *Service {
@@ -31,6 +33,16 @@ func NewService(s store.UsageCapStore, providers store.ProviderStore) *Service {
 		return nil
 	}
 	return &Service{store: s, providers: providers}
+}
+
+// SetUsageEventStore gắn nơi ghi usage event cho các lời gọi LLM nền đi qua Chat.
+// Gọi một lần lúc khởi động, trước khi Service được dùng đồng thời. Nil receiver
+// là no-op để Lite (không có Service) dùng chung đường nối dây.
+func (s *Service) SetUsageEventStore(events store.UsageEventStore) {
+	if s == nil {
+		return
+	}
+	s.events = events
 }
 
 type Request struct {

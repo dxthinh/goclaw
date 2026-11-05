@@ -420,6 +420,9 @@ func runGateway() {
 
 	teamWorkEmbedder := setupMemoryEmbeddings(pgStores, providerRegistry)
 	usageCapSvc := usagecaps.NewService(pgStores.UsageCaps, pgStores.Providers)
+	// Mọi lời gọi LLM nền đi qua Service để lại usage event theo purpose. Trên Lite
+	// (không có store usage caps) Service là nil nên setter là no-op.
+	usageCapSvc.SetUsageEventStore(pgStores.UsageEvents)
 
 	// Resolve background provider for consolidation + vault enrichment.
 	// Fallback: background.provider → agent.default_provider → first registered provider.

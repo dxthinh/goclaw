@@ -1,6 +1,7 @@
 package caps
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -29,10 +30,30 @@ type ChatOptions struct {
 // Chat wraps Provider.Chat with the same usage-cap preflight and reconciliation
 // used by agent loops. A nil service intentionally falls back to direct calls
 // for Lite/subscription-only runtimes.
+//
+// Khi Service có event store, mỗi lời gọi thật tới provider để lại đúng một usage
+// event theo purpose, ở mọi nhánh. Lời gọi bị guard/cap chặn trước khi tới
+// provider không tạo event. Lời gọi fallback theo candidate chỉ tạo một event,
+// mang provider/model của candidate cuối cùng.
 func (s *Service) Chat(ctx context.Context, provider providers.Provider, req providers.ChatRequest, opts ChatOptions) (*providers.ChatResponse, error) {
 	if provider == nil {
 		return nil, errors.New("usage cap chat: provider is nil")
 	}
+	var trace CallTrace
+	resp, err := s.chat(ctx, provider, req, opts, &trace)
+	if s != nil {
+		trace.Record(ctx, s.events, BackgroundUsage{
+			Source:   store.UsageSourceUsageCaps,
+			Purpose:  opts.Purpose,
+			TenantID: opts.TenantID,
+			AgentID:  opts.AgentID,
+		}, resp, err)
+	}
+	return resp, err
+}
+
+// chat thực hiện lời gọi và ghi vào trace mọi lần gọi provider thật.
+func (s *Service) chat(ctx context.Context, provider providers.Provider, req providers.ChatRequest, opts ChatOptions, trace *CallTrace) (*providers.ChatResponse, error) {
 	agentID := opts.AgentID
 	if agentID == uuid.Nil {
 		agentID = store.AgentIDFromContext(ctx)
@@ -61,17 +82,33 @@ func (s *Service) Chat(ctx context.Context, provider providers.Provider, req pro
 	if agentScoped {
 		req = clampRequestMaxTokens(req, budget.MaxTokens)
 	}
+	guardName := opts.ProviderName
+	if guardName == "" {
+		guardName = provider.Name()
+	}
 	if s == nil || s.store == nil {
-		guardName := opts.ProviderName
-		if guardName == "" {
-			guardName = provider.Name()
-		}
 		if agentScoped {
 			if guardErr := GuardContextWindow(req, guardName, req.Model, opts.Purpose, budget); guardErr != nil {
 				return nil, guardErr
 			}
 		}
-		return provider.Chat(ctx, req)
+		if fallback, ok := provider.(*providers.ModelFallbackProvider); ok {
+			// Hook chỉ để biết candidate nào đã được gọi; hành vi giống fallback.Chat.
+			return fallback.ChatWithHook(ctx, req, func(_ context.Context, entry providers.FallbackCandidate, actualReq providers.ChatRequest) (providers.FallbackAfterCall, error) {
+				name := entry.ProviderName
+				if name == "" && entry.Provider != nil {
+					name = entry.Provider.Name()
+				}
+				trace.Begin(name, actualReq.Model)
+				return func(resp *providers.ChatResponse, _ error, _ providers.FallbackCallInfo) {
+					trace.End(resp)
+				}, nil
+			})
+		}
+		trace.Begin(guardName, cmp.Or(req.Model, opts.ModelID, provider.DefaultModel()))
+		resp, err := provider.Chat(ctx, req)
+		trace.End(resp)
+		return resp, err
 	}
 	if fallback, ok := provider.(*providers.ModelFallbackProvider); ok {
 		return fallback.ChatWithHook(ctx, req, func(callCtx context.Context, entry providers.FallbackCandidate, actualReq providers.ChatRequest) (providers.FallbackAfterCall, error) {
@@ -94,7 +131,9 @@ func (s *Service) Chat(ctx context.Context, provider providers.Provider, req pro
 			if err != nil {
 				return nil, err
 			}
+			trace.Begin(callOpts.ProviderName, actualReq.Model)
 			return func(resp *providers.ChatResponse, callErr error, _ providers.FallbackCallInfo) {
+				trace.End(resp)
 				if reservation != nil {
 					reservation.Reconcile(scopedCtx, resp, callErr)
 				}
@@ -102,10 +141,6 @@ func (s *Service) Chat(ctx context.Context, provider providers.Provider, req pro
 		})
 	}
 
-	guardName := opts.ProviderName
-	if guardName == "" {
-		guardName = provider.Name()
-	}
 	if agentScoped {
 		if guardErr := GuardContextWindow(req, guardName, req.Model, opts.Purpose, budget); guardErr != nil {
 			return nil, guardErr
@@ -117,7 +152,9 @@ func (s *Service) Chat(ctx context.Context, provider providers.Provider, req pro
 	if err != nil {
 		return nil, err
 	}
+	trace.Begin(guardName, cmp.Or(req.Model, opts.ModelID, provider.DefaultModel()))
 	resp, err := provider.Chat(scopedCtx, req)
+	trace.End(resp)
 	if reservation != nil {
 		reservation.Reconcile(scopedCtx, resp, err)
 	}

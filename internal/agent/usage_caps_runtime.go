@@ -42,7 +42,12 @@ func (l *Loop) reserveInternalLLMUsageFor(ctx context.Context, chatReq providers
 	})
 }
 
+// callInternalLLMWithUsage gọi LLM cho việc nội bộ của agent (compaction, memory
+// flush) với guard cửa sổ ngữ cảnh và reservation. Lời gọi không đi qua
+// usagecaps.Service.Chat nên tự ghi đúng một usage event nền (agent_internal)
+// cho mỗi lời gọi, kể cả khi fallback qua nhiều candidate.
 func (l *Loop) callInternalLLMWithUsage(ctx context.Context, chatReq providers.ChatRequest, purpose string) (*providers.ChatResponse, error) {
+	var trace usagecaps.CallTrace
 	if fallbackProvider, ok := l.provider.(*providers.ModelFallbackProvider); ok {
 		before := func(callCtx context.Context, entry providers.FallbackCandidate, actualReq providers.ChatRequest) (providers.FallbackAfterCall, error) {
 			candidatePurpose := fmt.Sprintf("%s:%s:%s", purpose, entry.ProviderName, actualReq.Model)
@@ -56,13 +61,17 @@ func (l *Loop) callInternalLLMWithUsage(ctx context.Context, chatReq providers.C
 			if err != nil {
 				return nil, err
 			}
+			trace.Begin(entry.ProviderName, actualReq.Model)
 			return func(resp *providers.ChatResponse, callErr error, _ providers.FallbackCallInfo) {
+				trace.End(resp)
 				if reservation != nil {
 					reservation.Reconcile(callCtx, resp, callErr)
 				}
 			}, nil
 		}
-		return fallbackProvider.ChatWithHook(ctx, chatReq, before)
+		resp, err := fallbackProvider.ChatWithHook(ctx, chatReq, before)
+		l.recordInternalLLMUsage(ctx, &trace, purpose, resp, err)
+		return resp, err
 	}
 	providerName := ""
 	if l.provider != nil {
@@ -80,11 +89,33 @@ func (l *Loop) callInternalLLMWithUsage(ctx context.Context, chatReq providers.C
 	if reserveErr != nil {
 		return nil, reserveErr
 	}
+	trace.Begin(providerName, callModel)
 	resp, err := l.provider.Chat(ctx, chatReq)
+	trace.End(resp)
 	if reservation != nil {
 		reservation.Reconcile(ctx, resp, err)
 	}
+	l.recordInternalLLMUsage(ctx, &trace, purpose, resp, err)
 	return resp, err
+}
+
+// recordInternalLLMUsage ghi usage event nền cho một lời gọi nội bộ đã chạm tới
+// provider. Không làm gì khi agent chưa có event store hoặc lời gọi bị chặn
+// trước khi tới provider.
+func (l *Loop) recordInternalLLMUsage(ctx context.Context, trace *usagecaps.CallTrace, purpose string, resp *providers.ChatResponse, callErr error) {
+	if l.usageEvents == nil {
+		return
+	}
+	tenantID := store.TenantIDFromContext(ctx)
+	if tenantID == uuid.Nil {
+		tenantID = l.tenantID
+	}
+	trace.Record(ctx, l.usageEvents, usagecaps.BackgroundUsage{
+		Source:   store.UsageSourceAgentInternal,
+		Purpose:  purpose,
+		TenantID: tenantID,
+		AgentID:  l.agentUUID,
+	}, resp, callErr)
 }
 
 func (l *Loop) maxOutputTokensFromRequest(chatReq providers.ChatRequest) int {
