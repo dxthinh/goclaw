@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -45,6 +46,7 @@ func (h *MemoryEffectivenessHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *MemoryEffectivenessHandler) handleGet(w http.ResponseWriter, r *http.Request) {
+	locale := extractLocale(r)
 	q := r.URL.Query()
 	days := 7
 	if raw := q.Get("days"); raw != "" {
@@ -52,7 +54,7 @@ func (h *MemoryEffectivenessHandler) handleGet(w http.ResponseWriter, r *http.Re
 		case "7", "30", "90":
 			days, _ = strconv.Atoi(raw)
 		default:
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "days must be 7, 30 or 90"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidRequest, "days must be 7, 30 or 90")})
 			return
 		}
 	}
@@ -60,7 +62,7 @@ func (h *MemoryEffectivenessHandler) handleGet(w http.ResponseWriter, r *http.Re
 	if raw := q.Get("agent_id"); raw != "" {
 		id, err := uuid.Parse(raw)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid agent_id"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(locale, i18n.MsgInvalidID, "agent")})
 			return
 		}
 		agentID = &id
@@ -73,11 +75,11 @@ func (h *MemoryEffectivenessHandler) handleGet(w http.ResponseWriter, r *http.Re
 	rows, err := h.kpi.QueryDaily(ctx, agentID, from, to)
 	if err != nil {
 		if errors.Is(err, store.ErrMemoryKPITenantRequired) {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "tenant required"})
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": i18n.T(locale, i18n.MsgTenantScopeRequired)})
 			return
 		}
 		slog.Warn("memory.effectiveness.query_failed", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to load memory effectiveness"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(locale, i18n.MsgFailedToList, "memory effectiveness")})
 		return
 	}
 

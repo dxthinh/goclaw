@@ -293,7 +293,7 @@
       "outputTokens": "输出 token",
       "counters": {
         "episodic_total": "情景摘要",
-        "episodic_stale": "过期情景",
+        "episodic_stale": "需重新摘要的会话",
         "episodic_promoted": "已提升情景",
         "kg_entities": "KG 实体",
         "kg_relations": "KG 关系",

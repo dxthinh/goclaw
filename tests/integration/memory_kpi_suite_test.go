@@ -104,8 +104,8 @@ func runMemoryKPISuite(t *testing.T, h *kpiHarness) {
 		if got["memory_documents|"] != 3 {
 			t.Fatalf("gauge đổi khi includeGauges=false: %v", got["memory_documents|"])
 		}
-		if got["retrieval_events|knowledge_graph_search:called"] != 3 {
-			t.Fatalf("phần cộng dồn phải được tính lại: %v", got["retrieval_events|knowledge_graph_search:called"])
+		if got["retrieval_events|knowledge_graph_search:unknown"] != 2 {
+			t.Fatalf("phần cộng dồn phải được tính lại: %v", got["retrieval_events|knowledge_graph_search:unknown"])
 		}
 
 		refresh(t, e, kpiDay, true)

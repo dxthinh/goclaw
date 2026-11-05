@@ -62,8 +62,7 @@ func pgKPICumulativeStatements() []string {
 	return []string{
 		insert(`WITH agg AS (
 			SELECT tenant_id, agent_id,
-			       CASE WHEN metric_type = 'tool' THEN metric_key || ':called'
-			            ELSE metric_key || ':' || COALESCE(NULLIF(value->>'outcome', ''), 'unknown') END AS dimension,
+			       metric_key || ':' || COALESCE(NULLIF(value->>'outcome', ''), 'unknown') AS dimension,
 			       COUNT(*) AS events
 			FROM agent_evolution_metrics
 			WHERE created_at >= $2 AND created_at < $3
@@ -121,6 +120,7 @@ func pgKPICumulativeStatements() []string {
 			                THEN COALESCE(s.input_tokens, 0)
 			                ELSE COALESCE(s.input_tokens, 0) + `+pgJSONNum("s.metadata", "cache_read_tokens")+` + `+pgJSONNum("s.metadata", "cache_creation_tokens")+` END) AS denominator,
 			       SUM(CASE WHEN s.metadata->'cache_read_tokens' IS NOT NULL
+			                  OR s.metadata->'cache_creation_tokens' IS NOT NULL
 			                  OR s.metadata->'prompt_tokens_include_cached_segments' IS NOT NULL
 			                THEN 1 ELSE 0 END) AS reporting
 			FROM spans s

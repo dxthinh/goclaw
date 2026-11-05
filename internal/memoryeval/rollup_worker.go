@@ -12,8 +12,9 @@ import (
 const (
 	rollupInterval    = time.Hour
 	rollupStepTimeout = 5 * time.Minute
-	// rollupBackfillDays khớp hạn giữ trace: ngày cũ hơn không còn nguồn để tính lại.
-	rollupBackfillDays  = 7
+	// rollupBackfillDays nhỏ hơn hạn giữ trace một ngày: ngày thứ 7 đã mất một phần nguồn, tính
+	// lúc này sẽ khóa con số thiếu vì backfill không ghi đè ngày đã có dữ liệu.
+	rollupBackfillDays  = 6
 	metricRetentionDays = 30
 	evalRetentionDays   = 180
 )
@@ -57,7 +58,7 @@ func (w *RollupWorker) Start() {
 	})
 }
 
-// backfillMissingDays điền các ngày còn thiếu trong tuần gần nhất, không kể hôm nay vì tick
+// backfillMissingDays điền các ngày còn thiếu mà nguồn vẫn đủ, không kể hôm nay vì tick
 // ngay sau đó sẽ tính. Chỉ phần cộng dồn: giá trị cuối ngày của quá khứ không tính lại được
 // từ trạng thái hiện tại.
 func (w *RollupWorker) backfillMissingDays(ctx context.Context) {

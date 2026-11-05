@@ -194,13 +194,11 @@ func buildFunnel(events effectivenessAcc) []effectivenessFunnel {
 			f.Searched = f.Eligible
 			f.Matched = count(oc("no_abstract") + oc("injected"))
 			f.Injected = count(oc("injected"))
-		case store.MemoryEvalChannelMemorySearch:
+		default:
+			// memory_search và knowledge_graph_search: mỗi lần gọi tool là một lượt tìm.
 			f.Eligible = count(total)
 			f.Searched = f.Eligible
 			f.Matched = count(oc("matched"))
-		default:
-			f.Eligible = count(total)
-			f.Searched = f.Eligible
 		}
 		out = append(out, f)
 	}

@@ -64,7 +64,7 @@ func (t *KnowledgeGraphSearchTool) Parameters() map[string]any {
 
 func (t *KnowledgeGraphSearchTool) Execute(ctx context.Context, args map[string]any) *Result {
 	if t.kgStore == nil {
-		return NewResult("Knowledge graph is not enabled for this agent.")
+		return noMatchResult("Knowledge graph is not enabled for this agent.")
 	}
 
 	agentID := store.AgentIDFromContext(ctx)
@@ -174,7 +174,7 @@ func (t *KnowledgeGraphSearchTool) executeTraversal(ctx context.Context, agentID
 		return t.executeSearch(ctx, agentID, userID, query, nil, store.TemporalQueryOptions{})
 	}
 
-	return NewResult(fmt.Sprintf("No connected entities found from entity_id=%q.", entityID))
+	return noMatchResult(fmt.Sprintf("No connected entities found from entity_id=%q.", entityID))
 }
 
 func (t *KnowledgeGraphSearchTool) executeListAll(ctx context.Context, agentID, userID string, temporal store.TemporalQueryOptions) *Result {
@@ -183,7 +183,7 @@ func (t *KnowledgeGraphSearchTool) executeListAll(ctx context.Context, agentID, 
 		return ErrorResult(fmt.Sprintf("list entities failed: %v", err))
 	}
 	if len(entities) == 0 {
-		return NewResult("Knowledge graph is empty. No entities have been extracted yet.")
+		return noMatchResult("Knowledge graph is empty. No entities have been extracted yet.")
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Knowledge graph has %d entities:\n\n", len(entities)))
@@ -219,7 +219,7 @@ func (t *KnowledgeGraphSearchTool) executeSearch(ctx context.Context, agentID, u
 		}
 		entities = filtered
 		if len(entities) == 0 {
-			return NewResult(fmt.Sprintf("No entities of type %q found matching %q.", entityType, query))
+			return noMatchResult(fmt.Sprintf("No entities of type %q found matching %q.", entityType, query))
 		}
 	}
 
@@ -269,11 +269,18 @@ func (t *KnowledgeGraphSearchTool) resolveEntityName(ctx context.Context, agentI
 	return entityID[:8] // fallback: short UUID
 }
 
+// noMatchResult là kết quả thành công nhưng không có thực thể nào khớp truy vấn.
+func noMatchResult(message string) *Result {
+	r := NewResult(message)
+	r.NoMatch = true
+	return r
+}
+
 // noResultsHint returns top entities so the model knows what's available.
 func (t *KnowledgeGraphSearchTool) noResultsHint(ctx context.Context, agentID, userID, query string) *Result {
 	top, _ := t.kgStore.ListEntities(ctx, agentID, userID, store.EntityListOptions{Limit: 10})
 	if len(top) == 0 {
-		return NewResult("Knowledge graph is empty. No entities have been extracted yet.")
+		return noMatchResult("Knowledge graph is empty. No entities have been extracted yet.")
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("No entities found matching %q. ", query))
@@ -282,5 +289,5 @@ func (t *KnowledgeGraphSearchTool) noResultsHint(ctx context.Context, agentID, u
 		sb.WriteString(fmt.Sprintf("- %s [%s] (id: %s)\n", e.Name, e.EntityType, e.ID))
 	}
 	sb.WriteString("\nTry searching with a specific name from the list above, or use query='*' to see all.")
-	return NewResult(sb.String())
+	return noMatchResult(sb.String())
 }

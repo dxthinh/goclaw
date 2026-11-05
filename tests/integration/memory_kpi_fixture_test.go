@@ -109,8 +109,9 @@ func (e *kpiEnv) seedCumulative(t *testing.T) {
 	e.metric(t, "retrieval", "auto_inject", `{"outcome":"injected"}`, after)
 	e.metric(t, "retrieval", "memory_search", `{"outcome":"matched"}`, at)
 	e.metric(t, "retrieval", "memory_search", `{"used_in_reply":true}`, at) // dòng cũ không có outcome
-	e.metric(t, "tool", "knowledge_graph_search", `{"success":true}`, at)
-	e.metric(t, "tool", "knowledge_graph_search", `{"success":false}`, at)
+	e.metric(t, "tool", "knowledge_graph_search", `{"success":true,"outcome":"matched"}`, at)
+	e.metric(t, "tool", "knowledge_graph_search", `{"success":false,"outcome":"error"}`, at)
+	e.metric(t, "tool", "knowledge_graph_search", `{"success":true}`, at) // dòng cũ không có outcome
 	e.metric(t, "tool", "web_search", `{"success":true}`, at)
 
 	e.metric(t, "prompt", "shape", `{"system_tokens":100,"tool_schema_tokens":20,"history_tokens":300,"tool_result_tokens":40,"memory_tokens":5}`, at)
@@ -133,6 +134,7 @@ func (e *kpiEnv) seedCumulative(t *testing.T) {
 	e.span(t, root, "llm_call", "anthropic", "m1", 1000, `{"cache_read_tokens":400,"cache_creation_tokens":100}`, at)
 	e.span(t, root, "llm_call", "openai", "m2", 1000, `{"cache_read_tokens":600,"prompt_tokens_include_cached_segments":true}`, at)
 	e.span(t, root, "llm_call", "plain", "m3", 500, nil, at)
+	e.span(t, root, "llm_call", "anthropic", "m4", 300, `{"cache_creation_tokens":300}`, at) // có báo cache nhưng trượt
 	e.span(t, child, "llm_call", "anthropic", "m1", 200, `{"cache_read_tokens":50}`, at)
 	e.span(t, root, "tool_call", "anthropic", "m1", 7777, nil, at)
 	e.span(t, root, "llm_call", "anthropic", "m1", 8888, nil, before)
@@ -143,23 +145,28 @@ func (e *kpiEnv) seedCumulative(t *testing.T) {
 	e.background(t, "memory-eval", nil, 500, 700, after)
 }
 
-// seedGauges ghi trạng thái hiện tại của pipeline memory. Session có 20 tin nhắn nên episodic
-// có turn_count 10 là cũ (20 >= 10+10), turn_count 11 thì chưa, và dòng không phải nguồn
-// session không bao giờ bị tính là cũ.
+// seedGauges ghi trạng thái hiện tại của pipeline memory. Session đầu có 21 tin nhắn và bản tóm
+// tắt phủ xa nhất là 11 lượt nên cần tóm tắt lại (21 >= 11+10), và chỉ tính một lần dù có hai dòng
+// nguồn session. Session sau có 20 tin nhắn thì chưa cần. Dòng không phải nguồn session không ảnh
+// hưởng đến phép so sánh này.
 func (e *kpiEnv) seedGauges(t *testing.T) {
 	t.Helper()
 	at := kpiDay.Add(10 * time.Hour)
-	messages := "[" + strings.TrimSuffix(strings.Repeat(`{"role":"user"},`, 20), ",") + "]"
-	e.exec(t, `INSERT INTO sessions (id, session_key, agent_id, tenant_id, messages) VALUES ($1, $2, $3, $4, $5)`,
-		uuid.New(), "kpi-s-"+e.tenant.String(), e.agent, e.tenant, messages)
+	staleKey, freshKey := "kpi-s-"+e.tenant.String(), "kpi-f-"+e.tenant.String()
+	for key, count := range map[string]int{staleKey: 21, freshKey: 20} {
+		messages := "[" + strings.TrimSuffix(strings.Repeat(`{"role":"user"},`, count), ",") + "]"
+		e.exec(t, `INSERT INTO sessions (id, session_key, agent_id, tenant_id, messages) VALUES ($1, $2, $3, $4, $5)`,
+			uuid.New(), key, e.agent, e.tenant, messages)
+	}
 	for _, ep := range []struct {
+		key      string
 		source   string
 		turns    int
 		promoted any
-	}{{"session", 10, at}, {"session", 11, nil}, {"v2-migration", 0, nil}} {
+	}{{staleKey, "session", 10, at}, {staleKey, "session", 11, nil}, {staleKey, "v2-migration", 0, nil}, {freshKey, "session", 11, nil}} {
 		e.exec(t, `INSERT INTO episodic_summaries (id, tenant_id, agent_id, user_id, session_key, summary, source_type, turn_count, promoted_at)
 			VALUES ($1, $2, $3, '', $4, 'kpi', $5, $6, $7)`,
-			uuid.New(), e.tenant, e.agent, "kpi-s-"+e.tenant.String(), ep.source, ep.turns, ep.promoted)
+			uuid.New(), e.tenant, e.agent, ep.key, ep.source, ep.turns, ep.promoted)
 	}
 	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
 	for i, validUntil := range []any{nil, nil, at} {

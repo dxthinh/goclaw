@@ -80,8 +80,7 @@ func sqliteKPICumulativeStatements() []string {
 	return []string{
 		insert(`WITH agg AS (
 			SELECT tenant_id, agent_id,
-			       CASE WHEN metric_type = 'tool' THEN metric_key || ':called'
-			            ELSE metric_key || ':' || COALESCE(NULLIF(`+sqliteJSONText("value", "outcome")+`, ''), 'unknown') END AS dimension,
+			       metric_key || ':' || COALESCE(NULLIF(`+sqliteJSONText("value", "outcome")+`, ''), 'unknown') AS dimension,
 			       COUNT(*) AS events
 			FROM agent_evolution_metrics
 			WHERE created_at >= ?2 AND created_at < ?3
@@ -139,6 +138,7 @@ func sqliteKPICumulativeStatements() []string {
 			                THEN COALESCE(s.input_tokens, 0)
 			                ELSE COALESCE(s.input_tokens, 0) + `+sqliteJSONNum("s.metadata", "cache_read_tokens")+` + `+sqliteJSONNum("s.metadata", "cache_creation_tokens")+` END) AS denominator,
 			       SUM(CASE WHEN `+sqliteJSONHas("s.metadata", "cache_read_tokens")+`
+			                  OR `+sqliteJSONHas("s.metadata", "cache_creation_tokens")+`
 			                  OR `+sqliteJSONHas("s.metadata", "prompt_tokens_include_cached_segments")+`
 			                THEN 1 ELSE 0 END) AS reporting
 			FROM spans s

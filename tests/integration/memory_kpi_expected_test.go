@@ -9,7 +9,9 @@ func wantCumulative() map[string]float64 {
 		"retrieval_events|auto_inject:no_match":          1,
 		"retrieval_events|memory_search:matched":         1,
 		"retrieval_events|memory_search:unknown":         1,
-		"retrieval_events|knowledge_graph_search:called": 2,
+		"retrieval_events|knowledge_graph_search:matched": 1,
+		"retrieval_events|knowledge_graph_search:error":   1,
+		"retrieval_events|knowledge_graph_search:unknown": 1,
 		"eval_samples|auto_inject":                       1,
 		"eval_items|auto_inject":                         4,
 		"eval_relevant_items|auto_inject":                3,
@@ -46,6 +48,11 @@ func wantCumulative() map[string]float64 {
 		"llm_cache_read_tokens|openai/m2":                600,
 		"llm_cache_denominator_tokens|openai/m2":         1000, // input đã gồm phần cache
 		"llm_cache_reporting_calls|openai/m2":            1,
+		"llm_calls|anthropic/m4":                         1,
+		"llm_input_tokens|anthropic/m4":                  300,
+		"llm_cache_read_tokens|anthropic/m4":             0,
+		"llm_cache_denominator_tokens|anthropic/m4":      600, // 300 + 300 phần ghi cache
+		"llm_cache_reporting_calls|anthropic/m4":         1,   // có báo cache dù không đọc được gì
 		"llm_calls|plain/m3":                             1,
 		"llm_input_tokens|plain/m3":                      500,
 		"llm_cache_read_tokens|plain/m3":                 0,
@@ -63,7 +70,7 @@ func wantCumulative() map[string]float64 {
 // wantGauges là kết quả tính tay từ seedGauges.
 func wantGauges() map[string]float64 {
 	return map[string]float64{
-		"episodic_total|":     3,
+		"episodic_total|":     4,
 		"episodic_promoted|":  1,
 		"episodic_stale|":     1,
 		"kg_entities|":        2,

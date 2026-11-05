@@ -311,7 +311,7 @@
       "outputTokens": "Output tokens",
       "counters": {
         "episodic_total": "Episodic summaries",
-        "episodic_stale": "Stale episodic",
+        "episodic_stale": "Sessions to re-summarize",
         "episodic_promoted": "Promoted episodic",
         "kg_entities": "KG entities",
         "kg_relations": "KG relations",

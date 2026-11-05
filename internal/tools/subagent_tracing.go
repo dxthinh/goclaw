@@ -56,6 +56,27 @@ func (sm *SubagentManager) emitLLMSpanStart(ctx context.Context, start time.Time
 	return spanID
 }
 
+// subagentCacheMetadata dựng metadata cache của span LLM; nil khi provider không báo gì về cache.
+// Cờ prompt_tokens_include_cached_segments phải đi kèm, nếu không mẫu số của cache rate sẽ cộng
+// phần cache hai lần với provider đã gộp sẵn nó vào input.
+func subagentCacheMetadata(usage *providers.Usage) []byte {
+	if usage.CacheCreationTokens <= 0 && usage.CacheReadTokens <= 0 && !usage.PromptTokensIncludeCachedSegments {
+		return nil
+	}
+	meta := map[string]any{
+		"cache_creation_tokens": usage.CacheCreationTokens,
+		"cache_read_tokens":     usage.CacheReadTokens,
+	}
+	if usage.PromptTokensIncludeCachedSegments {
+		meta["prompt_tokens_include_cached_segments"] = true
+	}
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 // emitLLMSpanEnd finalizes a running subagent LLM span.
 func (sm *SubagentManager) emitLLMSpanEnd(ctx context.Context, spanID uuid.UUID, start time.Time, resp *providers.ChatResponse, callErr error) {
 	if spanID == uuid.Nil {
@@ -80,14 +101,8 @@ func (sm *SubagentManager) emitLLMSpanEnd(ctx context.Context, spanID uuid.UUID,
 		if resp.Usage != nil {
 			updates["input_tokens"] = resp.Usage.PromptTokens
 			updates["output_tokens"] = resp.Usage.CompletionTokens
-			if resp.Usage.CacheCreationTokens > 0 || resp.Usage.CacheReadTokens > 0 {
-				meta := map[string]int{
-					"cache_creation_tokens": resp.Usage.CacheCreationTokens,
-					"cache_read_tokens":     resp.Usage.CacheReadTokens,
-				}
-				if b, err := json.Marshal(meta); err == nil {
-					updates["metadata"] = b
-				}
+			if meta := subagentCacheMetadata(resp.Usage); meta != nil {
+				updates["metadata"] = meta
 			}
 		}
 		updates["finish_reason"] = resp.FinishReason

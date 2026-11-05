@@ -239,7 +239,7 @@
     },
     "verdict": {
       "keep": "Giữ",
-      "tune": "Chỉnh",
+      "tune": "Cần chỉnh",
       "consider_off": "Xem xét tắt",
       "insufficient_data": "Chưa đủ dữ liệu"
     },
@@ -251,7 +251,7 @@
       "relevance": "Liên quan",
       "used": "Được dùng",
       "verdict": "Kết luận",
-      "thresholds": "Ngưỡng: tối thiểu {{minSamples}} mẫu; Giữ khi liên quan >= {{keepRelevance}} và được dùng >= {{keepUsed}}; Xem xét tắt khi liên quan < {{offRelevance}}; còn lại là Chỉnh."
+      "thresholds": "Ngưỡng: tối thiểu {{minSamples}} mẫu; Giữ khi liên quan >= {{keepRelevance}} và được dùng >= {{keepUsed}}; Xem xét tắt khi liên quan < {{offRelevance}}; còn lại là Cần chỉnh."
     },
     "funnel": {
       "title": "Phễu truy hồi",
@@ -293,7 +293,7 @@
       "outputTokens": "Token ra",
       "counters": {
         "episodic_total": "Tóm tắt episodic",
-        "episodic_stale": "Episodic cũ",
+        "episodic_stale": "Session cần tóm tắt lại",
         "episodic_promoted": "Episodic đã nâng cấp",
         "kg_entities": "Thực thể KG",
         "kg_relations": "Quan hệ KG",

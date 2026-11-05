@@ -134,7 +134,7 @@ func TestBuildEffectiveness_Funnel(t *testing.T) {
 	want := []effectivenessFunnel{
 		{Channel: "auto_inject", Eligible: 23, Searched: 23, Matched: 13, Injected: 7, Disabled: 2, Errors: 1},
 		{Channel: "memory_search", Eligible: 11, Searched: 11, Matched: 5, Errors: 2},
-		{Channel: "knowledge_graph_search", Eligible: 10, Searched: 10},
+		{Channel: "knowledge_graph_search", Eligible: 10, Searched: 10, Matched: 4},
 	}
 	for i := range want {
 		if resp.Funnel[i] != want[i] {
