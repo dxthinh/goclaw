@@ -6,29 +6,27 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ## 2026-11-06
 
-### Memory effectiveness KPIs
+### KPI hiệu quả memory
 
-**Features**
+**Tính năng**
 
-- `GET /v1/memory/effectiveness` reports, per tenant and optionally per agent over 7, 30
-  or 90 UTC days: the retrieval funnel, graded relevance and use per memory layer with a
-  keep / tune / consider_off verdict, average prompt composition, prompt cache rate per
-  provider and model, and background pipeline counts and LLM tokens.
-- The Memory page has a new Effectiveness tab (en, vi, zh) with loading, error and empty
-  states. Missing figures show "no data" instead of 0.
-- Thresholds and switches are read from tenant `system_configs`
-  (`memory.kpi.*`, `memory.auto_inject.*`, `memory.eval.*`) and set with
-  `PUT /v1/system-configs/{key}`.
-- Definitions, formulas and SQL that reproduces each figure are in
-  `docs/memory-effectiveness-kpi.md`.
+- `GET /v1/memory/effectiveness` báo cáo theo tenant, có thể lọc theo agent, trong 7, 30
+  hoặc 90 ngày UTC: phễu truy hồi, mức liên quan và mức được dùng theo từng tầng memory kèm
+  kết luận keep / tune / consider_off, cơ cấu prompt trung bình, tỷ lệ prompt cache theo
+  provider và model, số lượng của pipeline nền và token LLM nền.
+- Trang Memory có thêm tab Effectiveness (en, vi, zh) với trạng thái đang tải, lỗi và rỗng.
+  Số liệu thiếu hiện "không có dữ liệu" thay vì 0.
+- Ngưỡng và công tắc đọc từ `system_configs` của tenant (`memory.kpi.*`,
+  `memory.auto_inject.*`, `memory.eval.*`), đặt bằng `PUT /v1/system-configs/{key}`.
+- Định nghĩa, công thức và SQL tái tạo từng số nằm trong `docs/memory-effectiveness-kpi.md`.
 
-**Changes**
+**Thay đổi**
 
-- Reported usage rises compared with earlier figures because the rollup now counts
-  child traces (delegations, subagents) as well as top-level traces.
-- Figures come from an hourly rollup by UTC day, so they can lag by up to about an hour.
-- Memory docs now describe auto-inject as attached to the current user message, not the
-  system prompt, and configured through `system_configs`.
+- Số usage tăng so với trước vì giờ đã đóng và giờ đang chạy đều tính cả trace con (ủy quyền,
+  subagent) ngoài trace gốc.
+- Số liệu lấy từ rollup theo giờ và theo ngày UTC nên có thể trễ tối đa khoảng một giờ.
+- Tài liệu memory nay mô tả auto-inject được ghép vào tin nhắn người dùng hiện tại, không nằm
+  trong system prompt, và được cấu hình qua `system_configs`.
 
 ## 2026-11-04
 

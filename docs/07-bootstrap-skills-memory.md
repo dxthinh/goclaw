@@ -551,20 +551,20 @@ V3 introduces a comprehensive 3-tier memory system with event-driven consolidati
 
 ### Auto-Injection (L0 Loading)
 
-Runs in ContextStage once per turn. Checks the user message (plus a short snippet of recent user turns) against the episodic index. If relevant matches are found, the L0 abstracts are attached to the current user message when the request is built. They are not added to the system prompt: content that changes every turn there would invalidate the prompt cache for all history that follows.
+Chạy trong ContextStage, mỗi lượt một lần. So khớp tin nhắn người dùng (kèm một đoạn ngắn từ các lượt người dùng gần đây) với chỉ mục episodic. Nếu có kết quả liên quan, các L0 abstract được ghép vào tin nhắn người dùng hiện tại khi dựng request. Chúng không được thêm vào system prompt: nội dung thay đổi mỗi lượt ở đó sẽ làm mất hiệu lực prompt cache của toàn bộ lịch sử phía sau.
 
-**Config** (tenant `system_configs`; agent settings no longer control auto-inject):
+**Cấu hình** (`system_configs` của tenant; thiết lập của agent không còn điều khiển auto-inject):
 
-| Key | Default | Meaning |
+| Khóa | Mặc định | Ý nghĩa |
 |-----|---------|---------|
-| `memory.auto_inject.enabled` | `true` | Switch auto-inject off for the tenant |
-| `memory.auto_inject.min_score` | `0.8` | Minimum score (`ts_rank` + cosine, weights 1 and 1) to inject |
+| `memory.auto_inject.enabled` | `true` | Công tắc tắt auto-inject của tenant |
+| `memory.auto_inject.min_score` | `0.8` | Điểm tối thiểu để chèn (`ts_rank` + cosine, trọng số 1 và 1) |
 
-Set a value with `PUT /v1/system-configs/{key}` (admin). Missing or invalid values fall back to the default. The budget is up to 5 entries and ~200 tokens.
+Đặt giá trị bằng `PUT /v1/system-configs/{key}` (quyền admin). Giá trị thiếu hoặc không hợp lệ thì dùng mặc định. Khối memory có tối đa 5 mục và không có giới hạn token riêng.
 
-**Return value:** Formatted section (~200 tokens max) with top K summaries, or empty string if no relevant matches. Every run records an outcome (`disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`) and the top score so the threshold can be calibrated.
+**Giá trị trả về:** khối đã định dạng gồm các bản tóm tắt có điểm cao nhất, hoặc chuỗi rỗng nếu không có kết quả liên quan. Mỗi run đều ghi một outcome (`disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`) và điểm cao nhất để hiệu chỉnh ngưỡng.
 
-**Measuring effectiveness:** `GET /v1/memory/effectiveness` and the Memory page's Effectiveness tab report the retrieval funnel, graded relevance and use per layer, prompt composition, cache rate and background pipeline usage. See [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
+**Đo hiệu quả:** `GET /v1/memory/effectiveness` và tab Effectiveness của trang Memory báo cáo phễu truy hồi, mức liên quan và mức được dùng theo từng tầng, cơ cấu prompt, tỷ lệ cache và mức dùng của pipeline nền. Xem [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
 
 ### Progressive Tool Access
 
@@ -572,7 +572,7 @@ Three tool-based memory interactions:
 
 | Tool | Purpose | Tier | Example |
 |------|---------|------|---------|
-| (auto-inject) | Automatic context injection | L0 | The user message carries 3 relevant past sessions |
+| (auto-inject) | Tự động chèn ngữ cảnh | L0 | Tin nhắn người dùng mang theo 3 session cũ liên quan |
 | `memory_search(query)` | Hybrid search L1 + L2 | L1 | "Find past discussions about billing" |
 | `memory_expand(id)` | Deep retrieval from episodic | L2 | "Show me full summary + linked facts from session XYZ" |
 

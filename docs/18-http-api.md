@@ -989,22 +989,22 @@ PATCH /v1/agents/{agentID}/evolution/suggestions/{suggestionID}
 }
 ```
 
-### Get Memory Effectiveness
+### Lấy KPI hiệu quả memory
 
 ```
 GET /v1/memory/effectiveness
 ```
 
-Returns the memory effectiveness KPIs of the caller's tenant, read from the hourly rollup `memory_kpi_daily`. Requires viewer role. Definitions, formulas and reproducing SQL are in [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
+Trả KPI hiệu quả memory của tenant gọi API, đọc từ bảng rollup theo giờ `memory_kpi_daily`. Cần quyền viewer. Định nghĩa, công thức và SQL tái tạo số liệu nằm trong [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
 
-**Query Parameters:**
+**Tham số query:**
 
-| Parameter | Type | Required | Description |
+| Tham số | Kiểu | Bắt buộc | Mô tả |
 |-----------|------|----------|-------------|
-| `days` | integer | no | Window size in UTC days including today: `7` (default), `30` or `90`. Any other value returns `400`. |
-| `agent_id` | UUID | no | Restrict to one agent. Omit for all agents. A non-UUID value returns `400`. |
+| `days` | integer | không | Độ dài cửa sổ theo ngày UTC, gồm cả hôm nay: `7` (mặc định), `30` hoặc `90`. Giá trị khác trả `400`. |
+| `agent_id` | UUID | không | Chỉ lấy một agent. Bỏ trống để lấy mọi agent. Giá trị không phải UUID trả `400`. |
 
-**Response:**
+**Phản hồi:**
 
 ```json
 {
@@ -1023,11 +1023,11 @@ Returns the memory effectiveness KPIs of the caller's tenant, read from the hour
 }
 ```
 
-- `funnel` always has the three channels `auto_inject`, `memory_search`, `knowledge_graph_search`; `layers` always has the five layers `auto_inject`, `memory_search`, `episodic`, `document`, `knowledge_graph`.
-- `relevance`, `used` and `cache_rate` are `null` when there is no data; clients must show "no data", not 0.
-- `verdict` is one of `keep`, `tune`, `consider_off`, `insufficient_data`.
-- `thresholds` and `switches` come from the tenant's `system_configs` (`memory.kpi.*`, `memory.auto_inject.enabled`, `memory.eval.enabled`), with defaults when a key is missing or invalid.
-- Errors: `400` invalid `days` or `agent_id`; `403` no tenant in the request context (no figures are returned); `500` store failure.
+- `funnel` luôn có ba kênh `auto_inject`, `memory_search`, `knowledge_graph_search`; `layers` luôn có năm tầng `auto_inject`, `memory_search`, `episodic`, `document`, `knowledge_graph`.
+- `relevance`, `used` và `cache_rate` là `null` khi không có dữ liệu; client phải hiện "không có dữ liệu", không hiện 0.
+- `verdict` là một trong `keep`, `tune`, `consider_off`, `insufficient_data`.
+- `thresholds` và `switches` lấy từ `system_configs` của tenant (`memory.kpi.*`, `memory.auto_inject.enabled`, `memory.eval.enabled`), dùng mặc định khi khóa thiếu hoặc không hợp lệ.
+- Lỗi: `400` khi `days` hoặc `agent_id` không hợp lệ; `403` khi request không có tenant (không trả số liệu nào); `500` khi store lỗi.
 
 ---
 

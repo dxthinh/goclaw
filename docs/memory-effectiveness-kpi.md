@@ -17,6 +17,7 @@ GET /v1/memory/effectiveness
 - Ngày theo UTC. `bucket_date` là ngày UTC, cửa sổ `days` gồm cả hôm nay: `days=7` là từ hôm nay trừ 6 ngày đến hôm nay. `window.from` và `window.to` cũng là ngày UTC.
 - Rollup chạy mỗi giờ nên số có độ trễ. Worker chỉ tính lại hôm nay và hôm qua; hoạt động mới có thể mất tối đa khoảng một giờ để xuất hiện. Ngày cũ hơn không bị ghi đè, nên số vẫn còn khi trace nguồn đã bị xóa.
 - Ngày gateway dừng giữa chừng có thể thiếu tối đa khoảng một giờ dữ liệu của ngày đó, vì lần tính lại cuối cùng chưa kịp chạy.
+- Lúc khởi động, worker điền các ngày chưa có dòng nào trong 6 ngày gần nhất, chỉ phần cộng dồn. Không lùi tới ngày thứ 7 vì trace của ngày đó đã bị xóa một phần theo hạn giữ, và con số thiếu sẽ bị giữ mãi do backfill không ghi đè ngày đã có dữ liệu. Giá trị cuối ngày (nhóm pipeline) không backfill được vì chỉ đọc được trạng thái hiện tại.
 - Metric cộng dồn (phễu, chấm, prompt, cache, LLM nền) được cộng mọi dòng trong cửa sổ. Metric giá trị cuối ngày (nhóm pipeline: `episodic_*`, `kg_*`, `memory_documents`, `dreaming_documents`) không được cộng qua nhiều ngày: API lấy ngày mới nhất có dữ liệu của từng agent, rồi cộng các agent.
 - Mọi dòng được lọc theo tenant trong ngữ cảnh xác thực. Thiếu tenant thì API trả 403 và không có số liệu nào.
 
@@ -56,16 +57,18 @@ WHERE k.metric IN ('episodic_total','episodic_stale','episodic_promoted','kg_ent
 ### 4.1 Phễu truy hồi (`funnel`)
 
 - Định nghĩa: mỗi kênh một hàng cho biết có bao nhiêu lần truy hồi đủ điều kiện, có kết quả và thực sự được chèn.
-- Nguồn: `memory_kpi_daily.metric = 'retrieval_events'`, `dimension = '<channel>:<outcome>'`, rollup từ `agent_evolution_metrics` (retrieval `auto_inject`, retrieval `memory_search`, tool `knowledge_graph_search`). `outcome` của auto-inject: `disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`; của memory_search: `matched`, `no_match`, `error`, `unknown` (dòng cũ không có outcome).
+- Nguồn: `memory_kpi_daily.metric = 'retrieval_events'`, `dimension = '<channel>:<outcome>'`, rollup từ `agent_evolution_metrics` (retrieval `auto_inject`, retrieval `memory_search`, tool `knowledge_graph_search`). `outcome` của auto-inject: `disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`; của memory_search và knowledge_graph_search: `matched`, `no_match`, `error`, `unknown` (dòng cũ không có outcome). Metric của knowledge_graph_search được ghi ở mọi agent, không phụ thuộc cờ `self_evolution_metrics`.
 - Công thức (`total` là tổng mọi outcome của kênh):
 
 | Kênh | eligible = searched | matched | injected | disabled | errors |
 |---|---|---|---|---|---|
 | `auto_inject` | total − `trivial` − `disabled` | `no_abstract` + `injected` | `injected` | `disabled` | `error` |
 | `memory_search` | total | `matched` | 0 | 0 | `error` |
-| `knowledge_graph_search` | total | 0 | 0 | 0 | `error` |
+| `knowledge_graph_search` | total | `matched` | 0 | 0 | `error` |
 
 API luôn trả đủ ba kênh, kể cả khi bằng 0.
+
+`injected` nghĩa là khối memory đã được dựng cho lượt đó. Nếu request sát giới hạn và đã cạn cách cắt khác, guard có thể bỏ khối này trước khi gửi; lượt đó vẫn được tính là `injected`.
 
 ```sql
 WITH ch(channel, ord) AS (VALUES ('auto_inject', 1), ('memory_search', 2), ('knowledge_graph_search', 3)),
@@ -78,9 +81,8 @@ SELECT ch.channel,
             THEN COALESCE(SUM(e.n) FILTER (WHERE e.outcome NOT IN ('trivial', 'disabled')), 0)
             ELSE COALESCE(SUM(e.n), 0) END) AS eligible,
        ROUND(CASE ch.channel
-            WHEN 'auto_inject'   THEN COALESCE(SUM(e.n) FILTER (WHERE e.outcome IN ('no_abstract', 'injected')), 0)
-            WHEN 'memory_search' THEN COALESCE(SUM(e.n) FILTER (WHERE e.outcome = 'matched'), 0)
-            ELSE 0 END) AS matched,
+            WHEN 'auto_inject' THEN COALESCE(SUM(e.n) FILTER (WHERE e.outcome IN ('no_abstract', 'injected')), 0)
+            ELSE COALESCE(SUM(e.n) FILTER (WHERE e.outcome = 'matched'), 0) END) AS matched,
        ROUND(CASE WHEN ch.channel = 'auto_inject'
             THEN COALESCE(SUM(e.n) FILTER (WHERE e.outcome = 'injected'), 0) ELSE 0 END) AS injected,
        ROUND(CASE WHEN ch.channel = 'auto_inject'
@@ -153,7 +155,7 @@ FROM (
 ### 4.4 Cache prompt (`cache`)
 
 - Định nghĩa: với mỗi cặp provider/model, tỷ lệ token đọc từ cache trên tổng token prompt.
-- Nguồn: span `llm_call` (kể cả trace con) qua rollup `llm_calls`, `llm_cache_read_tokens`, `llm_cache_denominator_tokens`, `llm_cache_reporting_calls`, dimension `provider/model`. Mẫu số của một span: nếu metadata có `prompt_tokens_include_cached_segments` thì là `input_tokens`, ngược lại là `input + cache_read + cache_create`. Provider không báo cache (`llm_cache_reporting_calls = 0`) thì `cache_rate` là `null`; giao diện hiện "không có dữ liệu" chứ không phải 0%.
+- Nguồn: span `llm_call` (kể cả trace con) qua rollup `llm_calls`, `llm_cache_read_tokens`, `llm_cache_denominator_tokens`, `llm_cache_reporting_calls`, dimension `provider/model`. Mẫu số của một span: nếu metadata có `prompt_tokens_include_cached_segments` thì là `input_tokens`, ngược lại là `input + cache_read + cache_create`. Một span được coi là có báo cache khi metadata có `cache_read_tokens`, `cache_creation_tokens` hoặc `prompt_tokens_include_cached_segments`. Provider không báo cache (`llm_cache_reporting_calls = 0`) thì `cache_rate` là `null`; giao diện hiện "không có dữ liệu" chứ không phải 0%. Model chỉ ghi cache mà không đọc được gì thì hiện 0%, đây là tín hiệu cache đang hỏng.
 - Công thức: `cache_rate = SUM(llm_cache_read_tokens) / SUM(llm_cache_denominator_tokens)` khi `reporting` (tổng `llm_cache_reporting_calls` > 0) và mẫu số > 0, ngược lại `null`. Sắp theo `calls` giảm dần.
 
 ```sql
@@ -174,6 +176,8 @@ ORDER BY calls DESC, provider, model;
 ### 4.5 Pipeline nền (`pipeline`)
 
 Số lượng cuối khoảng: `episodic_total`, `episodic_stale`, `episodic_promoted`, `kg_entities`, `kg_relations`, `memory_documents`, `dreaming_documents` là giá trị cuối ngày, đếm từ bảng nguồn memory lúc rollup. API lấy ngày mới nhất có dữ liệu của từng agent rồi cộng các agent, không cộng qua nhiều ngày.
+
+`episodic_stale` đếm số session cần tóm tắt lại: session có nguồn `session` và số tin nhắn hiện tại đã nhiều hơn `turn_count` của bản tóm tắt phủ xa nhất từ 10 trở lên. Đây là ước lượng: session đã bị cắt bớt tin nhắn có thể có số tin nhắn thấp hơn thực tế nên không bị tính.
 
 ```sql
 SELECT metric, ROUND(SUM(value)) AS value
@@ -206,8 +210,7 @@ WITH win AS (
   SELECT ((now() AT TIME ZONE 'UTC')::date - 6)::timestamp AT TIME ZONE 'UTC' AS from_ts,
          ((now() AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC' AS to_ts
 ), src AS (
-  SELECT CASE WHEN m.metric_type = 'tool' THEN m.metric_key || ':called'
-              ELSE m.metric_key || ':' || COALESCE(NULLIF(m.value->>'outcome', ''), 'unknown') END AS dimension,
+  SELECT m.metric_key || ':' || COALESCE(NULLIF(m.value->>'outcome', ''), 'unknown') AS dimension,
          COUNT(*) AS events
   FROM agent_evolution_metrics m, win
   WHERE m.tenant_id = '<TENANT_UUID>'
@@ -219,7 +222,7 @@ WITH win AS (
 SELECT dimension, events FROM src ORDER BY dimension;
 ```
 
-Mỗi dòng `dimension` phải bằng `SUM(value)` của `retrieval_events` cùng dimension trong view `kpi` (kênh `knowledge_graph_search` có dimension `knowledge_graph_search:called`). Đem các số này qua công thức ở 4.1 sẽ ra đúng bảng phễu.
+Mỗi dòng `dimension` phải bằng `SUM(value)` của `retrieval_events` cùng dimension trong view `kpi`. Đem các số này qua công thức ở 4.1 sẽ ra đúng bảng phễu.
 
 Cache (so với 4.4, gồm span của trace con):
 
@@ -236,6 +239,7 @@ WITH win AS (
          COALESCE(s.input_tokens, 0) AS input_tokens,
          COALESCE(s.metadata->>'prompt_tokens_include_cached_segments' = 'true', false) AS include_cached,
          (s.metadata->'cache_read_tokens' IS NOT NULL
+          OR s.metadata->'cache_creation_tokens' IS NOT NULL
           OR s.metadata->'prompt_tokens_include_cached_segments' IS NOT NULL) AS reporting
   FROM spans s
   JOIN traces t ON t.id = s.trace_id

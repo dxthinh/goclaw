@@ -83,7 +83,7 @@ and cron runs carry a unique suffix so that each execution has its own timeline.
 
 ### Token Aggregation
 
-Token counts are aggregated from **`llm_call` and `tool_call` spans**, excluding `agent` spans to avoid double-counting. `BatchUpdateTraceAggregates()` writes these totals to the span's own trace record; a parent trace does not include its child traces' tokens. On PostgreSQL, it also computes `duration_ms` from `end_time - start_time` for finished traces.
+Số token được tổng hợp từ **span `llm_call` và `tool_call`**, không tính span `agent` để tránh đếm hai lần. `BatchUpdateTraceAggregates()` ghi các tổng này vào chính trace chứa span; trace cha không gồm token của trace con. Hàm này cũng tính `duration_ms` từ `end_time - start_time` cho trace đã kết thúc, trên cả PostgreSQL và SQLite. Bước này chạy ở lần flush sau `FinishTrace` (tối đa khoảng 5 giây); lần ghi lỗi sẽ được thử lại ở lần flush kế tiếp. Nếu tiến trình chết đúng trong khoảng đó, trace có `end_time` nhưng `duration_ms` vẫn trống.
 
 ---
 
@@ -94,7 +94,7 @@ Token counts are aggregated from **`llm_call` and `tool_call` spans**, excluding
 | Normal | Not recorded | 500 characters max |
 | Verbose (`GOCLAW_TRACE_VERBOSE=1`) | Up to 200KB | Up to 200KB |
 
-Verbose mode is useful for debugging LLM conversations. `GOCLAW_TRACE_VERBOSE` accepts boolean values (`1`/`true` enable it; `0`/`false` disable it). An empty value disables it; an invalid value disables it and logs a warning. When enabled via `GOCLAW_TRACE_VERBOSE=1`:
+Chế độ verbose dùng để gỡ lỗi hội thoại LLM. `GOCLAW_TRACE_VERBOSE` nhận giá trị boolean (`1`/`true` là bật; `0`/`false` là tắt). Giá trị rỗng là tắt; giá trị không hợp lệ cũng là tắt và ghi một cảnh báo. Khi bật bằng `GOCLAW_TRACE_VERBOSE=1`:
 
 - **LLM spans**: Full input messages (including system prompt, history, and tool results) are serialized as JSON and stored in `InputPreview` (truncated at 200KB). LLM response content is stored in `OutputPreview` (truncated at 200KB, includes `<thinking>` tag if present).
 - **Tool spans**: Tool input and output are both recorded up to 200KB.
@@ -154,7 +154,7 @@ Cost = (PromptTokens × InputCostPerMillion) / 1,000,000
       + (CacheCreationTokens × CacheCreateCostPerMillion) / 1,000,000
 ```
 
-Cost is stored in the `total_cost` field of spans, including LLM calls and tools with recorded usage. Trace aggregation sums costs from all spans belonging directly to that trace to compute its `total_cost`.
+Chi phí được lưu ở trường `total_cost` của span, gồm lần gọi LLM và tool có ghi usage. Bước tổng hợp trace cộng chi phí của mọi span thuộc trực tiếp trace đó để ra `total_cost` của trace.
 
 Cache token costs (read + create) are optional and only applied when the resolved catalog, override, or fallback config provides those price dimensions.
 
@@ -178,20 +178,20 @@ For each hour `[00:00, 01:00)`, the worker creates two types of snapshot rows:
 
 1. **Totals Row** (`provider=""`, `model=""`) — Aggregated from traces:
    - `request_count` — Count of root traces
-   - `error_count` — Count of failed root traces
-   - `unique_users` — Distinct `user_id` in root traces
-   - `tool_call_count` — Sum from all traces, including child traces
-   - `avg_duration_ms` — Average `duration_ms` of finished root traces
+   - `error_count` — Số trace gốc bị lỗi
+   - `unique_users` — Số `user_id` khác nhau trong trace gốc
+   - `tool_call_count` — Tổng từ mọi trace, gồm cả trace con
+   - `avg_duration_ms` — `duration_ms` trung bình của trace gốc đã kết thúc
    - `memory_docs`, `memory_chunks` — Point-in-time count (attached to agent's totals row only)
    - `kg_entities`, `kg_relations` — Point-in-time count (attached to agent's totals row only)
 
-2. **Detail Rows** (`provider` + `model` specified) — Aggregated from `llm_call` and `tool_call` spans across all traces, including child traces:
-   - `llm_call_count` — Count of `llm_call` spans for this provider/model
+2. **Dòng chi tiết** (có `provider` và `model`) — Tổng hợp từ span `llm_call` và `tool_call` của mọi trace, gồm cả trace con:
+   - `llm_call_count` — Số span `llm_call` của provider và model này
    - `input_tokens`, `output_tokens` — Sum of tokens
    - `total_cost` — Sum of per-call costs
    - `cache_read_tokens`, `cache_create_tokens`, `thinking_tokens` — Sum from span metadata
 
-Token and cost metrics live in the provider/model rows, not duplicated in the totals row. Spans with no provider and no model merge their usage into the totals row instead. Thus usage includes child traces while request, error, and unique-user counts include only root traces.
+Token và chi phí nằm ở các dòng provider và model, không lặp lại ở dòng tổng. Span không có provider và model thì gộp usage vào dòng tổng. Vì vậy usage gồm cả trace con, còn số request, lỗi và user chỉ tính trace gốc. Số của giờ đang chạy trong `/v1/usage/*` dùng cùng quy tắc này.
 
 Grouping: by `(agent_id, channel)` for totals; by `(agent_id, channel, provider, model)` for details.
 
