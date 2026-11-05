@@ -181,7 +181,7 @@ For each hour `[00:00, 01:00)`, the worker creates two types of snapshot rows:
    - `error_count` — Count of failed root traces
    - `unique_users` — Distinct `user_id` in root traces
    - `tool_call_count` — Sum from all traces, including child traces
-   - `avg_duration_ms` — Average duration of finished root traces; falls back to `end_time - start_time` when historical `duration_ms` is missing
+   - `avg_duration_ms` — Average `duration_ms` of finished root traces
    - `memory_docs`, `memory_chunks` — Point-in-time count (attached to agent's totals row only)
    - `kg_entities`, `kg_relations` — Point-in-time count (attached to agent's totals row only)
 
