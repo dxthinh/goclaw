@@ -13,6 +13,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/hooks"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
+	"github.com/nextlevelbuilder/goclaw/internal/safego"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -32,6 +33,9 @@ func (s *FinalizeStage) Name() string { return "finalize" }
 
 // Execute performs all post-loop cleanup. Errors are logged, not returned.
 func (s *FinalizeStage) Execute(ctx context.Context, state *RunState) error {
+	// 0. Chụp cơ cấu prompt trước khi thêm câu trả lời cuối, để phản ánh request cuối cùng.
+	s.recordPromptShape(ctx, state)
+
 	// 1. Sanitize final content
 	if state.Observe.FinalContent != "" && s.deps.SanitizeContent != nil {
 		state.Observe.FinalContent = s.deps.SanitizeContent(state.Observe.FinalContent)
@@ -202,6 +206,40 @@ func (s *FinalizeStage) Execute(ctx context.Context, state *RunState) error {
 	}
 
 	return nil
+}
+
+// recordPromptShape đếm và ghi cơ cấu prompt ở goroutine nền để không làm chậm luồng
+// chính. Tin nhắn được sao chép nông trước khi vào goroutine; phần tử không còn bị sửa
+// sau khi run kết thúc.
+func (s *FinalizeStage) recordPromptShape(ctx context.Context, state *RunState) {
+	if s.deps.RecordPromptShape == nil || !runCalledLLM(state) {
+		return
+	}
+	history, pending := state.Messages.History(), state.Messages.Pending()
+	messages := make([]providers.Message, 0, len(history)+len(pending))
+	messages = append(messages, history...)
+	messages = append(messages, pending...)
+	system := state.Messages.System()
+	model := state.Model
+	memoryTokens := state.Context.MemoryTokens
+	overheadTokens := state.Context.OverheadTokens - memoryTokens
+	providerName := ""
+	if state.Provider != nil {
+		providerName = state.Provider.Name()
+	}
+	go func() {
+		defer safego.Recover(nil, "metric", "prompt_shape")
+		shape := computePromptShape(s.deps, model, system, messages, overheadTokens, memoryTokens)
+		shape.Provider = providerName
+		s.deps.RecordPromptShape(ctx, shape)
+	}()
+}
+
+// runCalledLLM cho biết run đã nhận được ít nhất một phản hồi từ model. LastResponse bị
+// xóa khi vòng lặp thử lại nên cần xét thêm usage tích lũy.
+func runCalledLLM(state *RunState) bool {
+	usage := state.Think.TotalUsage
+	return state.Think.LastResponse != nil || usage.PromptTokens > 0 || usage.CompletionTokens > 0
 }
 
 // processMedia populates file sizes and deduplicates media results.

@@ -47,6 +47,7 @@ type PipelineDeps struct {
 	// a short snippet of recent conversation (last 1-2 user turns) so the
 	// downstream recall query can resolve pronouns and implicit references.
 	// Empty recentContext = legacy single-message search semantics.
+	// Khối trả về chỉ đi kèm lượt hiện tại, xem MessageBuffer.ForRequest.
 	AutoInject func(ctx context.Context, userMessage, userID, recentContext string) (string, error)
 
 	// InjectContext sets up agent/tenant/user/workspace/tool context values.
@@ -137,6 +138,9 @@ type PipelineDeps struct {
 	// post-turn summarization lowers its trigger threshold so the compaction is
 	// PERSISTED (episodic Bug B / anti-loop).
 	MaybeSummarize func(ctx context.Context, sessionKey string, midLoopCompacted bool)
+	// RecordPromptShape ghi metric prompt/shape cuối run có gọi LLM. Được gọi từ goroutine
+	// nền, ctx không hủy theo run. nil = không ghi.
+	RecordPromptShape func(ctx context.Context, shape PromptShape)
 }
 
 // FireHook is nil-safe. Returns FireResult{Decision: DecisionAllow} when no

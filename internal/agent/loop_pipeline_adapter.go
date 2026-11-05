@@ -2,7 +2,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/eventbus"
@@ -98,7 +103,7 @@ func (l *Loop) buildPipelineDeps(req *RunRequest, bridgeRS *runState) pipeline.P
 			}
 		},
 
-		// V3 auto-inject: episodic memory L0 injection into system prompt.
+		// Auto-inject: khối memory L0 đi kèm lượt hiện tại.
 		// Captures agent/tenant context via closure for store scoping.
 		AutoInject: l.makeAutoInjectCallback(req),
 
@@ -186,9 +191,10 @@ func (l *Loop) buildPipelineDeps(req *RunRequest, bridgeRS *runState) pipeline.P
 			// reads the CUMULATIVE session count itself (Bug A). See method doc.
 			l.emitSessionCompleted(ctx, sessionKey, req.UserID, msgCount, tokensUsed)
 		},
-		UpdateMetadata:   cb.updateMetadata,
-		BootstrapCleanup: cb.bootstrapCleanup,
-		MaybeSummarize:   cb.maybeSummarize,
+		UpdateMetadata:    cb.updateMetadata,
+		BootstrapCleanup:  cb.bootstrapCleanup,
+		MaybeSummarize:    cb.maybeSummarize,
+		RecordPromptShape: l.makeRecordPromptShape(req),
 	}
 }
 
@@ -322,17 +328,79 @@ func (l *Loop) makeAutoInjectCallback(req *RunRequest) func(ctx context.Context,
 	if l.autoInjector == nil {
 		return nil
 	}
+	var countTokens func(string) (int, error)
+	if l.budgetCounter != nil {
+		countTokens = l.budgetCounter.CountText
+	}
 	return func(ctx context.Context, userMessage, userID, recentContext string) (string, error) {
 		result, err := l.autoInjector.Inject(ctx, memory.InjectParams{
 			AgentID:       l.agentUUID.String(),
 			UserID:        store.MemoryUserID(ctx),
 			TenantID:      store.TenantIDFromContext(ctx).String(),
+			SessionKey:    req.SessionKey,
 			UserMessage:   userMessage,
 			RecentContext: recentContext,
+			CountTokens:   countTokens,
 		})
 		if err != nil || result == nil {
 			return "", err
 		}
 		return result.Section, nil
+	}
+}
+
+// kpiMetricsStore trả store dùng cho metric KPI. Ưu tiên store của injector vì
+// l.evolutionMetricsStore chỉ được nối khi agent bật cờ self_evolution_metrics, trong khi
+// metric prompt/shape phải có ở mọi agent như retrieval/auto_inject.
+func (l *Loop) kpiMetricsStore() store.EvolutionMetricsStore {
+	if p, ok := l.autoInjector.(interface {
+		MetricsStore() store.EvolutionMetricsStore
+	}); ok {
+		if ms := p.MetricsStore(); ms != nil {
+			return ms
+		}
+	}
+	return l.evolutionMetricsStore
+}
+
+// makeRecordPromptShape tạo callback ghi metric prompt/shape. Pipeline đã gọi nó từ
+// goroutine nền nên ghi đồng bộ ở đây; lỗi chỉ log vì metric là best-effort.
+func (l *Loop) makeRecordPromptShape(req *RunRequest) func(ctx context.Context, shape pipeline.PromptShape) {
+	metrics := l.kpiMetricsStore()
+	if metrics == nil {
+		return nil
+	}
+	return func(ctx context.Context, shape pipeline.PromptShape) {
+		tenantID := store.TenantIDFromContext(ctx)
+		if tenantID == uuid.Nil {
+			return
+		}
+		value, err := json.Marshal(map[string]any{
+			"system_tokens":      shape.SystemTokens,
+			"tool_schema_tokens": shape.ToolSchemaTokens,
+			"history_tokens":     shape.HistoryTokens,
+			"tool_result_tokens": shape.ToolResultTokens,
+			"memory_tokens":      shape.MemoryTokens,
+			"total_estimated":    shape.TotalEstimated,
+			"provider":           shape.Provider,
+			"model":              shape.Model,
+		})
+		if err != nil {
+			slog.Debug("evolution.metric.prompt_shape_marshal_failed", "error", err)
+			return
+		}
+		bgCtx, cancel := context.WithTimeout(store.WithTenantID(context.Background(), tenantID), 5*time.Second)
+		defer cancel()
+		if err := metrics.RecordMetric(bgCtx, store.EvolutionMetric{
+			ID:         uuid.New(),
+			TenantID:   tenantID,
+			AgentID:    l.agentUUID,
+			SessionKey: req.SessionKey,
+			MetricType: store.MetricPrompt,
+			MetricKey:  "shape",
+			Value:      value,
+		}); err != nil {
+			slog.Debug("evolution.metric.prompt_shape_failed", "error", err)
+		}
 	}
 }

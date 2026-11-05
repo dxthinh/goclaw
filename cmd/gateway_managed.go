@@ -159,7 +159,7 @@ func wireExtras(
 	// V3 auto-inject: create AutoInjector if episodic store is available.
 	var autoInjector memorypkg.AutoInjector
 	if stores.Episodic != nil {
-		autoInjector = memorypkg.NewAutoInjector(stores.Episodic, stores.EvolutionMetrics)
+		autoInjector = memorypkg.NewAutoInjector(stores.Episodic, stores.EvolutionMetrics, stores.SystemConfigs)
 	}
 
 	// vaultIntc is set later by wireVault but captured by closure in OnTextUploaded.

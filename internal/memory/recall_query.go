@@ -15,6 +15,10 @@ import "strings"
 // UTF-8 to the embedding model.
 const maxRecallContextRunes = 400
 
+// maxRecallTextRunes chặn độ dài truy vấn từ khóa để một tin nhắn dán rất dài không
+// tạo ra tsquery khổng lồ. Giữ phần cuối vì câu hỏi thường nằm sau nội dung được dán.
+const maxRecallTextRunes = 1000
+
 // buildRecallQuery concatenates the user's latest message with a short recent
 // context snippet to produce a context-aware search query. Used by auto-inject
 // to improve recall on follow-up questions where the current message alone is
