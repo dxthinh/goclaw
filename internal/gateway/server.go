@@ -782,6 +782,11 @@ func (s *Server) SetMediaServeHandler(h *httpapi.MediaServeHandler) {
 // SetMemoryHandler sets the memory management handler.
 func (s *Server) SetMemoryHandler(h *httpapi.MemoryHandler) { s.handlers = append(s.handlers, h) }
 
+// SetMemoryEffectivenessHandler sets the memory effectiveness KPI handler.
+func (s *Server) SetMemoryEffectivenessHandler(h *httpapi.MemoryEffectivenessHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
 // SetKnowledgeGraphHandler sets the knowledge graph handler.
 func (s *Server) SetKnowledgeGraphHandler(h *httpapi.KnowledgeGraphHandler) {
 	s.handlers = append(s.handlers, h)
