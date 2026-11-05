@@ -583,6 +583,8 @@ doneUsage:
 		for traceID := range dirty {
 			if err := c.store.BatchUpdateTraceAggregates(ctx, traceID); err != nil {
 				slog.Warn("tracing: aggregate update failed", "trace_id", traceID, "error", err)
+				// Tổng token và duration_ms chỉ được ghi ở bước này nên phải thử lại ở lần flush sau.
+				c.markDirty(traceID)
 			}
 		}
 
