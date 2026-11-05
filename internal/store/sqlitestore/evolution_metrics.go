@@ -109,6 +109,9 @@ func (s *SQLiteEvolutionMetricsStore) AggregateRetrievalMetrics(ctx context.Cont
 		        AVG(COALESCE(NULLIF(json_extract(value, '$.top_score'),''), 0)) AS avg_score
 		 FROM agent_evolution_metrics
 		 WHERE agent_id = ? AND metric_type = 'retrieval' AND created_at >= ? AND tenant_id = ?
+		   -- auto_inject ghi cả lượt không chèn để đo phễu; tỷ lệ dùng chỉ tính lượt đã chèn
+		   -- để luật gợi ý ngưỡng không hiểu nhầm lượt không chèn là memory bị bỏ qua.
+		   AND NOT (metric_key = 'auto_inject' AND COALESCE(json_extract(value, '$.injected'), 0) = 0)
 		 GROUP BY metric_key
 		 ORDER BY query_count DESC`,
 		agentID.String(), since.UTC().Format(time.RFC3339Nano), tenantID.String())

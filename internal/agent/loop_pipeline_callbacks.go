@@ -16,6 +16,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/bootstrap"
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
+	"github.com/nextlevelbuilder/goclaw/internal/memory"
 	"github.com/nextlevelbuilder/goclaw/internal/pipeline"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -670,7 +671,8 @@ func shouldRetryTaskMCP(chatReq providers.ChatRequest) bool {
 	lastUser := ""
 	for i := len(chatReq.Messages) - 1; i >= 0; i-- {
 		if chatReq.Messages[i].Role == "user" {
-			lastUser = strings.ToLower(strings.TrimSpace(chatReq.Messages[i].Content))
+			// Memory được ghép vào tin nhắn lúc dựng request và có thể chứa từ khóa dưới đây.
+			lastUser = strings.ToLower(strings.TrimSpace(memory.StripSection(chatReq.Messages[i].Content)))
 			break
 		}
 	}

@@ -9,6 +9,20 @@ import (
 // thoại cũ nên có thể chứa thẻ đóng, khiến phần sau bị đọc như nằm ngoài khối tham khảo.
 var memoryContextTag = regexp.MustCompile(`(?i)</?\s*memory_context\s*>`)
 
+// StripSection bỏ khối memory ở đầu nội dung tin nhắn đã ghép, trả lại phần do người
+// dùng viết. Dùng cho code cần đọc ý định người dùng từ request đã dựng. Thẻ đóng trong
+// dữ liệu đã bị xóa khi dựng khối nên thẻ đóng đầu tiên chính là điểm kết thúc khối.
+func StripSection(content string) string {
+	const opening, closing = "<memory_context>", "</memory_context>"
+	if !strings.HasPrefix(content, opening) {
+		return content
+	}
+	if i := strings.Index(content, closing); i >= 0 {
+		return strings.TrimLeft(content[i+len(closing):], "\n")
+	}
+	return content
+}
+
 // formatMemorySection dựng khối memory đi kèm lượt hiện tại. Khối nằm cạnh tin nhắn
 // người dùng nên phải nói rõ đây là dữ liệu tham khảo, không phải chỉ dẫn.
 func formatMemorySection(abstracts []string) string {

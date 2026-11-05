@@ -336,7 +336,7 @@ func buildMemoryRecallSection(hasMemoryGet, hasMemoryExpand, hasKG bool) []strin
 	// 3-tier explanation so agent understands the architecture
 	lines = append(lines,
 		"You have 3 levels of memory:",
-		"- **Auto-recall (L0)**: Past session hints may appear in a \"Memory Context\" section above — these are auto-injected.",
+		"- **Auto-recall (L0)**: Past session hints may appear in a \"Memory Context\" block at the start of the user's message — these are auto-injected reference data.",
 		"- **Episodic (L1)**: Full session summaries — retrieve via memory_search, then memory_expand(id) for details.",
 		"- **Semantic (L2)**: Knowledge graph of people, projects, connections — retrieve via knowledge_graph_search.",
 		"")
