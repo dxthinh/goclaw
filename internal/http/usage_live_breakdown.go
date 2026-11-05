@@ -68,8 +68,7 @@ func (h *UsageHandler) queryLiveSpanBreakdown(r *http.Request, from, to time.Tim
 		0
 	FROM traces t
 	JOIN spans s ON s.trace_id = t.id AND s.span_type IN ('llm_call', 'tool_call')
-	WHERE t.start_time >= $1 AND t.start_time < $2
-	  AND t.parent_trace_id IS NULL`, groupExpr)
+	WHERE t.start_time >= $1 AND t.start_time < $2`, groupExpr)
 	query.WriteString(extraFilter)
 
 	args := []any{from, to}
@@ -97,14 +96,13 @@ func (h *UsageHandler) queryLiveTraceBreakdown(r *http.Request, from, to time.Ti
 		0,
 		0,
 		0,
-		COUNT(*),
+		COALESCE(SUM(CASE WHEN t.parent_trace_id IS NULL THEN 1 ELSE 0 END), 0),
 		0,
 		COALESCE(SUM(t.tool_call_count), 0),
-		COALESCE(SUM(CASE WHEN t.status = 'error' THEN 1 ELSE 0 END), 0),
-		CAST(COALESCE(AVG(t.duration_ms), 0) AS INTEGER)
+		COALESCE(SUM(CASE WHEN t.parent_trace_id IS NULL AND t.status = 'error' THEN 1 ELSE 0 END), 0),
+		CAST(COALESCE(AVG(CASE WHEN t.parent_trace_id IS NULL THEN t.duration_ms END), 0) AS INTEGER)
 	FROM traces t
-	WHERE t.start_time >= $1 AND t.start_time < $2
-	  AND t.parent_trace_id IS NULL`, groupExpr)
+	WHERE t.start_time >= $1 AND t.start_time < $2`, groupExpr)
 	query.WriteString(extraFilter)
 
 	args := []any{from, to}

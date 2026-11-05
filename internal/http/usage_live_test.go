@@ -203,3 +203,84 @@ func insertUsageLiveTrace(t *testing.T, db *sql.DB, tenantID uuid.UUID, start ti
 		t.Fatalf("insert tool span: %v", err)
 	}
 }
+
+// insertUsageLiveChildTrace ghi một trace con của lượt ủy quyền cùng user và kênh với trace gốc.
+func insertUsageLiveChildTrace(t *testing.T, db *sql.DB, tenantID uuid.UUID, start time.Time) {
+	t.Helper()
+	traceID := uuid.Must(uuid.NewV7())
+	if _, err := db.Exec(
+		`INSERT INTO traces (
+			id, tenant_id, agent_id, user_id, start_time, duration_ms, status, channel, parent_trace_id, tool_call_count
+		) VALUES (?, ?, ?, 'user-child', ?, 90000, 'error', 'web', ?, 3)`,
+		traceID, tenantID, uuid.Must(uuid.NewV7()), start, uuid.Must(uuid.NewV7()).String(),
+	); err != nil {
+		t.Fatalf("insert child trace: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO spans (
+			id, trace_id, tenant_id, span_type, provider, model, input_tokens, output_tokens, total_cost, metadata, start_time
+		) VALUES (?, ?, ?, 'llm_call', 'bailian', 'qwen3.7-plus', 900, 100, 0.5, ?, ?)`,
+		uuid.Must(uuid.NewV7()), traceID, tenantID, `{}`, start,
+	); err != nil {
+		t.Fatalf("insert child span: %v", err)
+	}
+}
+
+// Số của giờ đang chạy phải khớp số sau khi giờ đóng: token gồm trace con, nhưng request, lỗi và
+// user chỉ tính trace gốc.
+func TestUsageSummaryLiveCurrentHourIncludesChildTraces(t *testing.T) {
+	db, tenantID := usageLiveTestDB(t)
+	now := time.Now().UTC()
+	insertUsageLiveTrace(t, db, tenantID, now)
+	insertUsageLiveChildTrace(t, db, tenantID, now)
+
+	h := NewUsageHandler(emptyUsageSnapshotStore{}, nil, db)
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage/summary?period=24h", nil)
+	req = req.WithContext(store.WithTenantID(req.Context(), tenantID))
+	rec := httptest.NewRecorder()
+	h.handleSummary(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Current usageSummary `json:"current"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	got := body.Current
+	if got.InputTokens != 2000 || got.OutputTokens != 350 || got.LLMCalls != 2 || got.ToolCalls != 5 {
+		t.Fatalf("usage = input %d output %d llm %d tools %d, muốn gồm cả trace con 2000/350/2/5",
+			got.InputTokens, got.OutputTokens, got.LLMCalls, got.ToolCalls)
+	}
+	if got.Requests != 1 || got.Errors != 0 {
+		t.Fatalf("requests %d errors %d, muốn chỉ tính trace gốc 1/0", got.Requests, got.Errors)
+	}
+}
+
+func TestUsageBreakdownLiveCurrentHourIncludesChildTraces(t *testing.T) {
+	db, tenantID := usageLiveTestDB(t)
+	now := time.Now().UTC()
+	insertUsageLiveTrace(t, db, tenantID, now)
+	insertUsageLiveChildTrace(t, db, tenantID, now)
+
+	h := NewUsageHandler(emptyUsageSnapshotStore{}, nil, db)
+	target := fmt.Sprintf("/v1/usage/breakdown?from=%s&to=%s&group_by=provider_model",
+		now.Add(-time.Hour).Format(time.RFC3339), now.Add(time.Hour).Format(time.RFC3339))
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req = req.WithContext(store.WithTenantID(req.Context(), tenantID))
+	rec := httptest.NewRecorder()
+	h.handleBreakdown(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Rows []store.SnapshotBreakdown `json:"rows"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Rows) != 1 || body.Rows[0].InputTokens != 2000 || body.Rows[0].LLMCallCount != 2 {
+		t.Fatalf("rows = %+v, muốn một dòng gồm cả trace con", body.Rows)
+	}
+}
