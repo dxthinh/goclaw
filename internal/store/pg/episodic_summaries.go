@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -166,16 +167,33 @@ func (s *PGEpisodicStore) Search(ctx context.Context, query, agentID, userID str
 		return results, nil
 	}
 
-	// FTS search
-	ftsResults := s.ftsSearch(ctx, query, agentID, userID, maxResults*2, opts)
+	// FTS search. TextQuery, khi có, thay query cho riêng phần từ khóa.
+	ftsQuery := query
+	if tq := strings.TrimSpace(opts.TextQuery); tq != "" {
+		ftsQuery = tq
+	}
+	ftsResults, ftsErr := s.ftsSearch(ctx, ftsQuery, agentID, userID, maxResults*2, opts)
 
 	// Vector search (if embedding provider available)
 	var vecResults []episodicScored
+	var vecErr error
 	if s.embProvider != nil {
-		vecs, err := s.embProvider.Embed(ctx, []string{query})
-		if err == nil && len(vecs) > 0 {
-			vecResults = s.vectorSearch(ctx, vecs[0], agentID, userID, maxResults*2, opts)
+		var vecs [][]float32
+		vecs, vecErr = s.embProvider.Embed(ctx, []string{query})
+		if vecErr == nil && len(vecs) > 0 {
+			vecResults, vecErr = s.vectorSearch(ctx, vecs[0], agentID, userID, maxResults*2, opts)
 		}
+	}
+	// Một nguồn hỏng vẫn trả kết quả của nguồn còn lại. Chỉ báo lỗi khi không còn
+	// nguồn nào chạy được, để phân biệt "lỗi" với "không có kết quả".
+	if ftsErr != nil && (s.embProvider == nil || vecErr != nil) {
+		return nil, errors.Join(ftsErr, vecErr)
+	}
+	if ftsErr != nil {
+		slog.Warn("episodic.search.fts_failed", "error", ftsErr)
+	}
+	if vecErr != nil {
+		slog.Warn("episodic.search.vector_failed", "error", vecErr)
 	}
 
 	// Merge by combined score

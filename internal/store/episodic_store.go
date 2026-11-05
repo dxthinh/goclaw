@@ -52,6 +52,14 @@ type EpisodicSearchOptions struct {
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
 	IncludeExpired bool
+
+	// TextQuery, khi khác rỗng, thay tham số query của Search cho phần tìm theo
+	// từ khóa; embedding vẫn dùng query. Để truy vấn đã làm giàu cho embedding
+	// (có nhãn, có ngữ cảnh) không làm hỏng khớp từ khóa.
+	TextQuery string
+	// MatchAnyTerm cho phép khớp khi chỉ chứa một trong các từ của truy vấn (OR)
+	// thay vì phải chứa tất cả (AND).
+	MatchAnyTerm bool
 }
 
 // EpisodicStore manages Tier 2 episodic memory.

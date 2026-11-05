@@ -62,15 +62,29 @@ func appendEpisodicSearchFilters(ctx context.Context, q string, args []any, p in
 	return q, args, p
 }
 
+// episodicTSQueryExpr trả về biểu thức tsquery cho chuỗi truy vấn ở tham số $1.
+//
+// Với matchAny, kết quả của plainto_tsquery được đổi toán tử " & " thành " | " rồi
+// cast lại tsquery. Chuỗi người dùng vẫn đi qua tham số và đã được plainto_tsquery
+// chuẩn hóa cùng đặt lexeme trong nháy, nên ký tự đặc biệt không thể thành toán tử.
+// Truy vấn toàn stopword cho tsquery rỗng: "@@" trả false, FTS rỗng và không lỗi.
+func episodicTSQueryExpr(matchAny bool) string {
+	if matchAny {
+		return `replace(plainto_tsquery('english', $1)::text, ' & ', ' | ')::tsquery`
+	}
+	return `plainto_tsquery('english', $1)`
+}
+
 // ftsSearch performs full-text search on episodic summaries.
 // Uses the stored search_vector column (GIN-indexed, 'english' config from migration 040).
 // When userID is empty, returns results across all users (admin view).
-func (s *PGEpisodicStore) ftsSearch(ctx context.Context, query, agentID, userID string, limit int, opts store.EpisodicSearchOptions) []episodicScored {
+func (s *PGEpisodicStore) ftsSearch(ctx context.Context, query, agentID, userID string, limit int, opts store.EpisodicSearchOptions) ([]episodicScored, error) {
+	tsq := episodicTSQueryExpr(opts.MatchAnyTerm)
 	q := `SELECT id, session_key, COALESCE(NULLIF(l0_abstract, ''), left(summary, 500)) AS l0_abstract, key_topics,
-	        ts_rank(search_vector, plainto_tsquery('english', $1)) AS score, created_at, expires_at
+	        ts_rank(search_vector, ` + tsq + `) AS score, created_at, expires_at
 		FROM episodic_summaries
 		WHERE agent_id = $2
-		  AND search_vector @@ plainto_tsquery('english', $1)`
+		  AND search_vector @@ ` + tsq
 	args := []any{query, agentID}
 	p := 3
 
@@ -80,18 +94,18 @@ func (s *PGEpisodicStore) ftsSearch(ctx context.Context, query, agentID, userID 
 
 	var rows []episodicScoredRow
 	if err := pkgSqlxDB.SelectContext(ctx, &rows, q, args...); err != nil {
-		return nil
+		return nil, fmt.Errorf("episodic fts search: %w", err)
 	}
 	results := make([]episodicScored, len(rows))
 	for i := range rows {
 		results[i] = rows[i].toEpisodicScored()
 	}
-	return results
+	return results, nil
 }
 
 // vectorSearch performs cosine similarity search on episodic embeddings.
 // When userID is empty, returns results across all users (admin view).
-func (s *PGEpisodicStore) vectorSearch(ctx context.Context, embedding []float32, agentID, userID string, limit int, opts store.EpisodicSearchOptions) []episodicScored {
+func (s *PGEpisodicStore) vectorSearch(ctx context.Context, embedding []float32, agentID, userID string, limit int, opts store.EpisodicSearchOptions) ([]episodicScored, error) {
 	vecStr := vectorToString(embedding)
 	q := `SELECT id, session_key, COALESCE(NULLIF(l0_abstract, ''), left(summary, 500)) AS l0_abstract,
 			key_topics, 1 - (embedding <=> $1) AS score, created_at, expires_at
@@ -107,13 +121,13 @@ func (s *PGEpisodicStore) vectorSearch(ctx context.Context, embedding []float32,
 
 	var rows []episodicScoredRow
 	if err := pkgSqlxDB.SelectContext(ctx, &rows, q, args...); err != nil {
-		return nil
+		return nil, fmt.Errorf("episodic vector search: %w", err)
 	}
 	results := make([]episodicScored, len(rows))
 	for i := range rows {
 		results[i] = rows[i].toEpisodicScored()
 	}
-	return results
+	return results, nil
 }
 
 func (s *PGEpisodicStore) recentSearch(ctx context.Context, agentID, userID string, limit int, opts store.EpisodicSearchOptions) []episodicScored {
