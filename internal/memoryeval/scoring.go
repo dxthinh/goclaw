@@ -18,7 +18,7 @@ const (
 	maxReasonRunes   = 200
 	maxOutputTokens  = 300
 	// quoteWindowWords là số từ liên tiếp trùng với dữ liệu đầu vào thì coi là trích nguyên văn.
-	quoteWindowWords = 4
+	quoteWindowWords = 3
 )
 
 // scoringSystemPrompt nói rõ toàn bộ nội dung là dữ liệu: memory sinh từ hội thoại cũ nên có
@@ -127,18 +127,26 @@ func cleanReason(reason string, sources []string) string {
 
 // quotesSource kiểm tra lý do có chứa một dãy từ liên tiếp xuất hiện trong dữ liệu đầu vào.
 func quotesSource(reason string, sources []string) bool {
-	words := strings.Fields(strings.ToLower(reason))
+	words := quoteWords(reason)
 	if len(words) == 0 {
 		return false
 	}
-	haystack := strings.Join(strings.Fields(strings.ToLower(strings.Join(sources, " "))), " ")
+	haystack := " " + strings.Join(quoteWords(strings.Join(sources, " ")), " ") + " "
 	window := min(quoteWindowWords, len(words))
 	for i := 0; i+window <= len(words); i++ {
-		if strings.Contains(haystack, strings.Join(words[i:i+window], " ")) {
+		if strings.Contains(haystack, " "+strings.Join(words[i:i+window], " ")+" ") {
 			return true
 		}
 	}
 	return false
+}
+
+// quoteWords tách từ theo chữ và số, để dấu câu dính vào từ như ngoặc kép hay dấu chấm không che
+// được một câu trích. Giữ cả dấu tổ hợp vì tiếng Việt có thể ở dạng tách dấu.
+func quoteWords(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r)
+	})
 }
 
 func cutRunes(s string, limit int) string {

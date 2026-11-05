@@ -98,3 +98,27 @@ func TestBuildScoringRequest_LimitsAndEncodesData(t *testing.T) {
 		t.Fatal("system prompt phải nói rõ nội dung là dữ liệu")
 	}
 }
+
+// Lý do là trường văn bản duy nhất được lưu, nên mọi dạng trích dẫn từ ba từ trở lên đều phải bị
+// bỏ, kể cả khi dấu câu dính vào từ, còn lý do tự diễn đạt thì được giữ.
+func TestCleanReason_BlocksQuotedSource(t *testing.T) {
+	source := []string{"what is my secret bank pin today", "địa chỉ tòa nhà Hà Nội mới"}
+	for _, tc := range []struct {
+		reason string
+		want   string
+	}{
+		{`Answer repeats "my secret bank pin".`, ""},
+		{"Answer repeats my secret bank pin today.", ""},
+		{`It quotes (secret bank pin) directly`, ""},
+		{"MY SECRET BANK!", ""},
+		{"Có nhắc tới «tòa nhà Hà Nội».", ""},
+		{"Mục nhớ khớp với chủ đề câu hỏi.", "Mục nhớ khớp với chủ đề câu hỏi."},
+		{"The item covers the same topic.", "The item covers the same topic."},
+		// Không khớp một phần của từ: "bank pin" trong "bankpin today" không phải là trích dẫn.
+		{"bankpin today is unrelated", "bankpin today is unrelated"},
+	} {
+		if got := cleanReason(tc.reason, source); got != tc.want {
+			t.Errorf("cleanReason(%q) = %q, muốn %q", tc.reason, got, tc.want)
+		}
+	}
+}
