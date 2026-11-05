@@ -1823,6 +1823,50 @@ CREATE INDEX IF NOT EXISTS idx_evo_metrics_created ON agent_evolution_metrics(cr
 CREATE INDEX IF NOT EXISTS idx_evo_metrics_tenant ON agent_evolution_metrics(tenant_id);
 
 -- ============================================================
+-- Tables: memory_eval_results, memory_kpi_daily (KPI hiệu quả memory)
+-- Không có khóa ngoại tới traces và agents để số liệu còn nguyên khi nguồn bị xóa.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS memory_eval_results (
+    id                  TEXT NOT NULL PRIMARY KEY,
+    tenant_id           TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    agent_id            TEXT NOT NULL,
+    channel             VARCHAR(40) NOT NULL,
+    has_episodic        BOOLEAN NOT NULL DEFAULT 0,
+    has_document        BOOLEAN NOT NULL DEFAULT 0,
+    has_knowledge_graph BOOLEAN NOT NULL DEFAULT 0,
+    item_count          INTEGER NOT NULL DEFAULT 0,
+    relevant_items      INTEGER NOT NULL DEFAULT 0,
+    used                BOOLEAN NOT NULL DEFAULT 0,
+    reason              TEXT NOT NULL DEFAULT '',
+    provider            TEXT NOT NULL DEFAULT '',
+    model               TEXT NOT NULL DEFAULT '',
+    input_tokens        BIGINT NOT NULL DEFAULT 0,
+    output_tokens       BIGINT NOT NULL DEFAULT 0,
+    trace_id            TEXT,
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_eval_results_tenant_created ON memory_eval_results(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_eval_results_created ON memory_eval_results(created_at);
+
+CREATE TABLE IF NOT EXISTS memory_kpi_daily (
+    tenant_id   TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    bucket_date TEXT NOT NULL,
+    agent_id    TEXT NOT NULL,
+    metric      TEXT NOT NULL,
+    dimension   TEXT NOT NULL DEFAULT '',
+    value       REAL NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (tenant_id, bucket_date, agent_id, metric, dimension)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_kpi_daily_bucket ON memory_kpi_daily(bucket_date);
+
+CREATE INDEX IF NOT EXISTS idx_usage_events_llm_background_time ON usage_events(event_time)
+    WHERE event_type = 'llm_background';
+
+-- ============================================================
 -- Table: agent_evolution_suggestions (V3 self-evolution Stage 2)
 -- ============================================================
 
