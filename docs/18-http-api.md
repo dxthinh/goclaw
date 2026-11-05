@@ -989,6 +989,46 @@ PATCH /v1/agents/{agentID}/evolution/suggestions/{suggestionID}
 }
 ```
 
+### Get Memory Effectiveness
+
+```
+GET /v1/memory/effectiveness
+```
+
+Returns the memory effectiveness KPIs of the caller's tenant, read from the hourly rollup `memory_kpi_daily`. Requires viewer role. Definitions, formulas and reproducing SQL are in [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | integer | no | Window size in UTC days including today: `7` (default), `30` or `90`. Any other value returns `400`. |
+| `agent_id` | UUID | no | Restrict to one agent. Omit for all agents. A non-UUID value returns `400`. |
+
+**Response:**
+
+```json
+{
+  "window": {"from": "2026-11-01", "to": "2026-11-07", "days": 7},
+  "funnel": [{"channel": "auto_inject", "eligible": 0, "searched": 0, "matched": 0, "injected": 0, "disabled": 0, "errors": 0}],
+  "layers": [{"layer": "auto_inject", "samples": 0, "relevance": null, "used": null, "verdict": "insufficient_data"}],
+  "prompt": {"runs": 0, "avg": {"system": 0, "tool_schema": 0, "history": 0, "tool_result": 0, "memory": 0}},
+  "cache": [{"provider": "x", "model": "y", "calls": 0, "cache_rate": null, "reporting": false}],
+  "pipeline": {
+    "episodic_total": 0, "episodic_stale": 0, "episodic_promoted": 0,
+    "kg_entities": 0, "kg_relations": 0, "memory_documents": 0, "dreaming_documents": 0,
+    "background": [{"purpose": "episodic-summary", "calls": 0, "input_tokens": 0, "output_tokens": 0}]
+  },
+  "thresholds": {"min_samples": 30, "keep_relevance": 0.7, "keep_used": 0.3, "off_relevance": 0.4},
+  "switches": {"auto_inject_enabled": true, "eval_enabled": true}
+}
+```
+
+- `funnel` always has the three channels `auto_inject`, `memory_search`, `knowledge_graph_search`; `layers` always has the five layers `auto_inject`, `memory_search`, `episodic`, `document`, `knowledge_graph`.
+- `relevance`, `used` and `cache_rate` are `null` when there is no data; clients must show "no data", not 0.
+- `verdict` is one of `keep`, `tune`, `consider_off`, `insufficient_data`.
+- `thresholds` and `switches` come from the tenant's `system_configs` (`memory.kpi.*`, `memory.auto_inject.enabled`, `memory.eval.enabled`), with defaults when a key is missing or invalid.
+- Errors: `400` invalid `days` or `agent_id`; `403` no tenant in the request context (no figures are returned); `500` store failure.
+
 ---
 
 ## 15. Orchestration Mode

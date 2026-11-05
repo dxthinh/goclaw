@@ -551,20 +551,20 @@ V3 introduces a comprehensive 3-tier memory system with event-driven consolidati
 
 ### Auto-Injection (L0 Loading)
 
-Runs in ContextStage once per turn. Checks user message against episodic index. If relevant matches found, injects L0 abstracts into system prompt.
+Runs in ContextStage once per turn. Checks the user message (plus a short snippet of recent user turns) against the episodic index. If relevant matches are found, the L0 abstracts are attached to the current user message when the request is built. They are not added to the system prompt: content that changes every turn there would invalidate the prompt cache for all history that follows.
 
-**Config** (stored in agent settings):
-```json
-{
-  "auto_inject_enabled": true,
-  "auto_inject_threshold": 0.3,
-  "auto_inject_max_tokens": 200,
-  "episodic_ttl_days": 90,
-  "consolidation_enabled": true
-}
-```
+**Config** (tenant `system_configs`; agent settings no longer control auto-inject):
 
-**Return value:** Formatted section (~200 tokens max) with top K summaries, or empty string if no relevant matches.
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `memory.auto_inject.enabled` | `true` | Switch auto-inject off for the tenant |
+| `memory.auto_inject.min_score` | `0.8` | Minimum score (`ts_rank` + cosine, weights 1 and 1) to inject |
+
+Set a value with `PUT /v1/system-configs/{key}` (admin). Missing or invalid values fall back to the default. The budget is up to 5 entries and ~200 tokens.
+
+**Return value:** Formatted section (~200 tokens max) with top K summaries, or empty string if no relevant matches. Every run records an outcome (`disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`) and the top score so the threshold can be calibrated.
+
+**Measuring effectiveness:** `GET /v1/memory/effectiveness` and the Memory page's Effectiveness tab report the retrieval funnel, graded relevance and use per layer, prompt composition, cache rate and background pipeline usage. See [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
 
 ### Progressive Tool Access
 
@@ -572,7 +572,7 @@ Three tool-based memory interactions:
 
 | Tool | Purpose | Tier | Example |
 |------|---------|------|---------|
-| (auto-inject) | Automatic context injection | L0 | System prompt includes 3 relevant past sessions |
+| (auto-inject) | Automatic context injection | L0 | The user message carries 3 relevant past sessions |
 | `memory_search(query)` | Hybrid search L1 + L2 | L1 | "Find past discussions about billing" |
 | `memory_expand(id)` | Deep retrieval from episodic | L2 | "Show me full summary + linked facts from session XYZ" |
 

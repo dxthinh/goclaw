@@ -4,6 +4,32 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+## 2026-11-06
+
+### Memory effectiveness KPIs
+
+**Features**
+
+- `GET /v1/memory/effectiveness` reports, per tenant and optionally per agent over 7, 30
+  or 90 UTC days: the retrieval funnel, graded relevance and use per memory layer with a
+  keep / tune / consider_off verdict, average prompt composition, prompt cache rate per
+  provider and model, and background pipeline counts and LLM tokens.
+- The Memory page has a new Effectiveness tab (en, vi, zh) with loading, error and empty
+  states. Missing figures show "no data" instead of 0.
+- Thresholds and switches are read from tenant `system_configs`
+  (`memory.kpi.*`, `memory.auto_inject.*`, `memory.eval.*`) and set with
+  `PUT /v1/system-configs/{key}`.
+- Definitions, formulas and SQL that reproduces each figure are in
+  `docs/memory-effectiveness-kpi.md`.
+
+**Changes**
+
+- Reported usage rises compared with earlier figures because the rollup now counts
+  child traces (delegations, subagents) as well as top-level traces.
+- Figures come from an hourly rollup by UTC day, so they can lag by up to about an hour.
+- Memory docs now describe auto-inject as attached to the current user message, not the
+  system prompt, and configured through `system_configs`.
+
 ## 2026-11-04
 
 ### Guaranteed delivery of team task files

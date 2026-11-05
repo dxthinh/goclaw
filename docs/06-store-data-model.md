@@ -746,6 +746,8 @@ L0 (Working Memory)           L1 (Episodic Memory)        L2 (Semantic Memory)
 |-------|---------|-------------|
 | `episodic_summaries` | Session conversation summaries | `agent_id`, `user_id`, `session_key`, `summary`, `l0_abstract`, `key_topics` (TEXT[]), `embedding` (vector), `source_id` (dedup), `expires_at`, `recall_count` (INT), `recall_score` (FLOAT), `last_recalled_at` (TIMESTAMPTZ) |
 | `agent_evolution_metrics` | Self-evolution performance data | `agent_id`, `session_key`, `metric_type` (retrieval/tool/feedback), `metric_key`, `value` (JSONB) |
+| `memory_eval_results` | One graded retrieval sample (no question, memory text or answer is stored) | `tenant_id`, `agent_id`, `channel` (auto_inject/memory_search/knowledge_graph_search), `has_episodic`, `has_document`, `has_knowledge_graph`, `item_count`, `relevant_items`, `used`, `reason` (max 200 chars), `provider`, `model`, `input_tokens`, `output_tokens`, `trace_id` (no FK), `created_at` |
+| `memory_kpi_daily` | Hourly rollup behind `GET /v1/memory/effectiveness`, long format per UTC day | PK `(tenant_id, bucket_date, agent_id, metric, dimension)`, `value` (DOUBLE), `updated_at` |
 | `agent_evolution_suggestions` | Data-driven improvement suggestions | `agent_id`, `suggestion_type`, `suggestion`, `rationale`, `parameters` (JSONB), `status` (pending/approved/rejected/applied) |
 | `vault_documents` | Knowledge Vault document registry | `agent_id`, `scope` (personal/team/shared), `path`, `title`, `doc_type`, `content_hash`, `embedding` (vector), `metadata` (JSONB) |
 | `vault_links` | Wikilinks between vault documents | `from_doc_id`, `to_doc_id`, `link_type`, `context` (snippet) |
@@ -790,7 +792,7 @@ Three-stage memory loading strategy minimizes token cost while maximizing releva
 flowchart TD
     MSG["User message arrives"] --> INJECT["L0: AutoInjector"]
     INJECT -->|"Not relevant"| SKIP["Skip injection"]
-    INJECT -->|"Relevant"| L0OUT["Inject L0 summaries<br/>to system prompt"]
+    INJECT -->|"Relevant"| L0OUT["Attach L0 summaries<br/>to the current user message"]
     L0OUT --> TOOL1["Tool available: memory_search"]
     TOOL1 -->|"Agent uses tool"| L1["L1: Unified search<br/>BM25 + vector hybrid<br/>across episodic + KG"]
     L1 --> L1RES["Return top K results"]
@@ -801,13 +803,16 @@ flowchart TD
 
 ### L0: Auto-Injection
 
-Runs in ContextStage (once per turn). Checks user message relevance against episodic summaries and KG. Returns formatted section (~200 tokens max) for system prompt. Disabled if agent has `auto_inject_enabled: false`.
+Runs in ContextStage (once per turn). Checks user message relevance against episodic summaries and KG. Returns a formatted section (~200 tokens max). The section is attached to the current user message when the request is built; the system prompt never contains memory, so the cacheable prefix stays stable between turns. Configuration lives in the tenant's `system_configs`, not in agent settings.
 
 | Parameter | Default |
 |-----------|---------|
 | `MaxEntries` | 5 |
 | `MaxTokens` | 200 |
-| `Threshold` | 0.3 (relevance) |
+| `memory.auto_inject.min_score` | 0.8 (`ts_rank` + cosine, weights 1 and 1) |
+| `memory.auto_inject.enabled` | `true` |
+
+Effectiveness of each layer is measured by the sampled grader and rolled up hourly into `memory_kpi_daily`; see [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
 
 ### L1: Unified Search
 
