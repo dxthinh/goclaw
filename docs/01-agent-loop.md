@@ -720,7 +720,7 @@ flowchart TD
 
 ### Verbose Mode
 
-Enabled via the `GOCLAW_TRACE_VERBOSE=1` environment variable.
+Enabled via the `GOCLAW_TRACE_VERBOSE=1` (or `true`) environment variable. `0`, `false`, and an empty value disable verbose tracing. Invalid boolean values disable it and log a warning.
 
 | Field | Normal Mode | Verbose Mode |
 |-------|-------------|--------------|

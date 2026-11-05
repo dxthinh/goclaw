@@ -185,9 +185,20 @@ func (s *SQLiteTracingStore) batchInsertSpans(ctx context.Context, spans []store
 	return firstErr
 }
 
+// sqliteGoTimeExpr bỏ phần múi giờ khỏi chuỗi time.Time.String() mà driver đang lưu
+// (ví dụ "2026-01-02 03:04:05.678 +0000 UTC"), vì julianday không đọc được phần đó.
+// Trace luôn ghi thời gian theo UTC nên bỏ múi giờ không làm sai kết quả.
+// column chỉ nhận tên cột cố định trong code, không nhận dữ liệu ngoài.
+func sqliteGoTimeExpr(column string) string {
+	return "substr(" + column + ", 1, CASE WHEN instr(" + column + ", ' +') > 0 THEN instr(" + column + ", ' +') - 1 ELSE length(" + column + ") END)"
+}
+
 func (s *SQLiteTracingStore) BatchUpdateTraceAggregates(ctx context.Context, traceID uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE traces SET
+			duration_ms      = CASE WHEN end_time IS NOT NULL
+				THEN CAST(ROUND((julianday(`+sqliteGoTimeExpr("end_time")+`) - julianday(`+sqliteGoTimeExpr("start_time")+`)) * 86400000) AS INTEGER)
+				ELSE duration_ms END,
 			span_count       = (SELECT COUNT(*) FROM spans WHERE trace_id = ?),
 			llm_call_count   = (SELECT COUNT(*) FROM spans WHERE trace_id = ? AND span_type = 'llm_call'),
 			tool_call_count  = (SELECT COUNT(*) FROM spans WHERE trace_id = ? AND span_type = 'tool_call'),

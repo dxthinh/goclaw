@@ -83,7 +83,7 @@ and cron runs carry a unique suffix so that each execution has its own timeline.
 
 ### Token Aggregation
 
-Token counts are aggregated **only from `llm_call` spans** (not `agent` spans) to avoid double-counting. The `BatchUpdateTraceAggregates()` method sums `input_tokens` and `output_tokens` from spans where `span_type = 'llm_call'` and writes the totals to the parent trace record.
+Token counts are aggregated from **`llm_call` and `tool_call` spans**, excluding `agent` spans to avoid double-counting. `BatchUpdateTraceAggregates()` writes these totals to the span's own trace record; a parent trace does not include its child traces' tokens. On PostgreSQL, it also computes `duration_ms` from `end_time - start_time` for finished traces.
 
 ---
 
@@ -94,7 +94,7 @@ Token counts are aggregated **only from `llm_call` spans** (not `agent` spans) t
 | Normal | Not recorded | 500 characters max |
 | Verbose (`GOCLAW_TRACE_VERBOSE=1`) | Up to 200KB | Up to 200KB |
 
-Verbose mode is useful for debugging LLM conversations. When enabled via `GOCLAW_TRACE_VERBOSE=1`:
+Verbose mode is useful for debugging LLM conversations. `GOCLAW_TRACE_VERBOSE` accepts boolean values (`1`/`true` enable it; `0`/`false` disable it). An empty value disables it; an invalid value disables it and logs a warning. When enabled via `GOCLAW_TRACE_VERBOSE=1`:
 
 - **LLM spans**: Full input messages (including system prompt, history, and tool results) are serialized as JSON and stored in `InputPreview` (truncated at 200KB). LLM response content is stored in `OutputPreview` (truncated at 200KB, includes `<thinking>` tag if present).
 - **Tool spans**: Tool input and output are both recorded up to 200KB.
@@ -154,7 +154,7 @@ Cost = (PromptTokens × InputCostPerMillion) / 1,000,000
       + (CacheCreationTokens × CacheCreateCostPerMillion) / 1,000,000
 ```
 
-Cost is stored in the `total_cost` field of each LLM call span. The trace aggregation sums costs from all child `llm_call` spans to compute the trace-level `total_cost`.
+Cost is stored in the `total_cost` field of spans, including LLM calls and tools with recorded usage. Trace aggregation sums costs from all spans belonging directly to that trace to compute its `total_cost`.
 
 Cache token costs (read + create) are optional and only applied when the resolved catalog, override, or fallback config provides those price dimensions.
 
@@ -178,20 +178,20 @@ For each hour `[00:00, 01:00)`, the worker creates two types of snapshot rows:
 
 1. **Totals Row** (`provider=""`, `model=""`) — Aggregated from traces:
    - `request_count` — Count of root traces
-   - `error_count` — Count of failed traces
-   - `unique_users` — Distinct `user_id` in traces
-   - `input_tokens`, `output_tokens` — Sum from all child `llm_call` spans
-   - `total_cost` — Sum of costs from all child `llm_call` spans
-   - `tool_call_count` — Sum from traces
-   - `avg_duration_ms` — Average trace duration
+   - `error_count` — Count of failed root traces
+   - `unique_users` — Distinct `user_id` in root traces
+   - `tool_call_count` — Sum from all traces, including child traces
+   - `avg_duration_ms` — Average duration of finished root traces; falls back to `end_time - start_time` when historical `duration_ms` is missing
    - `memory_docs`, `memory_chunks` — Point-in-time count (attached to agent's totals row only)
    - `kg_entities`, `kg_relations` — Point-in-time count (attached to agent's totals row only)
 
-2. **Detail Rows** (`provider` + `model` specified) — Aggregated from `llm_call` spans:
-   - `llm_call_count` — Count of LLM calls for this provider/model
+2. **Detail Rows** (`provider` + `model` specified) — Aggregated from `llm_call` and `tool_call` spans across all traces, including child traces:
+   - `llm_call_count` — Count of `llm_call` spans for this provider/model
    - `input_tokens`, `output_tokens` — Sum of tokens
    - `total_cost` — Sum of per-call costs
    - `cache_read_tokens`, `cache_create_tokens`, `thinking_tokens` — Sum from span metadata
+
+Token and cost metrics live in the provider/model rows, not duplicated in the totals row. Spans with no provider and no model merge their usage into the totals row instead. Thus usage includes child traces while request, error, and unique-user counts include only root traces.
 
 Grouping: by `(agent_id, channel)` for totals; by `(agent_id, channel, provider, model)` for details.
 

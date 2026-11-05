@@ -449,6 +449,9 @@ func (s *PGTracingStore) BatchCreateSpans(ctx context.Context, spans []store.Spa
 func (s *PGTracingStore) BatchUpdateTraceAggregates(ctx context.Context, traceID uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE traces SET
+			duration_ms = CASE WHEN end_time IS NOT NULL
+				THEN CAST(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000 AS BIGINT)
+				ELSE duration_ms END,
 			span_count = (SELECT COUNT(*) FROM spans WHERE trace_id = $1),
 			llm_call_count = (SELECT COUNT(*) FROM spans WHERE trace_id = $1 AND span_type = 'llm_call'),
 			tool_call_count = (SELECT COUNT(*) FROM spans WHERE trace_id = $1 AND span_type = 'tool_call'),

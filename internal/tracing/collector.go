@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -118,7 +119,7 @@ type Collector struct {
 // direct best-effort insert. This keeps callers that only need tracing
 // (e.g. unit/integration tests) compiling unchanged.
 func NewCollector(ts store.TracingStore, usageStore ...store.UsageEventStore) *Collector {
-	verbose := os.Getenv("GOCLAW_TRACE_VERBOSE") != ""
+	verbose := parseTraceVerbose(os.Getenv("GOCLAW_TRACE_VERBOSE"))
 	if verbose {
 		slog.Info("tracing: verbose mode enabled (GOCLAW_TRACE_VERBOSE)")
 	}
@@ -137,6 +138,19 @@ func NewCollector(ts store.TracingStore, usageStore ...store.UsageEventStore) *C
 		dirtyTraces:  make(map[uuid.UUID]struct{}),
 		verbose:      verbose,
 	}
+}
+
+// parseTraceVerbose mặc định tắt khi chưa cấu hình hoặc giá trị không hợp lệ.
+func parseTraceVerbose(value string) bool {
+	if value == "" {
+		return false
+	}
+	verbose, err := strconv.ParseBool(value)
+	if err != nil {
+		slog.Warn("tracing: GOCLAW_TRACE_VERBOSE không phải giá trị boolean, tắt verbose")
+		return false
+	}
+	return verbose
 }
 
 // Verbose returns true if verbose tracing is enabled (full LLM input logging).
