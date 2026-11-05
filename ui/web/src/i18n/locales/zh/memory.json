@@ -17,7 +17,8 @@
   },
   "tabs": {
     "documents": "文档",
-    "knowledgeGraph": "知识图谱"
+    "knowledgeGraph": "知识图谱",
+    "effectiveness": "效果"
   },
   "columns": {
     "path": "路径",
@@ -214,5 +215,95 @@
     "allIndexFailed": "索引所有文档失败",
     "searchFailed": "搜索失败",
     "docLoadFailed": "加载文档失败"
+  },
+  "effectiveness": {
+    "period": "时间范围",
+    "days": "{{count}} 天",
+    "refresh": "刷新",
+    "retry": "重试",
+    "window": "数据范围 {{from}} 至 {{to}}（UTC）",
+    "noValue": "暂无数据",
+    "error": "无法加载记忆效果数据。",
+    "rollupNote": "数据按 UTC 日期每小时汇总，最多可能延迟一小时。LLM 评分只反映相关性和是否被使用，不能证明回复变得更好。",
+    "layerNames": {
+      "auto_inject": "自动注入",
+      "memory_search": "记忆搜索",
+      "episodic": "情景记忆",
+      "document": "文档",
+      "knowledge_graph": "知识图谱"
+    },
+    "channelNames": {
+      "auto_inject": "自动注入",
+      "memory_search": "记忆搜索",
+      "knowledge_graph_search": "知识图谱搜索"
+    },
+    "verdict": {
+      "keep": "保留",
+      "tune": "调优",
+      "consider_off": "考虑关闭",
+      "insufficient_data": "数据不足"
+    },
+    "layers": {
+      "title": "各层结论",
+      "subtitle": "基于 LLM 评分的样本",
+      "layer": "层",
+      "samples": "样本数",
+      "relevance": "相关",
+      "used": "被使用",
+      "verdict": "结论",
+      "thresholds": "阈值：至少 {{minSamples}} 个样本；相关 >= {{keepRelevance}} 且被使用 >= {{keepUsed}} 时保留；相关 < {{offRelevance}} 时考虑关闭；其余为调优。"
+    },
+    "funnel": {
+      "title": "检索漏斗",
+      "subtitle": "按渠道",
+      "channel": "渠道",
+      "eligible": "符合条件",
+      "matched": "有结果",
+      "injected": "已注入",
+      "errors": "错误",
+      "autoInjectOff": "此租户已关闭自动注入，因此其数据保持为零。",
+      "evalOff": "此租户已关闭评分器，因此相关性和使用情况不会更新。"
+    },
+    "prompt": {
+      "title": "提示词构成",
+      "subtitle": "每次运行的平均估算 token（{{runs}} 次运行）",
+      "parts": {
+        "system": "系统",
+        "tool_schema": "工具架构",
+        "history": "历史",
+        "tool_result": "工具结果",
+        "memory": "记忆"
+      }
+    },
+    "cache": {
+      "title": "提示词缓存",
+      "subtitle": "按提供商和模型统计的缓存读取占比",
+      "provider": "提供商",
+      "model": "模型",
+      "calls": "调用次数",
+      "rate": "缓存率"
+    },
+    "pipeline": {
+      "title": "后台流水线",
+      "subtitle": "时间段末的数量与后台 LLM 用量",
+      "background": "按用途统计的后台 LLM token",
+      "purpose": "用途",
+      "calls": "调用次数",
+      "inputTokens": "输入 token",
+      "outputTokens": "输出 token",
+      "counters": {
+        "episodic_total": "情景摘要",
+        "episodic_stale": "过期情景",
+        "episodic_promoted": "已提升情景",
+        "kg_entities": "KG 实体",
+        "kg_relations": "KG 关系",
+        "memory_documents": "记忆文档",
+        "dreaming_documents": "Dreaming 文档"
+      }
+    },
+    "empty": {
+      "title": "暂无效果数据",
+      "hint": "数据每小时汇总一次，新的活动最多可能需要一小时才会显示。此时间段内没有任何记录。"
+    }
   }
 }

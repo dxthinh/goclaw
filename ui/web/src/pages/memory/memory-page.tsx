@@ -19,6 +19,7 @@ import { useMinLoading } from "@/hooks/use-min-loading";
 import { useDeferredLoading } from "@/hooks/use-deferred-loading";
 import { useEmbeddingStatus } from "@/hooks/use-embedding-status";
 import { EpisodicTab } from "./episodic/episodic-tab";
+import { EffectivenessTab } from "./effectiveness/effectiveness-tab";
 import type { MemoryDocument } from "@/types/memory";
 
 const MemoryCreateDialog = lazy(() =>
@@ -203,6 +204,7 @@ export function MemoryPage() {
         <TabsList>
           <TabsTrigger value="documents">{t("tabs.documents")}</TabsTrigger>
           <TabsTrigger value="episodic">{t("tabs.episodic")}</TabsTrigger>
+          <TabsTrigger value="effectiveness">{t("tabs.effectiveness")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="documents" className="mt-4 space-y-4">
@@ -230,6 +232,10 @@ export function MemoryPage() {
 
         <TabsContent value="episodic" className="mt-4">
           <EpisodicTab agentId={agentId} />
+        </TabsContent>
+
+        <TabsContent value="effectiveness" className="mt-4">
+          <EffectivenessTab agentId={agentId} />
         </TabsContent>
       </Tabs>
 

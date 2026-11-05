@@ -17,7 +17,8 @@
   },
   "tabs": {
     "documents": "Tài liệu",
-    "knowledgeGraph": "Đồ thị tri thức"
+    "knowledgeGraph": "Đồ thị tri thức",
+    "effectiveness": "Hiệu quả"
   },
   "columns": {
     "path": "Đường dẫn",
@@ -214,5 +215,95 @@
     "allIndexFailed": "Không thể lập chỉ mục tất cả",
     "searchFailed": "Tìm kiếm thất bại",
     "docLoadFailed": "Không thể tải tài liệu"
+  },
+  "effectiveness": {
+    "period": "Khoảng thời gian",
+    "days": "{{count}} ngày",
+    "refresh": "Làm mới",
+    "retry": "Thử lại",
+    "window": "Dữ liệu từ {{from}} đến {{to}} (UTC)",
+    "noValue": "Không có dữ liệu",
+    "error": "Không tải được số liệu hiệu quả memory.",
+    "rollupNote": "Số liệu được gộp mỗi giờ theo ngày UTC và có thể trễ tối đa một giờ. Bộ chấm LLM chỉ cho thấy mức liên quan và được dùng, không chứng minh câu trả lời tốt hơn.",
+    "layerNames": {
+      "auto_inject": "Tự chèn",
+      "memory_search": "Tìm memory",
+      "episodic": "Episodic",
+      "document": "Tài liệu",
+      "knowledge_graph": "Đồ thị tri thức"
+    },
+    "channelNames": {
+      "auto_inject": "Tự chèn",
+      "memory_search": "Tìm memory",
+      "knowledge_graph_search": "Tìm đồ thị tri thức"
+    },
+    "verdict": {
+      "keep": "Giữ",
+      "tune": "Chỉnh",
+      "consider_off": "Xem xét tắt",
+      "insufficient_data": "Chưa đủ dữ liệu"
+    },
+    "layers": {
+      "title": "Kết luận theo tầng",
+      "subtitle": "Dựa trên các mẫu do LLM chấm",
+      "layer": "Tầng",
+      "samples": "Số mẫu",
+      "relevance": "Liên quan",
+      "used": "Được dùng",
+      "verdict": "Kết luận",
+      "thresholds": "Ngưỡng: tối thiểu {{minSamples}} mẫu; Giữ khi liên quan >= {{keepRelevance}} và được dùng >= {{keepUsed}}; Xem xét tắt khi liên quan < {{offRelevance}}; còn lại là Chỉnh."
+    },
+    "funnel": {
+      "title": "Phễu truy hồi",
+      "subtitle": "Theo từng kênh",
+      "channel": "Kênh",
+      "eligible": "Đủ điều kiện",
+      "matched": "Có kết quả",
+      "injected": "Đã chèn",
+      "errors": "Lỗi",
+      "autoInjectOff": "Tự chèn đang tắt ở tenant này nên số liệu của nó giữ ở mức 0.",
+      "evalOff": "Bộ chấm đang tắt ở tenant này nên mức liên quan và được dùng không được cập nhật."
+    },
+    "prompt": {
+      "title": "Thành phần prompt",
+      "subtitle": "Token ước tính trung bình mỗi run ({{runs}} run)",
+      "parts": {
+        "system": "System",
+        "tool_schema": "Schema tool",
+        "history": "Lịch sử",
+        "tool_result": "Kết quả tool",
+        "memory": "Memory"
+      }
+    },
+    "cache": {
+      "title": "Cache prompt",
+      "subtitle": "Tỷ lệ token đọc từ cache theo provider và model",
+      "provider": "Provider",
+      "model": "Model",
+      "calls": "Số lần gọi",
+      "rate": "Tỷ lệ cache"
+    },
+    "pipeline": {
+      "title": "Pipeline nền",
+      "subtitle": "Số lượng cuối khoảng và mức dùng LLM nền",
+      "background": "Token LLM nền theo mục đích",
+      "purpose": "Mục đích",
+      "calls": "Số lần gọi",
+      "inputTokens": "Token vào",
+      "outputTokens": "Token ra",
+      "counters": {
+        "episodic_total": "Tóm tắt episodic",
+        "episodic_stale": "Episodic cũ",
+        "episodic_promoted": "Episodic đã nâng cấp",
+        "kg_entities": "Thực thể KG",
+        "kg_relations": "Quan hệ KG",
+        "memory_documents": "Tài liệu memory",
+        "dreaming_documents": "Tài liệu dreaming"
+      }
+    },
+    "empty": {
+      "title": "Chưa có số liệu hiệu quả",
+      "hint": "Số liệu được gộp mỗi giờ nên hoạt động mới có thể mất tối đa một giờ để xuất hiện. Chưa có gì được ghi nhận trong khoảng này."
+    }
   }
 }
