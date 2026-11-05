@@ -17,8 +17,8 @@ func StripSection(content string) string {
 	if !strings.HasPrefix(content, opening) {
 		return content
 	}
-	if i := strings.Index(content, closing); i >= 0 {
-		return strings.TrimLeft(content[i+len(closing):], "\n")
+	if _, after, ok := strings.Cut(content, closing); ok {
+		return strings.TrimLeft(after, "\n")
 	}
 	return content
 }

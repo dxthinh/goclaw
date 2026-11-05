@@ -97,7 +97,7 @@ func CandidatesFromRun(run RunSnapshot) []Candidate {
 // trước mục đầu tiên và thẻ đóng không phải dữ liệu.
 func memorySectionItems(section string) []string {
 	var items []string
-	for _, line := range strings.Split(section, "\n") {
+	for line := range strings.SplitSeq(section, "\n") {
 		switch {
 		case strings.HasPrefix(line, "- "):
 			items = append(items, strings.TrimSpace(line[2:]))
@@ -153,7 +153,7 @@ func knowledgeGraphItems(content string) []string {
 	}
 	var items []string
 	inEntity := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		switch {
 		case strings.HasPrefix(line, "- "):
 			items, inEntity = append(items, strings.TrimSpace(line[2:])), true
