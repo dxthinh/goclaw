@@ -92,7 +92,7 @@ func (l *Loop) makeExecuteToolCall(req *RunRequest, bridgeRS *runState) func(ctx
 		l.recordToolUsageEvent(ctx, req, registryName, tc.Name, tc.ID, tc.Arguments, toolStart, result, toolSpanID)
 
 		// v3 evolution metrics: record tool execution non-blocking (best-effort).
-		l.recordToolMetric(ctx, req.SessionKey, registryName, !result.IsError, toolDuration)
+		l.recordToolMetric(ctx, req.SessionKey, registryName, result, toolDuration)
 		if registryName == "use_skill" {
 			l.recordSkillUsageFromTool(ctx, req, tc, result, toolDuration)
 		}
@@ -231,7 +231,7 @@ func (l *Loop) makeProcessToolResult(req *RunRequest, bridgeRS *runState) func(c
 		}
 
 		// Record tool metrics (non-blocking, best-effort).
-		l.recordToolMetric(ctx, req.SessionKey, registryName, !result.IsError, dur)
+		l.recordToolMetric(ctx, req.SessionKey, registryName, result, dur)
 		if registryName == "use_skill" {
 			l.recordSkillUsageFromTool(ctx, req, tc, result, dur)
 		}
@@ -286,21 +286,31 @@ func syncBridgeToState(bridgeRS *runState, state *pipeline.RunState, action tool
 	}
 }
 
-// recordToolMetric records a tool execution metric non-blocking (best-effort).
-// No-op when evolution metrics store is not configured.
-func (l *Loop) recordToolMetric(ctx context.Context, sessionKey, toolName string, success bool, duration time.Duration) {
-	if l.evolutionMetricsStore == nil {
+// toolKnowledgeGraphSearch là kênh truy hồi trong phễu KPI memory.
+const toolKnowledgeGraphSearch = "knowledge_graph_search"
+
+// recordToolMetric ghi metric của một lần chạy tool, không chặn luồng chính. Tool thường chỉ
+// được ghi khi agent bật cờ self_evolution_metrics. knowledge_graph_search là một kênh của phễu
+// KPI memory nên luôn được ghi kèm outcome, giống retrieval/memory_search.
+func (l *Loop) recordToolMetric(ctx context.Context, sessionKey, toolName string, result *tools.Result, duration time.Duration) {
+	metrics := l.evolutionMetricsStore
+	fields := map[string]any{
+		"success":     !result.IsError,
+		"duration_ms": duration.Milliseconds(),
+	}
+	if toolName == toolKnowledgeGraphSearch {
+		metrics = l.kpiMetricsStore()
+		fields["outcome"] = retrievalOutcome(result)
+	}
+	if metrics == nil {
 		return
 	}
 	tenantID := store.TenantIDFromContext(ctx)
 	go func() {
 		bgCtx, cancel := context.WithTimeout(store.WithTenantID(context.Background(), tenantID), 5*time.Second)
 		defer cancel()
-		value, _ := json.Marshal(map[string]any{
-			"success":     success,
-			"duration_ms": duration.Milliseconds(),
-		})
-		if err := l.evolutionMetricsStore.RecordMetric(bgCtx, store.EvolutionMetric{
+		value, _ := json.Marshal(fields)
+		if err := metrics.RecordMetric(bgCtx, store.EvolutionMetric{
 			ID:         uuid.New(),
 			TenantID:   tenantID,
 			AgentID:    l.agentUUID,
@@ -312,6 +322,18 @@ func (l *Loop) recordToolMetric(ctx context.Context, sessionKey, toolName string
 			slog.Debug("evolution.metric.record_failed", "tool", toolName, "error", err)
 		}
 	}()
+}
+
+// retrievalOutcome phân loại kết quả của tool truy hồi theo cùng từ vựng với memory_search.
+func retrievalOutcome(result *tools.Result) string {
+	switch {
+	case result.IsError:
+		return "error"
+	case result.NoMatch:
+		return "no_match"
+	default:
+		return "matched"
+	}
 }
 
 func (l *Loop) recordSkillUsageFromTool(ctx context.Context, req *RunRequest, tc providers.ToolCall, result *tools.Result, duration time.Duration) {

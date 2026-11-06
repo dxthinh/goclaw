@@ -18,6 +18,7 @@ import (
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/memory"
+	"github.com/nextlevelbuilder/goclaw/internal/memoryeval"
 	"github.com/nextlevelbuilder/goclaw/internal/providerresolve"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
@@ -134,6 +135,9 @@ type ResolverDeps struct {
 
 	// V3 auto-inject: episodic memory injection into system prompt (nil = disabled)
 	AutoInjector memory.AutoInjector
+
+	// SubmitMemoryEval nhận ứng viên chấm memory cuối run (nil = tắt).
+	SubmitMemoryEval func(memoryeval.Candidate)
 
 	// V3 domain event bus for consolidation pipeline (nil = disabled)
 	DomainBus eventbus.DomainEventBus
@@ -480,6 +484,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			AgentType:              ag.AgentType,
 			IsTeamLead:             isTeamLead,
 			AutoInjector:           deps.AutoInjector,
+			SubmitMemoryEval:       deps.SubmitMemoryEval,
 			Provider:               provider,
 			Model:                  ag.Model,
 			ModelRegistry:          deps.ModelRegistry,

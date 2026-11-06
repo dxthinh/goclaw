@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -165,22 +166,32 @@ func (s *ContextStage) Execute(ctx context.Context, state *RunState) error {
 		state.Messages.SetHistory(updated)
 	}
 
-	// 8. Auto-inject L0 memory context into system prompt.
-	// V3RetrievalEnabled check removed — auto-inject runs whenever AutoInject is available.
-	// Phase 9: pass recent conversation context so vector search can resolve
-	// pronouns and implicit references in follow-up questions.
+	// 8. Auto-inject L0 memory. System prompt không được đổi theo memory: nội dung đổi
+	// mỗi lượt ở đó làm mất cache prompt của toàn bộ lịch sử phía sau. Ngữ cảnh gần đây
+	// giúp tìm kiếm vector hiểu đại từ và tham chiếu ngầm trong câu hỏi nối tiếp.
 	if s.deps.AutoInject != nil && state.Input.Message != "" {
 		recentCtx := buildRecentContext(state.Messages.History())
 		section, err := s.deps.AutoInject(ctx, state.Input.Message, state.Input.UserID, recentCtx)
-		if err == nil && section != "" {
-			state.Context.MemorySection = section
-			sys := state.Messages.System()
-			sys.Content += "\n\n" + section
-			state.Messages.SetSystem(sys)
+		switch {
+		case err != nil:
+			slog.Warn("auto_inject.failed", "session_key", state.Input.SessionKey, "error", err)
+		case section != "":
+			attachTurnMemory(s.deps, state, section)
 		}
 	}
 
 	return nil
+}
+
+// attachTurnMemory gắn khối memory vào lượt hiện tại và trừ phần token của nó khỏi
+// ngân sách history. Không có tin user để gắn thì bỏ qua.
+func attachTurnMemory(deps *PipelineDeps, state *RunState, section string) {
+	if !state.Messages.MarkCurrentTurn() {
+		return
+	}
+	state.Context.MemorySection = section
+	state.Context.MemoryTokens = budgetMessageTokens(deps, state.Model, []providers.Message{{Role: "user", Content: section}})
+	state.Context.OverheadTokens += state.Context.MemoryTokens
 }
 
 // buildRecentContext concatenates the trailing user turns from the history

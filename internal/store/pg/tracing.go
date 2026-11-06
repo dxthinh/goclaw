@@ -449,6 +449,9 @@ func (s *PGTracingStore) BatchCreateSpans(ctx context.Context, spans []store.Spa
 func (s *PGTracingStore) BatchUpdateTraceAggregates(ctx context.Context, traceID uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE traces SET
+			duration_ms = CASE WHEN end_time IS NOT NULL
+				THEN CAST(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000 AS BIGINT)
+				ELSE duration_ms END,
 			span_count = (SELECT COUNT(*) FROM spans WHERE trace_id = $1),
 			llm_call_count = (SELECT COUNT(*) FROM spans WHERE trace_id = $1 AND span_type = 'llm_call'),
 			tool_call_count = (SELECT COUNT(*) FROM spans WHERE trace_id = $1 AND span_type = 'tool_call'),
@@ -565,6 +568,19 @@ func (s *PGTracingStore) RecoverStaleRunningTraces(ctx context.Context, cutoff t
 		 WHERE status = 'running' AND start_time < $1`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("recover stale running traces: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// FillMissingTraceDurations bù duration_ms cho trace đã có end_time. Trường hợp này xảy ra khi tiến
+// trình chết sau FinishTrace nhưng trước lần flush tổng hợp.
+func (s *PGTracingStore) FillMissingTraceDurations(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE traces
+		    SET duration_ms = LEAST(GREATEST(ROUND(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000), 0), 2147483647)::INTEGER
+		  WHERE end_time IS NOT NULL AND duration_ms IS NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("fill missing trace durations: %w", err)
 	}
 	return res.RowsAffected()
 }

@@ -16,7 +16,49 @@ var schemaSQL string
 
 // SchemaVersion is the current SQLite schema version.
 // Bump this when adding new migration steps below.
-const SchemaVersion = 60
+const SchemaVersion = 61
+
+// sqliteMemoryKPIMigration tạo bảng KPI memory và bù duration_ms cho trace cũ đã kết thúc.
+// Định nghĩa bảng phải giữ giống schema.sql. Không có khóa ngoại tới traces và agents để
+// số liệu còn nguyên khi nguồn bị xóa.
+var sqliteMemoryKPIMigration = `CREATE TABLE IF NOT EXISTS memory_eval_results (
+    id                  TEXT NOT NULL PRIMARY KEY,
+    tenant_id           TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    agent_id            TEXT NOT NULL,
+    channel             VARCHAR(40) NOT NULL,
+    has_episodic        BOOLEAN NOT NULL DEFAULT 0,
+    has_document        BOOLEAN NOT NULL DEFAULT 0,
+    has_knowledge_graph BOOLEAN NOT NULL DEFAULT 0,
+    item_count          INTEGER NOT NULL DEFAULT 0,
+    relevant_items      INTEGER NOT NULL DEFAULT 0,
+    used                BOOLEAN NOT NULL DEFAULT 0,
+    reason              TEXT NOT NULL DEFAULT '',
+    provider            TEXT NOT NULL DEFAULT '',
+    model               TEXT NOT NULL DEFAULT '',
+    input_tokens        BIGINT NOT NULL DEFAULT 0,
+    output_tokens       BIGINT NOT NULL DEFAULT 0,
+    trace_id            TEXT,
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_memory_eval_results_tenant_created ON memory_eval_results(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_eval_results_created ON memory_eval_results(created_at);
+CREATE TABLE IF NOT EXISTS memory_kpi_daily (
+    tenant_id   TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    bucket_date TEXT NOT NULL,
+    agent_id    TEXT NOT NULL,
+    metric      TEXT NOT NULL,
+    dimension   TEXT NOT NULL DEFAULT '',
+    value       REAL NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (tenant_id, bucket_date, agent_id, metric, dimension)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_kpi_daily_bucket ON memory_kpi_daily(bucket_date);
+CREATE INDEX IF NOT EXISTS idx_usage_events_llm_background_time ON usage_events(event_time)
+    WHERE event_type = 'llm_background';
+CREATE INDEX IF NOT EXISTS idx_traces_start_time ON traces(start_time DESC);
+UPDATE traces
+   SET duration_ms = CAST(ROUND((julianday(` + sqliteGoTimeExpr("end_time") + `) - julianday(` + sqliteGoTimeExpr("start_time") + `)) * 86400000) AS INTEGER)
+ WHERE end_time IS NOT NULL AND duration_ms IS NULL;`
 
 // migrations maps version → SQL to apply when upgrading FROM that version.
 // schema.sql always represents the LATEST full schema (for fresh DBs).
@@ -95,6 +137,8 @@ BEGIN
 END;`
 
 var migrations = map[int]string{
+	// Version 60 → 61: bảng KPI memory và bù duration_ms cho trace cũ.
+	60: sqliteMemoryKPIMigration,
 	// Version 59 → 60: keep an append-only copy of group capture. Pending rows are
 	// deleted when the buffer is handed to the agent and when compaction replaces
 	// them with a summary; before this table those deletes destroyed the only copy.

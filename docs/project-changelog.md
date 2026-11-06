@@ -4,6 +4,30 @@ Significant changes, features, and fixes in reverse chronological order.
 
 ---
 
+## 2026-11-06
+
+### KPI hiệu quả memory
+
+**Tính năng**
+
+- `GET /v1/memory/effectiveness` báo cáo theo tenant, có thể lọc theo agent, trong 7, 30
+  hoặc 90 ngày UTC: phễu truy hồi, mức liên quan và mức được dùng theo từng tầng memory kèm
+  kết luận keep / tune / consider_off, cơ cấu prompt trung bình, tỷ lệ prompt cache theo
+  provider và model, số lượng của pipeline nền và token LLM nền.
+- Trang Memory có thêm tab Effectiveness (en, vi, zh) với trạng thái đang tải, lỗi và rỗng.
+  Số liệu thiếu hiện "không có dữ liệu" thay vì 0.
+- Ngưỡng và công tắc đọc từ `system_configs` của tenant (`memory.kpi.*`,
+  `memory.auto_inject.*`, `memory.eval.*`), đặt bằng `PUT /v1/system-configs/{key}`.
+- Định nghĩa, công thức và SQL tái tạo từng số nằm trong `docs/memory-effectiveness-kpi.md`.
+
+**Thay đổi**
+
+- Số usage tăng so với trước vì giờ đã đóng và giờ đang chạy đều tính cả trace con (ủy quyền,
+  subagent) ngoài trace gốc.
+- Số liệu lấy từ rollup theo giờ và theo ngày UTC nên có thể trễ tối đa khoảng một giờ.
+- Tài liệu memory nay mô tả auto-inject được ghép vào tin nhắn người dùng hiện tại, không nằm
+  trong system prompt, và được cấu hình qua `system_configs`.
+
 ## 2026-11-04
 
 ### Guaranteed delivery of team task files

@@ -412,6 +412,19 @@ func (s *SQLiteTracingStore) RecoverStaleRunningTraces(ctx context.Context, cuto
 	return res.RowsAffected()
 }
 
+// FillMissingTraceDurations bù duration_ms cho trace đã có end_time. Trường hợp này xảy ra khi tiến
+// trình chết sau FinishTrace nhưng trước lần flush tổng hợp.
+func (s *SQLiteTracingStore) FillMissingTraceDurations(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE traces
+		    SET duration_ms = CAST(ROUND((julianday(`+sqliteGoTimeExpr("end_time")+`) - julianday(`+sqliteGoTimeExpr("start_time")+`)) * 86400000) AS INTEGER)
+		  WHERE end_time IS NOT NULL AND duration_ms IS NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("fill missing trace durations: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 // ListCodexPoolSpans is not supported in SQLite (Codex pool is a standard-edition feature).
 func (s *SQLiteTracingStore) ListCodexPoolSpans(_ context.Context, _, _ uuid.UUID, _ []string, _ int) ([]store.CodexPoolSpan, error) {
 	return nil, nil

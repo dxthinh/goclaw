@@ -871,6 +871,20 @@
         "responses": { "200": { "description": "Document list" } }
       }
     },
+    "/v1/memory/effectiveness": {
+      "get": {
+        "tags": ["Memory"],
+        "summary": "Memory effectiveness KPIs and per-layer verdicts from the daily rollup",
+        "parameters": [
+          { "name": "agent_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "days", "in": "query", "schema": { "type": "integer", "enum": [7, 30, 90], "default": 7 } }
+        ],
+        "responses": {
+          "200": { "description": "Funnel, layers, prompt, cache, pipeline, thresholds and switches" },
+          "400": { "description": "Invalid days or agent_id" }
+        }
+      }
+    },
     "/v1/agents/{agentID}/memory/search": {
       "post": {
         "tags": ["Memory"],

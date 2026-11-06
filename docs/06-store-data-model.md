@@ -735,7 +735,7 @@ L0 (Working Memory)           L1 (Episodic Memory)        L2 (Semantic Memory)
 | Interface | Purpose | Key Methods |
 |-----------|---------|-------------|
 | `EpisodicStore` | Tier 1.5 memory CRUD + hybrid search | `Create`, `Search`, `ExistsBySourceID`, `GetBySourceID`, `ListUnpromoted`, `MarkPromoted` |
-| `EvolutionMetricsStore` | Stage 1: record metrics (retrieval, tool, feedback) | `RecordMetric`, `AggregateToolMetrics`, `AggregateRetrievalMetrics` |
+| `EvolutionMetricsStore` | Stage 1: record metrics (retrieval, tool, prompt) | `RecordMetric`, `AggregateToolMetrics`, `AggregateRetrievalMetrics` |
 | `EvolutionSuggestionStore` | Stage 2: generate & track improvement suggestions | `CreateSuggestion`, `ListSuggestions`, `UpdateSuggestionStatus` |
 | `VaultStore` | Knowledge Vault: document registry + links | `UpsertDocument`, `Search`, `CreateLink`, `GetOutLinks`, `GetBacklinks` |
 | `AgentLinkStore` | Inter-agent delegation links (replaces v2 `agent_links` in teams context) | `CreateLink`, `CanDelegate`, `DelegateTargets`, `SearchDelegateTargets` |
@@ -745,7 +745,9 @@ L0 (Working Memory)           L1 (Episodic Memory)        L2 (Semantic Memory)
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `episodic_summaries` | Session conversation summaries | `agent_id`, `user_id`, `session_key`, `summary`, `l0_abstract`, `key_topics` (TEXT[]), `embedding` (vector), `source_id` (dedup), `expires_at`, `recall_count` (INT), `recall_score` (FLOAT), `last_recalled_at` (TIMESTAMPTZ) |
-| `agent_evolution_metrics` | Self-evolution performance data | `agent_id`, `session_key`, `metric_type` (retrieval/tool/feedback), `metric_key`, `value` (JSONB) |
+| `agent_evolution_metrics` | Self-evolution performance data | `agent_id`, `session_key`, `metric_type` (retrieval/tool/prompt), `metric_key`, `value` (JSONB) |
+| `memory_eval_results` | Một mẫu truy hồi đã chấm (không lưu câu hỏi, nội dung memory hay câu trả lời) | `tenant_id`, `agent_id`, `channel` (auto_inject/memory_search/knowledge_graph_search), `has_episodic`, `has_document`, `has_knowledge_graph`, `item_count`, `relevant_items`, `used`, `reason` (tối đa 200 ký tự), `provider`, `model`, `input_tokens`, `output_tokens`, `trace_id` (không có khóa ngoại), `created_at` |
+| `memory_kpi_daily` | Rollup theo giờ phục vụ `GET /v1/memory/effectiveness`, dạng dài theo ngày UTC | PK `(tenant_id, bucket_date, agent_id, metric, dimension)`, `value` (DOUBLE), `updated_at` |
 | `agent_evolution_suggestions` | Data-driven improvement suggestions | `agent_id`, `suggestion_type`, `suggestion`, `rationale`, `parameters` (JSONB), `status` (pending/approved/rejected/applied) |
 | `vault_documents` | Knowledge Vault document registry | `agent_id`, `scope` (personal/team/shared), `path`, `title`, `doc_type`, `content_hash`, `embedding` (vector), `metadata` (JSONB) |
 | `vault_links` | Wikilinks between vault documents | `from_doc_id`, `to_doc_id`, `link_type`, `context` (snippet) |
@@ -790,7 +792,7 @@ Three-stage memory loading strategy minimizes token cost while maximizing releva
 flowchart TD
     MSG["User message arrives"] --> INJECT["L0: AutoInjector"]
     INJECT -->|"Not relevant"| SKIP["Skip injection"]
-    INJECT -->|"Relevant"| L0OUT["Inject L0 summaries<br/>to system prompt"]
+    INJECT -->|"Relevant"| L0OUT["Ghép L0 vào<br/>tin nhắn người dùng hiện tại"]
     L0OUT --> TOOL1["Tool available: memory_search"]
     TOOL1 -->|"Agent uses tool"| L1["L1: Unified search<br/>BM25 + vector hybrid<br/>across episodic + KG"]
     L1 --> L1RES["Return top K results"]
@@ -801,13 +803,15 @@ flowchart TD
 
 ### L0: Auto-Injection
 
-Runs in ContextStage (once per turn). Checks user message relevance against episodic summaries and KG. Returns formatted section (~200 tokens max) for system prompt. Disabled if agent has `auto_inject_enabled: false`.
+Chạy trong ContextStage, mỗi lượt một lần. So khớp tin nhắn người dùng với các bản tóm tắt episodic và trả về khối đã định dạng, tối đa 5 mục L0. Khối này được ghép vào tin nhắn người dùng hiện tại khi dựng request; system prompt không bao giờ chứa memory, nên phần đầu có thể cache giữ ổn định giữa các lượt. Cấu hình nằm trong `system_configs` của tenant, không nằm trong thiết lập của agent.
 
 | Parameter | Default |
 |-----------|---------|
 | `MaxEntries` | 5 |
-| `MaxTokens` | 200 |
-| `Threshold` | 0.3 (relevance) |
+| `memory.auto_inject.min_score` | 0.8 (`ts_rank` + cosine, trọng số 1 và 1) |
+| `memory.auto_inject.enabled` | `true` |
+
+Hiệu quả của từng tầng được đo bằng bộ chấm theo mẫu và rollup mỗi giờ vào `memory_kpi_daily`; xem [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
 
 ### L1: Unified Search
 

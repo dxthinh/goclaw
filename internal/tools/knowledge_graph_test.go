@@ -423,3 +423,37 @@ func TestKGSearch_RelationsCappedAt5(t *testing.T) {
 		t.Error("expected hint to use entity_id for full relations")
 	}
 }
+
+// Metric KPI dựa vào NoMatch, nên mọi nhánh không tìm thấy phải đặt cờ, kể cả nhánh gợi ý
+// danh sách thực thể có sẵn, còn nhánh có kết quả thì không.
+func TestKGSearch_NoMatchFlag(t *testing.T) {
+	alpha := store.Entity{ID: "e1", Name: "Alpha", EntityType: "project"}
+	for _, tc := range []struct {
+		name     string
+		entities []store.Entity
+		args     map[string]any
+		noMatch  bool
+	}{
+		{name: "có kết quả", entities: []store.Entity{alpha}, args: map[string]any{"query": "alpha"}, noMatch: false},
+		{name: "đồ thị rỗng", args: map[string]any{"query": "alpha"}, noMatch: true},
+		{name: "gợi ý thực thể khác", entities: []store.Entity{alpha}, args: map[string]any{"query": "beta"}, noMatch: true},
+		{name: "lọc theo loại không còn gì", entities: []store.Entity{alpha}, args: map[string]any{"query": "alpha", "entity_type": "person"}, noMatch: true},
+		{name: "liệt kê đồ thị rỗng", args: map[string]any{"query": "*"}, noMatch: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ms := newMockKGStore()
+			for i := range tc.entities {
+				ms.entities[tc.entities[i].ID] = tc.entities[i]
+			}
+			tool := NewKnowledgeGraphSearchTool()
+			tool.SetKGStore(ms)
+			result := tool.Execute(kgContext(), tc.args)
+			if result.IsError {
+				t.Fatalf("không mong lỗi: %s", result.ForLLM)
+			}
+			if result.NoMatch != tc.noMatch {
+				t.Fatalf("NoMatch = %v, muốn %v (%s)", result.NoMatch, tc.noMatch, result.ForLLM)
+			}
+		})
+	}
+}

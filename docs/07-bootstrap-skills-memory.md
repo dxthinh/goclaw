@@ -551,20 +551,20 @@ V3 introduces a comprehensive 3-tier memory system with event-driven consolidati
 
 ### Auto-Injection (L0 Loading)
 
-Runs in ContextStage once per turn. Checks user message against episodic index. If relevant matches found, injects L0 abstracts into system prompt.
+Chạy trong ContextStage, mỗi lượt một lần. So khớp tin nhắn người dùng (kèm một đoạn ngắn từ các lượt người dùng gần đây) với chỉ mục episodic. Nếu có kết quả liên quan, các L0 abstract được ghép vào tin nhắn người dùng hiện tại khi dựng request. Chúng không được thêm vào system prompt: nội dung thay đổi mỗi lượt ở đó sẽ làm mất hiệu lực prompt cache của toàn bộ lịch sử phía sau.
 
-**Config** (stored in agent settings):
-```json
-{
-  "auto_inject_enabled": true,
-  "auto_inject_threshold": 0.3,
-  "auto_inject_max_tokens": 200,
-  "episodic_ttl_days": 90,
-  "consolidation_enabled": true
-}
-```
+**Cấu hình** (`system_configs` của tenant; thiết lập của agent không còn điều khiển auto-inject):
 
-**Return value:** Formatted section (~200 tokens max) with top K summaries, or empty string if no relevant matches.
+| Khóa | Mặc định | Ý nghĩa |
+|-----|---------|---------|
+| `memory.auto_inject.enabled` | `true` | Công tắc tắt auto-inject của tenant |
+| `memory.auto_inject.min_score` | `0.8` | Điểm tối thiểu để chèn (`ts_rank` + cosine, trọng số 1 và 1) |
+
+Đặt giá trị bằng `PUT /v1/system-configs/{key}` (quyền admin). Giá trị thiếu hoặc không hợp lệ thì dùng mặc định. Khối memory có tối đa 5 mục và không có giới hạn token riêng.
+
+**Giá trị trả về:** khối đã định dạng gồm các bản tóm tắt có điểm cao nhất, hoặc chuỗi rỗng nếu không có kết quả liên quan. Mỗi run đều ghi một outcome (`disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`) và điểm cao nhất để hiệu chỉnh ngưỡng.
+
+**Đo hiệu quả:** `GET /v1/memory/effectiveness` và tab Effectiveness của trang Memory báo cáo phễu truy hồi, mức liên quan và mức được dùng theo từng tầng, cơ cấu prompt, tỷ lệ cache và mức dùng của pipeline nền. Xem [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
 
 ### Progressive Tool Access
 
@@ -572,7 +572,7 @@ Three tool-based memory interactions:
 
 | Tool | Purpose | Tier | Example |
 |------|---------|------|---------|
-| (auto-inject) | Automatic context injection | L0 | System prompt includes 3 relevant past sessions |
+| (auto-inject) | Tự động chèn ngữ cảnh | L0 | Tin nhắn người dùng mang theo 3 session cũ liên quan |
 | `memory_search(query)` | Hybrid search L1 + L2 | L1 | "Find past discussions about billing" |
 | `memory_expand(id)` | Deep retrieval from episodic | L2 | "Show me full summary + linked facts from session XYZ" |
 

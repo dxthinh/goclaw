@@ -259,6 +259,11 @@ func (d *gatewayDeps) wireHTTPHandlersOnServer(
 		d.server.SetMemoryHandler(httpapi.NewMemoryHandler(d.pgStores.Memory, d.pgStores.Agents))
 	}
 
+	// Memory effectiveness KPI API (đọc từ rollup memory_kpi_daily)
+	if d.pgStores != nil && d.pgStores.MemoryKPI != nil {
+		d.server.SetMemoryEffectivenessHandler(httpapi.NewMemoryEffectivenessHandler(d.pgStores.MemoryKPI, d.pgStores.SystemConfigs))
+	}
+
 	// Knowledge graph API
 	if d.pgStores != nil && d.pgStores.KnowledgeGraph != nil {
 		kgHandler := httpapi.NewKnowledgeGraphHandler(d.pgStores.KnowledgeGraph, d.providerRegistry)

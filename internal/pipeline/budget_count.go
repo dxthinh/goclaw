@@ -39,3 +39,40 @@ func budgetOverheadTokens(deps *PipelineDeps, model string, system providers.Mes
 	return deps.TokenCounter.CountMessages(model, []providers.Message{system}) +
 		deps.TokenCounter.CountToolSchemas(model, tools), true
 }
+
+// PromptShape là cơ cấu token của prompt ở cuối một run. Chỉ chứa số đếm, không chứa
+// nội dung hội thoại.
+type PromptShape struct {
+	SystemTokens     int
+	ToolSchemaTokens int
+	HistoryTokens    int
+	ToolResultTokens int
+	MemoryTokens     int
+	TotalEstimated   int
+	Provider         string
+	Model            string
+}
+
+// computePromptShape đếm token theo từng phần. overheadTokens là system + tool schema,
+// đã trừ memory; phần tool schema là overhead trừ system. messages là history + pending
+// không chứa memory. Đếm toàn bộ history tốn CPU nên chỉ gọi từ goroutine nền.
+func computePromptShape(deps *PipelineDeps, model string, system providers.Message, messages []providers.Message, overheadTokens, memoryTokens int) PromptShape {
+	var conversation, toolResults []providers.Message
+	for _, msg := range messages {
+		if msg.Role == "tool" {
+			toolResults = append(toolResults, msg)
+		} else {
+			conversation = append(conversation, msg)
+		}
+	}
+	shape := PromptShape{
+		SystemTokens:     budgetMessageTokens(deps, model, []providers.Message{system}),
+		HistoryTokens:    budgetMessageTokens(deps, model, conversation),
+		ToolResultTokens: budgetMessageTokens(deps, model, toolResults),
+		MemoryTokens:     memoryTokens,
+		Model:            model,
+	}
+	shape.ToolSchemaTokens = max(overheadTokens-shape.SystemTokens, 0)
+	shape.TotalEstimated = shape.SystemTokens + shape.ToolSchemaTokens + shape.HistoryTokens + shape.ToolResultTokens + shape.MemoryTokens
+	return shape
+}

@@ -13,15 +13,24 @@ const (
 	UsageEventTypeSkillActivation = "skill_activation"
 	UsageEventTypeMCPToolCall     = "mcp_tool_call"
 	UsageEventTypeRuntimeToolCall = "runtime_tool_call"
+	// UsageEventTypeLLMBackground đánh dấu một lời gọi LLM nền (compaction, flush,
+	// episodic, KG, dreaming...) không thuộc lượt trả lời chính của agent.
+	UsageEventTypeLLMBackground = "llm_background"
 
 	UsageResourceTypeTool        = "tool"
 	UsageResourceTypeSkill       = "skill"
 	UsageResourceTypeMCPTool     = "mcp_tool"
 	UsageResourceTypeRuntimeTool = "runtime_tool"
+	// UsageResourceTypeLLMPurpose: resource_name là mục đích đã chuẩn hóa của lời gọi.
+	UsageResourceTypeLLMPurpose = "llm_purpose"
 
 	UsageSourceToolCall     = "tool_call"
 	UsageSourceUseSkill     = "use_skill"
 	UsageSourceSlashCommand = "slash-command"
+	// UsageSourceUsageCaps: lời gọi đi qua usagecaps.Service.Chat.
+	UsageSourceUsageCaps = "usage_caps"
+	// UsageSourceAgentInternal: lời gọi nội bộ của agent loop (compaction, memory flush).
+	UsageSourceAgentInternal = "agent_internal"
 )
 
 // UsageEvent is an append-only analytics row for resource usage.

@@ -14,6 +14,8 @@ type MetricType string
 const (
 	MetricRetrieval MetricType = "retrieval"
 	MetricTool      MetricType = "tool"
+	// MetricPrompt là cơ cấu token của prompt, ghi cuối mỗi run có gọi LLM.
+	MetricPrompt MetricType = "prompt"
 )
 
 // EvolutionMetric is a single recorded metric data point.

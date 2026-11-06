@@ -55,17 +55,19 @@ func (h *UsageHandler) queryLiveTimeSeries(r *http.Request, from, to time.Time, 
 	return &point, nil
 }
 
+// Hai truy vấn live dưới đây phải cùng quy tắc với snapshot_worker, nếu không số của giờ đang
+// chạy sẽ nhảy khi giờ đóng: token, chi phí và số lần gọi tool gồm cả trace con; request, lỗi,
+// user và thời lượng trung bình chỉ tính trace gốc.
 func (h *UsageHandler) queryLiveTraceTotals(r *http.Request, from, to time.Time, q store.SnapshotQuery, point *store.SnapshotTimeSeries) error {
 	var query strings.Builder
 	query.WriteString(`SELECT
-		COUNT(*),
-		COALESCE(SUM(CASE WHEN t.status = 'error' THEN 1 ELSE 0 END), 0),
-		COUNT(DISTINCT t.user_id),
+		COALESCE(SUM(CASE WHEN t.parent_trace_id IS NULL THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN t.parent_trace_id IS NULL AND t.status = 'error' THEN 1 ELSE 0 END), 0),
+		COUNT(DISTINCT CASE WHEN t.parent_trace_id IS NULL THEN t.user_id END),
 		COALESCE(SUM(t.tool_call_count), 0),
-		CAST(COALESCE(AVG(t.duration_ms), 0) AS INTEGER)
+		CAST(COALESCE(AVG(CASE WHEN t.parent_trace_id IS NULL THEN t.duration_ms END), 0) AS INTEGER)
 	FROM traces t
-	WHERE t.start_time >= $1 AND t.start_time < $2
-	  AND t.parent_trace_id IS NULL`)
+	WHERE t.start_time >= $1 AND t.start_time < $2`)
 
 	args := []any{from, to}
 	idx := 3
@@ -92,8 +94,7 @@ func (h *UsageHandler) queryLiveSpanTotals(r *http.Request, from, to time.Time, 
 		COALESCE(SUM(CAST(COALESCE(NULLIF(s.metadata->>'thinking_tokens', ''), '0') AS INTEGER)), 0)
 	FROM traces t
 	JOIN spans s ON s.trace_id = t.id AND s.span_type IN ('llm_call', 'tool_call')
-	WHERE t.start_time >= $1 AND t.start_time < $2
-	  AND t.parent_trace_id IS NULL`)
+	WHERE t.start_time >= $1 AND t.start_time < $2`)
 
 	args := []any{from, to}
 	idx := 3

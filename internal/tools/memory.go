@@ -98,9 +98,11 @@ func (t *MemorySearchTool) Execute(ctx context.Context, args map[string]any) *Re
 	query = strings.TrimSpace(query)
 	epTime, err := parseEpisodicTimeFilters(args, time.Now().UTC())
 	if err != nil {
+		t.recordRetrievalMetric(ctx, memorySearchError, 0, nil)
 		return ErrorResult(err.Error())
 	}
 	if query == "" && !epTime.active {
+		t.recordRetrievalMetric(ctx, memorySearchError, 0, nil)
 		return ErrorResult("query parameter is required unless an episodic time filter is provided")
 	}
 
@@ -115,6 +117,7 @@ func (t *MemorySearchTool) Execute(ctx context.Context, args map[string]any) *Re
 
 	agentID := store.AgentIDFromContext(ctx)
 	if t.memStore == nil || agentID == uuid.Nil {
+		t.recordRetrievalMetric(ctx, memorySearchError, 0, nil)
 		return ErrorResult("memory system not available")
 	}
 
@@ -145,6 +148,7 @@ func (t *MemorySearchTool) Execute(ctx context.Context, args map[string]any) *Re
 		var err error
 		results, err = t.memStore.Search(ctx, query, agentStr, userID, searchOpts)
 		if err != nil {
+			t.recordRetrievalMetric(ctx, memorySearchError, 0, nil)
 			return ErrorResult(fmt.Sprintf("memory search failed: %v", err))
 		}
 		// Fallback: also search leader's memory for team members and merge results.
@@ -158,19 +162,25 @@ func (t *MemorySearchTool) Execute(ctx context.Context, args map[string]any) *Re
 	}
 	// V3 episodic memory search (merge with document results)
 	var episodicResults []store.EpisodicSearchResult
+	var episodicErr error
 	if t.episodicStore != nil {
 		epOpts := store.EpisodicSearchOptions{
 			MaxResults: maxResults, MinScore: minScore, VectorWeight: 0.3, TextWeight: 0.7,
 			CreatedAfter: epTime.createdAfter, CreatedBefore: epTime.createdBefore,
 			IncludeExpired: epTime.includeExpired,
 		}
-		epResults, epErr := t.episodicStore.Search(ctx, query, agentStr, userID, epOpts)
-		if epErr == nil {
-			episodicResults = epResults
+		episodicResults, episodicErr = t.episodicStore.Search(ctx, query, agentStr, userID, epOpts)
+		if episodicErr != nil {
+			episodicResults = nil
 		}
 	}
 
 	if len(results) == 0 && len(episodicResults) == 0 {
+		outcome := memorySearchNoMatch
+		if episodicErr != nil {
+			outcome = memorySearchError
+		}
+		t.recordRetrievalMetric(ctx, outcome, 0, nil)
 		return NewResult("No memory results found for query: " + query)
 	}
 
@@ -212,7 +222,7 @@ func (t *MemorySearchTool) Execute(ctx context.Context, args map[string]any) *Re
 	data, _ := json.MarshalIndent(output, "", "  ")
 
 	// Record retrieval metric non-blocking (best-effort).
-	t.recordRetrievalMetric(ctx, len(combined), episodicResults)
+	t.recordRetrievalMetric(ctx, memorySearchMatched, len(results), episodicResults)
 	// Phase 10: update per-episode recall signals for dreaming weighted
 	// scoring. Fire-and-forget — recall tracking must never block the hot
 	// search path or surface errors to the agent loop.
@@ -338,16 +348,27 @@ func (t *MemorySearchTool) recordEpisodicRecall(ctx context.Context, episodic []
 	}()
 }
 
+// Kết quả một lần gọi memory_search, ghi vào trường outcome của metric.
+const (
+	memorySearchMatched = "matched"
+	memorySearchNoMatch = "no_match"
+	memorySearchError   = "error"
+)
+
 // recordRetrievalMetric records a memory_search retrieval metric in a background goroutine.
-func (t *MemorySearchTool) recordRetrievalMetric(ctx context.Context, resultCount int, episodic []store.EpisodicSearchResult) {
+// used_in_reply giữ nguyên nghĩa "có kết quả" để tương thích với các chỗ đang tổng hợp.
+func (t *MemorySearchTool) recordRetrievalMetric(ctx context.Context, outcome string, documentHits int, episodic []store.EpisodicSearchResult) {
 	if t.metricsStore == nil {
 		return
 	}
 	tenantID := store.TenantIDFromContext(ctx)
-	if tenantID == uuid.Nil {
+	agentID := store.AgentIDFromContext(ctx)
+	if tenantID == uuid.Nil || agentID == uuid.Nil {
 		return
 	}
-	agentID := store.AgentIDFromContext(ctx)
+	sessionKey := ToolSessionKeyFromCtx(ctx)
+	resultCount := documentHits + len(episodic)
+	episodicHits := len(episodic)
 	var topScore float64
 	for _, r := range episodic {
 		if r.Score > topScore {
@@ -358,7 +379,10 @@ func (t *MemorySearchTool) recordRetrievalMetric(ctx context.Context, resultCoun
 		bgCtx, cancel := context.WithTimeout(store.WithTenantID(context.Background(), tenantID), 5*time.Second)
 		defer cancel()
 		value, _ := json.Marshal(map[string]any{
+			"outcome":       outcome,
 			"result_count":  resultCount,
+			"document_hits": documentHits,
+			"episodic_hits": episodicHits,
 			"top_score":     topScore,
 			"used_in_reply": resultCount > 0,
 		})
@@ -366,6 +390,7 @@ func (t *MemorySearchTool) recordRetrievalMetric(ctx context.Context, resultCoun
 			ID:         uuid.New(),
 			TenantID:   tenantID,
 			AgentID:    agentID,
+			SessionKey: sessionKey,
 			MetricType: store.MetricRetrieval,
 			MetricKey:  "memory_search",
 			Value:      value,

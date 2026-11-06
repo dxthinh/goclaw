@@ -61,6 +61,8 @@ func TenantTables() []TableDef {
 		{Name: "vault_documents", Tier: 3, HasTenantID: true},
 		{Name: "agent_evolution_metrics", Tier: 3, HasTenantID: true},
 		{Name: "agent_evolution_suggestions", Tier: 3, HasTenantID: true},
+		{Name: "memory_eval_results", Tier: 3, HasTenantID: true},
+		{Name: "memory_kpi_daily", Tier: 3, HasTenantID: true, OrderBy: "bucket_date, agent_id, metric, dimension"},
 		{Name: "channel_contacts", Tier: 3, HasTenantID: true},
 		{Name: "subagent_tasks", Tier: 3, HasTenantID: true},
 		{Name: "agent_team_members", Tier: 3, HasTenantID: true, OrderBy: "team_id, agent_id"}, // PK (team_id, agent_id) — no id column

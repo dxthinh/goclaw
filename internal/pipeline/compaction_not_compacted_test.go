@@ -66,9 +66,9 @@ func TestThinkStage_FinalRequestGuard_NotCompactedFallsThroughToShrinkMemory(t *
 	}
 	stage := NewThinkStage(deps)
 	state := defaultState()
-	state.Messages.SetSystem(providers.Message{Role: "system", Content: "sys\n\n" + memory})
-	state.Context.MemorySection = memory
+	state.Messages.SetSystem(providers.Message{Role: "system", Content: "sys"})
 	state.Messages.SetHistory([]providers.Message{{Role: "user", Content: "short"}})
+	attachTurnMemory(deps, state, memory)
 
 	if err := stage.Execute(context.Background(), state); err != nil {
 		t.Fatalf("Execute() error: %v", err)
@@ -136,9 +136,9 @@ func TestThinkStage_FinalRequestGuard_SkipsCompactionWhenUnavailable(t *testing.
 	}
 	state := defaultState()
 	state.Compact.Unavailable = true
-	state.Messages.SetSystem(providers.Message{Role: "system", Content: "sys\n\n" + memory})
-	state.Context.MemorySection = memory
+	state.Messages.SetSystem(providers.Message{Role: "system", Content: "sys"})
 	state.Messages.SetHistory([]providers.Message{{Role: "user", Content: "short"}})
+	attachTurnMemory(deps, state, memory)
 
 	if err := NewThinkStage(deps).Execute(context.Background(), state); err != nil {
 		t.Fatalf("Execute() error: %v", err)

@@ -989,6 +989,46 @@ PATCH /v1/agents/{agentID}/evolution/suggestions/{suggestionID}
 }
 ```
 
+### Lấy KPI hiệu quả memory
+
+```
+GET /v1/memory/effectiveness
+```
+
+Trả KPI hiệu quả memory của tenant gọi API, đọc từ bảng rollup theo giờ `memory_kpi_daily`. Cần quyền viewer. Định nghĩa, công thức và SQL tái tạo số liệu nằm trong [memory-effectiveness-kpi.md](memory-effectiveness-kpi.md).
+
+**Tham số query:**
+
+| Tham số | Kiểu | Bắt buộc | Mô tả |
+|-----------|------|----------|-------------|
+| `days` | integer | không | Độ dài cửa sổ theo ngày UTC, gồm cả hôm nay: `7` (mặc định), `30` hoặc `90`. Giá trị khác trả `400`. |
+| `agent_id` | UUID | không | Chỉ lấy một agent. Bỏ trống để lấy mọi agent. Giá trị không phải UUID trả `400`. |
+
+**Phản hồi:**
+
+```json
+{
+  "window": {"from": "2026-11-01", "to": "2026-11-07", "days": 7},
+  "funnel": [{"channel": "auto_inject", "eligible": 0, "searched": 0, "matched": 0, "injected": 0, "disabled": 0, "errors": 0}],
+  "layers": [{"layer": "auto_inject", "samples": 0, "relevance": null, "used": null, "verdict": "insufficient_data"}],
+  "prompt": {"runs": 0, "avg": {"system": 0, "tool_schema": 0, "history": 0, "tool_result": 0, "memory": 0}},
+  "cache": [{"provider": "x", "model": "y", "calls": 0, "cache_rate": null, "reporting": false}],
+  "pipeline": {
+    "episodic_total": 0, "episodic_stale": 0, "episodic_promoted": 0,
+    "kg_entities": 0, "kg_relations": 0, "memory_documents": 0, "dreaming_documents": 0,
+    "background": [{"purpose": "episodic-summary", "calls": 0, "input_tokens": 0, "output_tokens": 0}]
+  },
+  "thresholds": {"min_samples": 30, "keep_relevance": 0.7, "keep_used": 0.3, "off_relevance": 0.4},
+  "switches": {"auto_inject_enabled": true, "eval_enabled": true}
+}
+```
+
+- `funnel` luôn có ba kênh `auto_inject`, `memory_search`, `knowledge_graph_search`; `layers` luôn có năm tầng `auto_inject`, `memory_search`, `episodic`, `document`, `knowledge_graph`.
+- `relevance`, `used` và `cache_rate` là `null` khi không có dữ liệu; client phải hiện "không có dữ liệu", không hiện 0.
+- `verdict` là một trong `keep`, `tune`, `consider_off`, `insufficient_data`.
+- `thresholds` và `switches` lấy từ `system_configs` của tenant (`memory.kpi.*`, `memory.auto_inject.enabled`, `memory.eval.enabled`), dùng mặc định khi khóa thiếu hoặc không hợp lệ.
+- Lỗi: `400` khi `days` hoặc `agent_id` không hợp lệ; `403` khi request không có tenant (không trả số liệu nào); `500` khi store lỗi.
+
 ---
 
 ## 15. Orchestration Mode

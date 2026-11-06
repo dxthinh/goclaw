@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -118,7 +119,7 @@ type Collector struct {
 // direct best-effort insert. This keeps callers that only need tracing
 // (e.g. unit/integration tests) compiling unchanged.
 func NewCollector(ts store.TracingStore, usageStore ...store.UsageEventStore) *Collector {
-	verbose := os.Getenv("GOCLAW_TRACE_VERBOSE") != ""
+	verbose := parseTraceVerbose(os.Getenv("GOCLAW_TRACE_VERBOSE"))
 	if verbose {
 		slog.Info("tracing: verbose mode enabled (GOCLAW_TRACE_VERBOSE)")
 	}
@@ -137,6 +138,19 @@ func NewCollector(ts store.TracingStore, usageStore ...store.UsageEventStore) *C
 		dirtyTraces:  make(map[uuid.UUID]struct{}),
 		verbose:      verbose,
 	}
+}
+
+// parseTraceVerbose mặc định tắt khi chưa cấu hình hoặc giá trị không hợp lệ.
+func parseTraceVerbose(value string) bool {
+	if value == "" {
+		return false
+	}
+	verbose, err := strconv.ParseBool(value)
+	if err != nil {
+		slog.Warn("tracing: GOCLAW_TRACE_VERBOSE không phải giá trị boolean, tắt verbose")
+		return false
+	}
+	return verbose
 }
 
 // Verbose returns true if verbose tracing is enabled (full LLM input logging).
@@ -408,6 +422,7 @@ func (c *Collector) flushLoop() {
 
 	// Run initial prune shortly after startup.
 	go c.pruneOldTraces()
+	go c.fillMissingTraceDurations()
 
 	for {
 		select {
@@ -459,6 +474,22 @@ func (c *Collector) recoverStaleOnce() {
 	if recovered > 0 {
 		slog.Info("tracing: recovered stale running traces",
 			"count", recovered, "older_than", cutoff.Format(time.RFC3339))
+	}
+}
+
+// fillMissingTraceDurations chạy một lần lúc khởi động để bù duration_ms cho trace của lần chạy
+// trước: duration_ms được ghi ở lần flush sau FinishTrace, nên tiến trình chết trong khoảng đó sẽ
+// để lại trace có end_time mà không có thời lượng. Không dùng staleRecoveryLoop vì vòng đó bị tắt.
+func (c *Collector) fillMissingTraceDurations() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	filled, err := c.store.FillMissingTraceDurations(ctx)
+	if err != nil {
+		slog.Warn("tracing: fill missing trace durations failed", "error", err)
+		return
+	}
+	if filled > 0 {
+		slog.Info("tracing: filled missing trace durations", "count", filled)
 	}
 }
 
@@ -569,6 +600,8 @@ doneUsage:
 		for traceID := range dirty {
 			if err := c.store.BatchUpdateTraceAggregates(ctx, traceID); err != nil {
 				slog.Warn("tracing: aggregate update failed", "trace_id", traceID, "error", err)
+				// Tổng token và duration_ms chỉ được ghi ở bước này nên phải thử lại ở lần flush sau.
+				c.markDirty(traceID)
 			}
 		}
 

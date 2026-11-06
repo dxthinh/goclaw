@@ -88,3 +88,105 @@ func TestSQLiteEpisodicSearch_TimeFiltersAndExpiry(t *testing.T) {
 }
 
 func sqliteEpisodicTimePtr(t time.Time) *time.Time { return &t }
+
+func seedMatchAnyEpisode(t *testing.T) (context.Context, *SQLiteEpisodicStore, string, string) {
+	t.Helper()
+	db := openTestDB(t)
+	if err := EnsureSchema(db); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	s := NewSQLiteEpisodicStore(db)
+	tenantID := uuid.New()
+	agentID := uuid.New()
+	const userID = "any-user"
+	ctx := store.WithTenantID(context.Background(), tenantID)
+	if _, err := db.ExecContext(ctx, `INSERT INTO tenants (id, name, slug, status) VALUES (?, ?, ?, ?)`, tenantID.String(), "Test Tenant", "test-tenant", "active"); err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO agents (id, agent_key, display_name, owner_id, model, tenant_id) VALUES (?, ?, ?, ?, ?, ?)`, agentID.String(), "test-agent", "Test Agent", "owner", "test-model", tenantID.String()); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if err := s.Create(ctx, &store.EpisodicSummary{
+		TenantID:   tenantID,
+		AgentID:    agentID,
+		UserID:     userID,
+		SessionKey: "any-sess",
+		Summary:    "User planned a Kubernetes rollback for billing",
+		KeyTopics:  []string{"deployment"},
+		L0Abstract: "Rollback plan",
+		SourceType: "session",
+		SourceID:   "any-1",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	return ctx, s, agentID.String(), userID
+}
+
+func TestSQLiteEpisodicSearch_MatchAnyTerm(t *testing.T) {
+	ctx, s, agentID, userID := seedMatchAnyEpisode(t)
+
+	results, err := s.Search(ctx, "kubernetes banana", agentID, userID, store.EpisodicSearchOptions{MaxResults: 5, MatchAnyTerm: true})
+	if err != nil {
+		t.Fatalf("Search match any: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("match any results = %d, want 1", len(results))
+	}
+	if results[0].Score != 0.5 {
+		t.Errorf("score = %v, want 0.5 (1 of 2 terms)", results[0].Score)
+	}
+
+	results, err = s.Search(ctx, "KUBERNETES deployment", agentID, userID, store.EpisodicSearchOptions{MaxResults: 5, MatchAnyTerm: true})
+	if err != nil {
+		t.Fatalf("Search all terms: %v", err)
+	}
+	if len(results) != 1 || results[0].Score != 1 {
+		t.Errorf("results = %+v, want score 1 when every term matches across summary and topics", results)
+	}
+
+	results, err = s.Search(ctx, "kubernetes banana", agentID, userID, store.EpisodicSearchOptions{MaxResults: 5})
+	if err != nil {
+		t.Fatalf("Search default: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("default results = %d, want 0 because the whole phrase must match", len(results))
+	}
+}
+
+func TestSQLiteEpisodicSearch_TextQueryReplacesQuery(t *testing.T) {
+	ctx, s, agentID, userID := seedMatchAnyEpisode(t)
+	const enriched = "Context: earlier chat\nQuery: rollback"
+
+	results, err := s.Search(ctx, enriched, agentID, userID, store.EpisodicSearchOptions{MaxResults: 5, TextQuery: "rollback"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+}
+
+func TestSQLiteEpisodicSearch_MatchAnyTermOnlyStopwords(t *testing.T) {
+	ctx, s, agentID, userID := seedMatchAnyEpisode(t)
+
+	results, err := s.Search(ctx, "the and of a", agentID, userID, store.EpisodicSearchOptions{MaxResults: 5, MatchAnyTerm: true})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("results = %d, want 0", len(results))
+	}
+}
+
+func TestEpisodicSearchTerms(t *testing.T) {
+	got := episodicSearchTerms("The Kế hoạch, kế hoạch rollback! x 2 k8s")
+	want := []string{"kế", "hoạch", "rollback", "k8s"}
+	if len(got) != len(want) {
+		t.Fatalf("terms = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("terms[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

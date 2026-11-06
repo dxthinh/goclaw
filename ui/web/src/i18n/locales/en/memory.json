@@ -17,6 +17,8 @@
   },
   "tabs": {
     "documents": "Documents",
+    "episodic": "Episodic Memory",
+    "effectiveness": "Effectiveness",
     "knowledgeGraph": "Knowledge Graph"
   },
   "columns": {
@@ -215,10 +217,6 @@
     "searchFailed": "Search failed",
     "docLoadFailed": "Failed to load document"
   },
-  "tabs": {
-    "documents": "Documents",
-    "episodic": "Episodic Memory"
-  },
   "episodic": {
     "noData": "No episodic memories yet",
     "noDataHint": "Summaries are generated automatically from agent sessions",
@@ -234,6 +232,96 @@
       "session": "Session",
       "v2_daily": "Daily",
       "manual": "Manual"
+    }
+  },
+  "effectiveness": {
+    "period": "Period",
+    "days": "{{count}} days",
+    "refresh": "Refresh",
+    "retry": "Try again",
+    "window": "Data from {{from}} to {{to}} (UTC)",
+    "noValue": "No data",
+    "error": "Could not load memory effectiveness.",
+    "rollupNote": "Figures are aggregated hourly in UTC days and can lag by up to an hour. LLM grading shows relevance and use only; it does not prove replies got better.",
+    "layerNames": {
+      "auto_inject": "Auto-inject",
+      "memory_search": "Memory search",
+      "episodic": "Episodic",
+      "document": "Documents",
+      "knowledge_graph": "Knowledge graph"
+    },
+    "channelNames": {
+      "auto_inject": "Auto-inject",
+      "memory_search": "Memory search",
+      "knowledge_graph_search": "Knowledge graph search"
+    },
+    "verdict": {
+      "keep": "Keep",
+      "tune": "Tune",
+      "consider_off": "Consider turning off",
+      "insufficient_data": "Not enough data"
+    },
+    "layers": {
+      "title": "Verdict by layer",
+      "subtitle": "Based on LLM-graded samples",
+      "layer": "Layer",
+      "samples": "Samples",
+      "relevance": "Relevant",
+      "used": "Used",
+      "verdict": "Verdict",
+      "thresholds": "Thresholds: at least {{minSamples}} samples; Keep when relevant >= {{keepRelevance}} and used >= {{keepUsed}}; Consider turning off when relevant < {{offRelevance}}; otherwise Tune."
+    },
+    "funnel": {
+      "title": "Retrieval funnel",
+      "subtitle": "Per channel",
+      "channel": "Channel",
+      "eligible": "Eligible",
+      "matched": "Matched",
+      "injected": "Injected",
+      "errors": "Errors",
+      "autoInjectOff": "Auto-inject is turned off for this tenant, so its numbers stay at zero.",
+      "evalOff": "The grader is turned off for this tenant, so relevance and use are not being updated."
+    },
+    "prompt": {
+      "title": "Prompt composition",
+      "subtitle": "Average estimated tokens per run ({{runs}} runs)",
+      "parts": {
+        "system": "System",
+        "tool_schema": "Tool schema",
+        "history": "History",
+        "tool_result": "Tool results",
+        "memory": "Memory"
+      }
+    },
+    "cache": {
+      "title": "Prompt cache",
+      "subtitle": "Cache read share of prompt tokens, per provider and model",
+      "provider": "Provider",
+      "model": "Model",
+      "calls": "Calls",
+      "rate": "Cache rate"
+    },
+    "pipeline": {
+      "title": "Background pipeline",
+      "subtitle": "Counts at the end of the period and background LLM usage",
+      "background": "Background LLM tokens by purpose",
+      "purpose": "Purpose",
+      "calls": "Calls",
+      "inputTokens": "Input tokens",
+      "outputTokens": "Output tokens",
+      "counters": {
+        "episodic_total": "Episodic summaries",
+        "episodic_stale": "Sessions to re-summarize",
+        "episodic_promoted": "Promoted episodic",
+        "kg_entities": "KG entities",
+        "kg_relations": "KG relations",
+        "memory_documents": "Memory documents",
+        "dreaming_documents": "Dreaming documents"
+      }
+    },
+    "empty": {
+      "title": "No effectiveness data yet",
+      "hint": "Figures are aggregated hourly, so new activity can take up to an hour to appear. Nothing has been recorded for this period."
     }
   }
 }

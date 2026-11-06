@@ -8,13 +8,17 @@ import (
 
 // ContextState: owned by ContextStage, read by ThinkStage.
 type ContextState struct {
-	ContextFiles   []any // bootstrap.ContextFile — typed in Phase 2, any avoids circular import
-	SkillsSummary  string
-	TeamContext    string // team workspace context injected for team runs
-	MemorySection  string // L0 auto-injected memory context for system prompt
-	Summary        string // session summary for context continuity
-	HadBootstrap   bool
-	OverheadTokens int // system prompt + tool schemas, in BudgetCounter units
+	ContextFiles  []any // bootstrap.ContextFile — typed in Phase 2, any avoids circular import
+	SkillsSummary string
+	TeamContext   string // team workspace context injected for team runs
+	// MemorySection là khối memory L0 của lượt hiện tại. Không nằm trong system prompt
+	// hay history; chỉ được ghép vào request qua MessageBuffer.ForRequest.
+	MemorySection string
+	MemoryTokens  int    // số token của MemorySection, 0 khi không có hoặc đã bị bỏ
+	Summary       string // session summary for context continuity
+	HadBootstrap  bool
+	// OverheadTokens gồm system prompt + tool schemas + MemoryTokens, in BudgetCounter units.
+	OverheadTokens int
 
 	// EffectiveContextWindow is the context window size (in tokens) resolved
 	// per-run from the provider/model pair via ModelRegistry. Resolved ONCE in

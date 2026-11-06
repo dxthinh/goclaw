@@ -420,6 +420,13 @@ func runGateway() {
 
 	teamWorkEmbedder := setupMemoryEmbeddings(pgStores, providerRegistry)
 	usageCapSvc := usagecaps.NewService(pgStores.UsageCaps, pgStores.Providers)
+	// Mọi lời gọi LLM nền đi qua Service để lại usage event theo purpose. Trên Lite
+	// (không có store usage caps) Service là nil nên setter là no-op.
+	usageCapSvc.SetUsageEventStore(pgStores.UsageEvents)
+
+	// KPI memory: bộ chấm theo mẫu và rollup theo ngày.
+	submitMemoryEval, stopMemoryKPI := startMemoryKPIWorkers(pgStores, providerRegistry, usageCapSvc)
+	defer stopMemoryKPI()
 
 	// Resolve background provider for consolidation + vault enrichment.
 	// Fallback: background.provider → agent.default_provider → first registered provider.
@@ -620,7 +627,7 @@ func runGateway() {
 	var mcpPool *mcpbridge.Pool
 	var mediaStore *media.Store
 	var postTurn tools.PostTurnProcessor
-	contextFileInterceptor, mcpPool, mediaStore, postTurn = wireExtras(pgStores, agentRouter, providerRegistry, modelReg, msgBus, pgStores.Sessions, toolsReg, toolPE, skillsLoader, hasMemory, traceCollector, workspace, cfg.Gateway.InjectionAction, cfg, sandboxMgr, redisClient, domainBus, usageCapSvc, mcpOAuthRefresher, childRunAdmission)
+	contextFileInterceptor, mcpPool, mediaStore, postTurn = wireExtras(pgStores, agentRouter, providerRegistry, modelReg, msgBus, pgStores.Sessions, toolsReg, toolPE, skillsLoader, hasMemory, traceCollector, workspace, cfg.Gateway.InjectionAction, cfg, sandboxMgr, redisClient, domainBus, usageCapSvc, mcpOAuthRefresher, childRunAdmission, submitMemoryEval)
 	if mcpPool != nil {
 		defer mcpPool.Stop()
 	}

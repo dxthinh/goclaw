@@ -259,16 +259,21 @@ func (h *EvolutionHandler) handleUpdateSuggestion(w http.ResponseWriter, r *http
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "threshold auto-apply not available"})
 				return
 			}
-			// Count recent retrieval data points for guardrail check.
+			// Đếm qua tổng hợp thay vì dòng thô: auto-inject ghi mọi lượt, còn lượt không chèn gì
+			// không phải dữ liệu để đánh giá ngưỡng.
 			since := time.Now().AddDate(0, 0, -7)
-			recentMetrics, err := h.metrics.QueryMetrics(r.Context(), agentID, store.MetricRetrieval, since, 500)
+			aggregates, err := h.metrics.AggregateRetrievalMetrics(r.Context(), agentID, since)
 			if err != nil {
 				slog.Warn("evolution.query_metrics_for_guardrail failed", "error", err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to query metrics for guardrail check"})
 				return
 			}
+			dataPoints := 0
+			for _, a := range aggregates {
+				dataPoints += a.QueryCount
+			}
 			guardrails := agent.DefaultGuardrails()
-			if err := agent.CheckGuardrails(guardrails, *existing, len(recentMetrics)); err != nil {
+			if err := agent.CheckGuardrails(guardrails, *existing, dataPoints); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}

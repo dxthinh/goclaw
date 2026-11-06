@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/nextlevelbuilder/goclaw/internal/config"
@@ -43,7 +42,7 @@ func (s *ThinkStage) buildChatRequest(state *RunState, toolDefs []providers.Tool
 		providers.OptMaxTokens: s.deps.Config.MaxTokens,
 	}
 	return providers.ChatRequest{
-		Messages: state.Messages.All(),
+		Messages: state.Messages.ForRequest(state.Context.MemorySection),
 		Tools:    toolDefs,
 		Model:    state.Model,
 		Options:  options,
@@ -212,6 +211,9 @@ func (s *ThinkStage) pruneForFinalRequestBudget(state *RunState, estimate FinalR
 	}
 	fixedMessages := []providers.Message{state.Messages.System()}
 	fixedMessages = append(fixedMessages, state.Messages.Pending()...)
+	if state.Context.MemorySection != "" {
+		fixedMessages = append(fixedMessages, providers.Message{Role: "user", Content: state.Context.MemorySection})
+	}
 	fixedMessageTokens, _, err := countBudgetInput(s.deps, state.Model, providers.ChatRequest{Messages: fixedMessages})
 	if err != nil {
 		fixedMessageTokens = countRequestMessages(s.deps, state.Model, fixedMessages)
@@ -258,26 +260,16 @@ func (s *ThinkStage) compactForFinalRequestBudget(ctx context.Context, state *Ru
 	return true, nil
 }
 
+// shrinkMemoryForFinalRequestBudget bỏ khối memory của lượt hiện tại khỏi các request
+// còn lại của run và trả phần token đó về ngân sách history.
 func (s *ThinkStage) shrinkMemoryForFinalRequestBudget(state *RunState) bool {
-	section := strings.TrimSpace(state.Context.MemorySection)
-	if section == "" {
+	if state.Context.MemorySection == "" {
 		return false
 	}
-	sys := state.Messages.System()
-	content := sys.Content
-	candidates := []string{"\n\n" + state.Context.MemorySection, state.Context.MemorySection, section}
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if strings.Contains(content, candidate) {
-			sys.Content = strings.Replace(content, candidate, "", 1)
-			state.Messages.SetSystem(sys)
-			state.Context.MemorySection = ""
-			return true
-		}
-	}
-	return false
+	state.Context.OverheadTokens -= state.Context.MemoryTokens
+	state.Context.MemoryTokens = 0
+	state.Context.MemorySection = ""
+	return true
 }
 
 func (s *ThinkStage) logFinalRequestGuard(state *RunState, estimate FinalRequestEstimate, action, step string) {

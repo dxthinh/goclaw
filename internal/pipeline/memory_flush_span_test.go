@@ -26,6 +26,10 @@ func (r *spanRecorder) BatchCreateSpans(_ context.Context, spans []store.SpanDat
 	return nil
 }
 func (r *spanRecorder) BatchUpdateTraceAggregates(context.Context, uuid.UUID) error { return nil }
+func (r *spanRecorder) FillMissingTraceDurations(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (r *spanRecorder) DeleteTracesOlderThan(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }

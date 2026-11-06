@@ -19,6 +19,10 @@ type Result struct {
 	// infers it. Requires IsError.
 	Retryable bool `json:"-"`
 
+	// NoMatch báo tool truy hồi chạy thành công nhưng không tìm thấy gì. Chỉ tool mới biết
+	// điều này; metric KPI đọc cờ này thay vì đoán từ văn bản gửi cho LLM.
+	NoMatch bool `json:"-"`
+
 	// Media holds media files to forward as output (e.g. images from delegation).
 	Media []bus.MediaFile `json:"-"`
 

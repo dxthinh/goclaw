@@ -42,6 +42,10 @@ func (c *spanCaptureStore) UpdateSpan(_ context.Context, spanID uuid.UUID, updat
 }
 
 func (c *spanCaptureStore) BatchUpdateTraceAggregates(context.Context, uuid.UUID) error { return nil }
+func (c *spanCaptureStore) FillMissingTraceDurations(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (c *spanCaptureStore) DeleteTracesOlderThan(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
