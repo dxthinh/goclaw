@@ -61,3 +61,40 @@ func TestTraceDurationWrittenByAggregates(t *testing.T) {
 		t.Fatalf("duration_ms = %v, muốn %d", got, want)
 	}
 }
+
+// Tiến trình chết sau FinishTrace nhưng trước lần flush tổng hợp thì trace có end_time mà không có
+// duration_ms; vòng khôi phục phải bù lại.
+func TestRecoverStaleWritesMissingTraceDuration(t *testing.T) {
+	db := testDB(t)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := store.WithTenantID(context.Background(), tenantID)
+	tracing := pg.NewPGTracingStore(db)
+	start := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
+	traceID := uuid.New()
+	if err := tracing.CreateTrace(ctx, &store.TraceData{
+		ID: traceID, AgentID: &agentID, Status: store.TraceStatusRunning,
+		StartTime: start, CreatedAt: start, Name: "duration",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM traces WHERE id = $1`, traceID)
+	})
+	const want = 2500
+	if err := tracing.UpdateTrace(ctx, traceID, map[string]any{
+		"status":   store.TraceStatusCompleted,
+		"end_time": start.Add(want * time.Millisecond),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tracing.RecoverStaleRunningTraces(ctx, time.Now().Add(-10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var got *int
+	if err := db.QueryRowContext(ctx, `SELECT duration_ms FROM traces WHERE id = $1`, traceID).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || *got != want {
+		t.Fatalf("duration_ms = %v, muốn %d", got, want)
+	}
+}

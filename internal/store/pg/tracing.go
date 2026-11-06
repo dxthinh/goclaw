@@ -569,5 +569,14 @@ func (s *PGTracingStore) RecoverStaleRunningTraces(ctx context.Context, cutoff t
 	if err != nil {
 		return 0, fmt.Errorf("recover stale running traces: %w", err)
 	}
+
+	// Tiến trình chết sau FinishTrace nhưng trước lần flush tổng hợp thì trace có end_time mà không
+	// có duration_ms. Không tính vào số trả về vì đây không phải trace bị kẹt.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE traces
+		    SET duration_ms = LEAST(GREATEST(ROUND(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000), 0), 2147483647)::INTEGER
+		  WHERE end_time IS NOT NULL AND duration_ms IS NULL`); err != nil {
+		return 0, fmt.Errorf("recover missing trace duration: %w", err)
+	}
 	return res.RowsAffected()
 }

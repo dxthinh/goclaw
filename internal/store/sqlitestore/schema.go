@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS memory_kpi_daily (
 CREATE INDEX IF NOT EXISTS idx_memory_kpi_daily_bucket ON memory_kpi_daily(bucket_date);
 CREATE INDEX IF NOT EXISTS idx_usage_events_llm_background_time ON usage_events(event_time)
     WHERE event_type = 'llm_background';
+CREATE INDEX IF NOT EXISTS idx_traces_start_time ON traces(start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_missing_duration ON traces(start_time) WHERE end_time IS NOT NULL AND duration_ms IS NULL;
 UPDATE traces
    SET duration_ms = CAST(ROUND((julianday(` + sqliteGoTimeExpr("end_time") + `) - julianday(` + sqliteGoTimeExpr("start_time") + `)) * 86400000) AS INTEGER)
  WHERE end_time IS NOT NULL AND duration_ms IS NULL;`

@@ -589,6 +589,8 @@ CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status) WHERE status = 'e
 CREATE INDEX IF NOT EXISTS idx_traces_parent ON traces(parent_trace_id) WHERE parent_trace_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_traces_quota ON traces(user_id, created_at DESC) WHERE parent_trace_id IS NULL AND user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_traces_start_root ON traces(start_time DESC) WHERE parent_trace_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_traces_start_time ON traces(start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_missing_duration ON traces(start_time) WHERE end_time IS NOT NULL AND duration_ms IS NULL;
 CREATE INDEX IF NOT EXISTS idx_traces_team ON traces(team_id, created_at DESC) WHERE team_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_traces_tenant ON traces(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_traces_tenant_time ON traces(tenant_id, created_at DESC);

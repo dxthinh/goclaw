@@ -46,6 +46,13 @@ CREATE INDEX idx_memory_kpi_daily_bucket ON memory_kpi_daily (bucket_date);
 CREATE INDEX idx_usage_events_llm_background_time ON usage_events (event_time)
     WHERE event_type = 'llm_background';
 
+-- Usage của giờ đang chạy tính cả trace con nên không dùng được index một phần idx_traces_start_root.
+CREATE INDEX idx_traces_start_time ON traces (start_time DESC);
+
+-- Vòng khôi phục của collector tìm trace thiếu duration_ms mỗi 30 giây; index gần như rỗng.
+CREATE INDEX idx_traces_missing_duration ON traces (start_time)
+    WHERE end_time IS NOT NULL AND duration_ms IS NULL;
+
 -- Bù duration_ms cho trace cũ đã kết thúc nhưng chưa được ghi thời lượng.
 UPDATE traces
    SET duration_ms = LEAST(
