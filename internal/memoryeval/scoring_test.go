@@ -8,6 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -120,5 +122,28 @@ func TestCleanReason_BlocksQuotedSource(t *testing.T) {
 		if got := cleanReason(tc.reason, source); got != tc.want {
 			t.Errorf("cleanReason(%q) = %q, muốn %q", tc.reason, got, tc.want)
 		}
+	}
+}
+
+// Chữ viết liền không có dấu cách và văn bản ở dạng tách dấu không được làm lọt câu trích.
+func TestCleanReason_BlocksQuotesAcrossScriptsAndNormalization(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		reason string
+		want   string
+	}{
+		{"tiếng Trung trong ngoặc", "我的银行密码是一二三四，请帮我记住", "回答重复了“我的银行密码是一二三四”。", ""},
+		{"tiếng Trung không ngoặc", "我的银行密码是一二三四今天到期", "回答提到我的银行密码是一二三四", ""},
+		{"tiếng Nhật", "私の銀行の暗証番号は1234です。覚えて", "回答は「私の銀行の暗証番号は1234です」を引用した", ""},
+		{"nguồn tách dấu", norm.NFD.String("địa chỉ tòa nhà Hà Nội mới"), "Có nhắc tới tòa nhà Hà Nội mới.", ""},
+		{"lý do tách dấu", "địa chỉ tòa nhà Hà Nội mới", norm.NFD.String("Có nhắc tới tòa nhà Hà Nội mới."), ""},
+		{"tiếng Trung tự diễn đạt", "我的银行密码是一二三四", "条目与问题主题相符", "条目与问题主题相符"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cleanReason(tc.reason, []string{tc.source}); got != tc.want {
+				t.Errorf("cleanReason(%q) = %q, muốn %q", tc.reason, got, tc.want)
+			}
+		})
 	}
 }

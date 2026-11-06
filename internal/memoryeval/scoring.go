@@ -8,6 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 )
 
@@ -141,12 +143,32 @@ func quotesSource(reason string, sources []string) bool {
 	return false
 }
 
-// quoteWords tách từ theo chữ và số, để dấu câu dính vào từ như ngoặc kép hay dấu chấm không che
-// được một câu trích. Giữ cả dấu tổ hợp vì tiếng Việt có thể ở dạng tách dấu.
+// quoteWords tách văn bản thành các đơn vị để so khớp câu trích. Chuẩn hóa NFC trước để dạng tách
+// dấu và dạng dựng sẵn khớp được với nhau. Chữ viết liền không có dấu cách (Hán, Kana, Thái) thì
+// mỗi ký tự là một đơn vị; chữ khác tách theo chữ và số, để dấu câu dính vào từ không che được câu
+// trích. Lý do bị bỏ nhầm không ảnh hưởng KPI vì KPI chỉ dùng điểm.
 func quoteWords(s string) []string {
-	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r)
-	})
+	var words []string
+	var word strings.Builder
+	flush := func() {
+		if word.Len() > 0 {
+			words = append(words, word.String())
+			word.Reset()
+		}
+	}
+	for _, r := range strings.ToLower(norm.NFC.String(s)) {
+		switch {
+		case unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Thai):
+			flush()
+			words = append(words, string(r))
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r):
+			word.WriteRune(r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return words
 }
 
 func cutRunes(s string, limit int) string {
