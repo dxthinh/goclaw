@@ -11,6 +11,7 @@ import (
 
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/store/pg"
+	"github.com/nextlevelbuilder/goclaw/internal/tracing"
 )
 
 // duration_ms phải được tính khi trace đã có end_time, kể cả khi trace không có span nào.
@@ -63,38 +64,42 @@ func TestTraceDurationWrittenByAggregates(t *testing.T) {
 }
 
 // Tiến trình chết sau FinishTrace nhưng trước lần flush tổng hợp thì trace có end_time mà không có
-// duration_ms; vòng khôi phục phải bù lại.
-func TestRecoverStaleWritesMissingTraceDuration(t *testing.T) {
+// duration_ms. Lần khởi động sau phải bù lại, kiểm tra qua Collector.Start() vì đó là đường chạy thật.
+func TestCollectorStartFillsMissingTraceDuration(t *testing.T) {
 	db := testDB(t)
-	tenantID, agentID := seedTenantAgent(t, db)
+	tenantID, _ := seedTenantAgent(t, db)
 	ctx := store.WithTenantID(context.Background(), tenantID)
-	tracing := pg.NewPGTracingStore(db)
 	start := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
+	const want = 2500
 	traceID := uuid.New()
-	if err := tracing.CreateTrace(ctx, &store.TraceData{
-		ID: traceID, AgentID: &agentID, Status: store.TraceStatusRunning,
-		StartTime: start, CreatedAt: start, Name: "duration",
-	}); err != nil {
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO traces (id, tenant_id, status, start_time, end_time, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+		traceID, tenantID, store.TraceStatusCompleted, start, start.Add(want*time.Millisecond), start); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM traces WHERE id = $1`, traceID)
 	})
-	const want = 2500
-	if err := tracing.UpdateTrace(ctx, traceID, map[string]any{
-		"status":   store.TraceStatusCompleted,
-		"end_time": start.Add(want * time.Millisecond),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tracing.RecoverStaleRunningTraces(ctx, time.Now().Add(-10*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	var got *int
-	if err := db.QueryRowContext(ctx, `SELECT duration_ms FROM traces WHERE id = $1`, traceID).Scan(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || *got != want {
-		t.Fatalf("duration_ms = %v, muốn %d", got, want)
+
+	collector := tracing.NewCollector(pg.NewPGTracingStore(db))
+	collector.Start()
+	defer collector.Stop()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var got *int
+		if err := db.QueryRowContext(ctx, `SELECT duration_ms FROM traces WHERE id = $1`, traceID).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != nil {
+			if *got != want {
+				t.Fatalf("duration_ms = %d, muốn %d", *got, want)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("collector không bù duration_ms sau khi khởi động")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

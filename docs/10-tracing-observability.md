@@ -83,7 +83,7 @@ and cron runs carry a unique suffix so that each execution has its own timeline.
 
 ### Token Aggregation
 
-Số token được tổng hợp từ **span `llm_call` và `tool_call`**, không tính span `agent` để tránh đếm hai lần. `BatchUpdateTraceAggregates()` ghi các tổng này vào chính trace chứa span; trace cha không gồm token của trace con. Hàm này cũng tính `duration_ms` từ `end_time - start_time` cho trace đã kết thúc, trên cả PostgreSQL và SQLite. Bước này chạy ở lần flush sau `FinishTrace` (tối đa khoảng 5 giây); lần ghi lỗi sẽ được thử lại ở lần flush kế tiếp. Nếu tiến trình chết đúng trong khoảng đó, vòng khôi phục của collector (lúc khởi động và mỗi 30 giây) sẽ bù `duration_ms` còn thiếu.
+Số token được tổng hợp từ **span `llm_call` và `tool_call`**, không tính span `agent` để tránh đếm hai lần. `BatchUpdateTraceAggregates()` ghi các tổng này vào chính trace chứa span; trace cha không gồm token của trace con. Hàm này cũng tính `duration_ms` từ `end_time - start_time` cho trace đã kết thúc, trên cả PostgreSQL và SQLite. Bước này chạy ở lần flush sau `FinishTrace` (tối đa khoảng 5 giây); lần ghi lỗi sẽ được thử lại ở lần flush kế tiếp. Nếu tiến trình chết đúng trong khoảng đó, collector sẽ bù `duration_ms` còn thiếu ở lần khởi động tiếp theo.
 
 ---
 

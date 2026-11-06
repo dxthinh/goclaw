@@ -28,6 +28,10 @@ func (s *eventSpanStore) BatchCreateSpans(_ context.Context, spans []store.SpanD
 	return nil
 }
 func (s *eventSpanStore) BatchUpdateTraceAggregates(context.Context, uuid.UUID) error { return nil }
+func (s *eventSpanStore) FillMissingTraceDurations(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (s *eventSpanStore) DeleteTracesOlderThan(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }

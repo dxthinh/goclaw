@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -54,5 +55,32 @@ func TestFlushRetriesAggregatesAfterFailure(t *testing.T) {
 	collector.flush()
 	if len(ts.aggregated) != 1 || ts.aggregated[0] != traceID {
 		t.Fatalf("trace phải được tính lại ở lần flush sau: %v", ts.aggregated)
+	}
+}
+
+type fillRecordingStore struct {
+	mockTracingStore
+	filled chan struct{}
+}
+
+func (s *fillRecordingStore) DeleteTracesOlderThan(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (s *fillRecordingStore) FillMissingTraceDurations(context.Context) (int64, error) {
+	close(s.filled)
+	return 0, nil
+}
+
+// Start() không chạy staleRecoveryLoop, nên phần bù duration_ms phải được gọi trực tiếp lúc khởi động.
+func TestStartFillsMissingTraceDurations(t *testing.T) {
+	ts := &fillRecordingStore{filled: make(chan struct{})}
+	collector := NewCollector(ts)
+	collector.Start()
+	defer collector.Stop()
+	select {
+	case <-ts.filled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start() không gọi FillMissingTraceDurations")
 	}
 }

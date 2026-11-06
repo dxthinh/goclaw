@@ -36,6 +36,10 @@ func (c *capturingTracingStore) BatchUpdateTraceAggregates(_ context.Context, _ 
 	return nil
 }
 
+func (c *capturingTracingStore) FillMissingTraceDurations(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (c *capturingTracingStore) DeleteTracesOlderThan(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }

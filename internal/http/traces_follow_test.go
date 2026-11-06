@@ -58,6 +58,10 @@ func (m *mockTracingStore) GetMonthlyAgentCost(context.Context, uuid.UUID, int, 
 func (m *mockTracingStore) GetCostSummary(context.Context, store.CostSummaryOpts) ([]store.CostSummaryRow, error) {
 	return nil, nil
 }
+func (m *mockTracingStore) FillMissingTraceDurations(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockTracingStore) DeleteTracesOlderThan(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }

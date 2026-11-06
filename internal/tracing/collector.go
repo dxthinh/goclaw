@@ -422,6 +422,7 @@ func (c *Collector) flushLoop() {
 
 	// Run initial prune shortly after startup.
 	go c.pruneOldTraces()
+	go c.fillMissingTraceDurations()
 
 	for {
 		select {
@@ -473,6 +474,22 @@ func (c *Collector) recoverStaleOnce() {
 	if recovered > 0 {
 		slog.Info("tracing: recovered stale running traces",
 			"count", recovered, "older_than", cutoff.Format(time.RFC3339))
+	}
+}
+
+// fillMissingTraceDurations chạy một lần lúc khởi động để bù duration_ms cho trace của lần chạy
+// trước: duration_ms được ghi ở lần flush sau FinishTrace, nên tiến trình chết trong khoảng đó sẽ
+// để lại trace có end_time mà không có thời lượng. Không dùng staleRecoveryLoop vì vòng đó bị tắt.
+func (c *Collector) fillMissingTraceDurations() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	filled, err := c.store.FillMissingTraceDurations(ctx)
+	if err != nil {
+		slog.Warn("tracing: fill missing trace durations failed", "error", err)
+		return
+	}
+	if filled > 0 {
+		slog.Info("tracing: filled missing trace durations", "count", filled)
 	}
 }
 

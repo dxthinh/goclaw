@@ -1360,6 +1360,10 @@ func (s *delegateTraceCaptureStore) RecoverStaleRunningTraces(_ context.Context,
 	return 0, nil
 }
 
+func (s *delegateTraceCaptureStore) FillMissingTraceDurations(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (s *delegateTraceCaptureStore) DeleteTracesOlderThan(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }

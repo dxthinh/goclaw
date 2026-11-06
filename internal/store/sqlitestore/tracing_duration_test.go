@@ -57,8 +57,8 @@ func TestBatchUpdateTraceAggregatesWritesDuration(t *testing.T) {
 }
 
 // Tiến trình chết sau FinishTrace nhưng trước lần flush tổng hợp thì trace có end_time mà không có
-// duration_ms; vòng khôi phục phải bù lại.
-func TestRecoverStaleWritesMissingTraceDuration(t *testing.T) {
+// duration_ms; lần khởi động sau phải bù lại.
+func TestFillMissingTraceDurations(t *testing.T) {
 	db, tenantID, agentID := newAgentUpdateTestFixture(t)
 	tracing := NewSQLiteTracingStore(db)
 	ctx := sqliteTenantCtx(tenantID)
@@ -77,8 +77,8 @@ func TestRecoverStaleWritesMissingTraceDuration(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tracing.RecoverStaleRunningTraces(ctx, time.Now().Add(-10*time.Minute)); err != nil {
-		t.Fatal(err)
+	if filled, err := tracing.FillMissingTraceDurations(ctx); err != nil || filled != 1 {
+		t.Fatalf("filled = %d, err = %v, muốn 1", filled, err)
 	}
 	got, err := tracing.GetTrace(ctx, traceID)
 	if err != nil {
