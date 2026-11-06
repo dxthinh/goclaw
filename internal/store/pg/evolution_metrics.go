@@ -102,6 +102,8 @@ func (s *PGEvolutionMetricsStore) AggregateRetrievalMetrics(ctx context.Context,
 		   -- auto_inject ghi cả lượt không chèn để đo phễu; tỷ lệ dùng chỉ tính lượt đã chèn
 		   -- để luật gợi ý ngưỡng không hiểu nhầm lượt không chèn là memory bị bỏ qua.
 		   AND NOT (metric_key = 'auto_inject' AND COALESCE(value->>'injected', '0') = '0')
+		   -- memory_search cũng ghi cả lượt không có kết quả hoặc lỗi để đo phễu.
+		   AND NOT (metric_key = 'memory_search' AND COALESCE(value->>'outcome', '') IN ('no_match', 'error'))
 		 GROUP BY metric_key
 		 ORDER BY query_count DESC`,
 		agentID, since, tenantID)

@@ -41,3 +41,33 @@ func TestAggregateRetrievalIgnoresAutoInjectWithoutInjection(t *testing.T) {
 		t.Fatalf("aggregate = %+v, muốn 1 lượt với tỷ lệ dùng 1", aggs)
 	}
 }
+
+// Lượt memory_search không có kết quả hoặc bị lỗi chỉ phục vụ phễu KPI. Nếu tính vào đây, luật gợi
+// ý sẽ hiểu nhầm là memory bị bỏ qua và đề xuất nâng ngưỡng, còn guardrail thì đủ điểm dữ liệu giả.
+func TestAggregateRetrievalIgnoresMemorySearchWithoutResults(t *testing.T) {
+	db := testDB(t)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := store.WithTenantID(context.Background(), tenantID)
+	metrics := pg.NewPGEvolutionMetricsStore(db)
+	for _, value := range []map[string]any{
+		{"outcome": "matched", "used_in_reply": true},
+		{"used_in_reply": true}, // dòng cũ không có outcome vẫn được tính
+		{"outcome": "no_match", "used_in_reply": false},
+		{"outcome": "error", "used_in_reply": false},
+	} {
+		raw, _ := json.Marshal(value)
+		if err := metrics.RecordMetric(ctx, store.EvolutionMetric{
+			ID: uuid.New(), TenantID: tenantID, AgentID: agentID,
+			MetricType: store.MetricRetrieval, MetricKey: "memory_search", Value: raw,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	aggs, err := metrics.AggregateRetrievalMetrics(ctx, agentID, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggs) != 1 || aggs[0].QueryCount != 2 || aggs[0].UsageRate != 1 {
+		t.Fatalf("aggregate = %+v, muốn 2 lượt với tỷ lệ dùng 1", aggs)
+	}
+}
