@@ -735,7 +735,7 @@ L0 (Working Memory)           L1 (Episodic Memory)        L2 (Semantic Memory)
 | Interface | Purpose | Key Methods |
 |-----------|---------|-------------|
 | `EpisodicStore` | Tier 1.5 memory CRUD + hybrid search | `Create`, `Search`, `ExistsBySourceID`, `GetBySourceID`, `ListUnpromoted`, `MarkPromoted` |
-| `EvolutionMetricsStore` | Stage 1: record metrics (retrieval, tool, feedback) | `RecordMetric`, `AggregateToolMetrics`, `AggregateRetrievalMetrics` |
+| `EvolutionMetricsStore` | Stage 1: record metrics (retrieval, tool, prompt) | `RecordMetric`, `AggregateToolMetrics`, `AggregateRetrievalMetrics` |
 | `EvolutionSuggestionStore` | Stage 2: generate & track improvement suggestions | `CreateSuggestion`, `ListSuggestions`, `UpdateSuggestionStatus` |
 | `VaultStore` | Knowledge Vault: document registry + links | `UpsertDocument`, `Search`, `CreateLink`, `GetOutLinks`, `GetBacklinks` |
 | `AgentLinkStore` | Inter-agent delegation links (replaces v2 `agent_links` in teams context) | `CreateLink`, `CanDelegate`, `DelegateTargets`, `SearchDelegateTargets` |
