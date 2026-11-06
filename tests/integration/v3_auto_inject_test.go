@@ -27,8 +27,8 @@ type autoInjectFixture struct {
 }
 
 // newAutoInjectFixture dựng injector trên store thật. Vector giả có giá trị dương ngẫu
-// nhiên nên cosine giữa hai văn bản khác nhau khoảng 0,75, gần với số đo thực tế: vector
-// đơn lẻ không vượt được ngưỡng 0,8, phải có thêm tín hiệu từ khóa.
+// nhiên nên cosine giữa hai văn bản khác nhau khoảng 0,75, dưới ngưỡng 0,8: ca kiểm thử cần
+// từ khóa khớp để vượt ngưỡng.
 func newAutoInjectFixture(t *testing.T) *autoInjectFixture {
 	t.Helper()
 	db := testDB(t)

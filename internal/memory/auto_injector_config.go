@@ -15,9 +15,9 @@ const (
 	configAutoInjectEnabled  = "memory.auto_inject.enabled"
 	configAutoInjectMinScore = "memory.auto_inject.min_score"
 
-	// defaultAutoInjectMinScore áp cho điểm ts_rank + cosine (trọng số 1 và 1). Cosine
-	// trung vị giữa các episodic không liên quan đã là 0,73 nên vector đơn lẻ không phân
-	// biệt được; 0,8 đòi hỏi phải có thêm tín hiệu từ khóa.
+	// defaultAutoInjectMinScore áp cho điểm của episodic store; trên PostgreSQL là ts_rank + cosine
+	// (trọng số 1 và 1). 0,8 là mức thận trọng, có thể bỏ sót câu liên quan; số đo và cách hiệu
+	// chỉnh nằm trong docs/memory-effectiveness-kpi.md.
 	defaultAutoInjectMinScore = 0.8
 )
 
