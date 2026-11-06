@@ -16,7 +16,7 @@ COPY . .
 RUN pnpm build
 
 # ── Stage 2: Serve ──
-FROM nginx:1.27-alpine
+FROM nginx:1.30-alpine
 
 # Copy built assets — force 0755 so the nginx worker (non-root) can read them
 # regardless of pnpm's build-time umask (see #761).

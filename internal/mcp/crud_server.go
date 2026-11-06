@@ -297,6 +297,11 @@ func NewCRUDServer(deps CRUDDeps, version string) *mcpserver.StreamableHTTPServe
 	tenants := deps.Tenants
 	return mcpserver.NewStreamableHTTPServer(srv,
 		mcpserver.WithStateLess(true),
+		// /api/mcp/ được thiết kế để mở ra ngoài, thường qua reverse proxy TLS cùng máy:
+		// kết nối tới từ loopback nhưng giữ Host công khai, lớp chặn DNS rebinding mặc định
+		// của mcp-go sẽ trả 403. Mọi request đã phải qua bearer token (mcpServerTokenAuthMiddleware)
+		// mà trình duyệt bị rebinding không có, nên lớp chặn này không bảo vệ thêm gì ở đây.
+		mcpserver.WithDisableLocalhostProtection(true),
 		mcpserver.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
 			tenantID := resolveMCPTenantID(ctx, tenants, r.Header.Get(mcpTenantHeader))
 			return store.WithTenantID(ctx, tenantID)
