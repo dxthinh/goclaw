@@ -138,6 +138,12 @@ func TestCleanReason_BlocksQuotesAcrossScriptsAndNormalization(t *testing.T) {
 		{"tiếng Nhật", "私の銀行の暗証番号は1234です。覚えて", "回答は「私の銀行の暗証番号は1234です」を引用した", ""},
 		{"nguồn tách dấu", norm.NFD.String("địa chỉ tòa nhà Hà Nội mới"), "Có nhắc tới tòa nhà Hà Nội mới.", ""},
 		{"lý do tách dấu", "địa chỉ tòa nhà Hà Nội mới", norm.NFD.String("Có nhắc tới tòa nhà Hà Nội mới."), ""},
+		{"tiếng Lào", "ລະຫັດທະນາຄານຂອງຂ້ອຍແມ່ນ1234ກະລຸນາຈື່ໄວ້", `ຄຳຕອບອ້າງເຖິງ "ລະຫັດທະນາຄານຂອງຂ້ອຍແມ່ນ1234"`, ""},
+		{"tiếng Khmer", "លេខសម្ងាត់ធនាគាររបស់ខ្ញុំ", "ចម្លើយនិយាយពីលេខសម្ងាត់ធនាគាររបស់ខ្ញុំ", ""},
+		{"tiếng Miến Điện", "ကျွန်ုပ်၏ဘဏ်စကားဝှက်ဖြစ်သည်", "အဖြေကကျွန်ုပ်၏ဘဏ်စကားဝှက်ကိုဖော်ပြသည်", ""},
+		{"số điện thoại đơn lẻ", "gọi cho tôi qua 0912345678 nhé", "Câu trả lời dùng số 0912345678.", ""},
+		{"số điện thoại trong chữ Hán", "我的号码是13800138000", "回答提到13800138000这个号码", ""},
+		{"số không có trong nguồn", "lịch họp của phòng kế toán", "Có 2 mục khớp với câu hỏi.", "Có 2 mục khớp với câu hỏi."},
 		{"tiếng Trung tự diễn đạt", "我的银行密码是一二三四", "条目与问题主题相符", "条目与问题主题相符"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

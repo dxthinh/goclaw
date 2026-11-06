@@ -127,16 +127,23 @@ func cleanReason(reason string, sources []string) string {
 	return cutRunes(reason, maxReasonRunes)
 }
 
-// quotesSource kiểm tra lý do có chứa một dãy từ liên tiếp xuất hiện trong dữ liệu đầu vào.
+// quotesSource kiểm tra lý do có chứa một dãy từ liên tiếp xuất hiện trong dữ liệu đầu vào, hoặc một
+// đơn vị có chữ số trùng với đầu vào, vì một mình số điện thoại hay mã tài khoản đã đủ lộ nội dung.
 func quotesSource(reason string, sources []string) bool {
 	words := quoteWords(reason)
 	if len(words) == 0 {
 		return false
 	}
 	haystack := " " + strings.Join(quoteWords(strings.Join(sources, " ")), " ") + " "
+	contains := func(part []string) bool {
+		return strings.Contains(haystack, " "+strings.Join(part, " ")+" ")
+	}
 	window := min(quoteWindowWords, len(words))
-	for i := 0; i+window <= len(words); i++ {
-		if strings.Contains(haystack, " "+strings.Join(words[i:i+window], " ")+" ") {
+	for i := range words {
+		if strings.ContainsFunc(words[i], unicode.IsDigit) && contains(words[i:i+1]) {
+			return true
+		}
+		if i+window <= len(words) && contains(words[i:i+window]) {
 			return true
 		}
 	}
@@ -144,9 +151,9 @@ func quotesSource(reason string, sources []string) bool {
 }
 
 // quoteWords tách văn bản thành các đơn vị để so khớp câu trích. Chuẩn hóa NFC trước để dạng tách
-// dấu và dạng dựng sẵn khớp được với nhau. Chữ viết liền không có dấu cách (Hán, Kana, Thái) thì
-// mỗi ký tự là một đơn vị; chữ khác tách theo chữ và số, để dấu câu dính vào từ không che được câu
-// trích. Lý do bị bỏ nhầm không ảnh hưởng KPI vì KPI chỉ dùng điểm.
+// dấu và dạng dựng sẵn khớp được với nhau. Chữ viết liền không có dấu cách (Hán, Kana, Thái, Lào,
+// Khmer, Miến Điện) thì mỗi ký tự là một đơn vị; chữ khác tách theo chữ và số, để dấu câu dính vào
+// từ không che được câu trích. Lý do bị bỏ nhầm không ảnh hưởng KPI vì KPI chỉ dùng điểm.
 func quoteWords(s string) []string {
 	var words []string
 	var word strings.Builder
@@ -158,7 +165,7 @@ func quoteWords(s string) []string {
 	}
 	for _, r := range strings.ToLower(norm.NFC.String(s)) {
 		switch {
-		case unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Thai):
+		case unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Thai, unicode.Lao, unicode.Khmer, unicode.Myanmar):
 			flush()
 			words = append(words, string(r))
 		case unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r):
