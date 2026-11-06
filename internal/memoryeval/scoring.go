@@ -157,6 +157,7 @@ func quotesSource(reason string, sources []string) bool {
 func quoteWords(s string) []string {
 	var words []string
 	var word strings.Builder
+	wordIsDigits := false
 	flush := func() {
 		if word.Len() > 0 {
 			words = append(words, word.String())
@@ -169,6 +170,12 @@ func quoteWords(s string) []string {
 			flush()
 			words = append(words, string(r))
 		case unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r):
+			// Số và chữ là hai đơn vị riêng, để số dính trợ từ hay đơn vị tiền tệ vẫn khớp được.
+			isDigit := unicode.IsDigit(r)
+			if isDigit != wordIsDigits {
+				flush()
+			}
+			wordIsDigits = isDigit
 			word.WriteRune(r)
 		default:
 			flush()

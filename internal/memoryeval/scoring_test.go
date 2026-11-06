@@ -143,6 +143,10 @@ func TestCleanReason_BlocksQuotesAcrossScriptsAndNormalization(t *testing.T) {
 		{"tiếng Miến Điện", "ကျွန်ုပ်၏ဘဏ်စကားဝှက်ဖြစ်သည်", "အဖြေကကျွန်ုပ်၏ဘဏ်စကားဝှက်ကိုဖော်ပြသည်", ""},
 		{"số điện thoại đơn lẻ", "gọi cho tôi qua 0912345678 nhé", "Câu trả lời dùng số 0912345678.", ""},
 		{"số điện thoại trong chữ Hán", "我的号码是13800138000", "回答提到13800138000这个号码", ""},
+		{"số dính trợ từ tiếng Hàn", "제 번호는 01012345678입니다", "답변이 번호 01012345678 언급", ""},
+		{"số dính trợ từ trong lý do", "제 전화번호 01012345678 입니다", "답변이 01012345678을 언급함", ""},
+		{"số dính đơn vị", "lương tôi 25000000đ mỗi tháng", "Câu trả lời nêu 25000000 đồng.", ""},
+		{"số dính chữ Latin", "gọi cho tôi qua 0912345678 nhé", "Câu trả lời nêu SĐT0912345678.", ""},
 		{"số không có trong nguồn", "lịch họp của phòng kế toán", "Có 2 mục khớp với câu hỏi.", "Có 2 mục khớp với câu hỏi."},
 		{"tiếng Trung tự diễn đạt", "我的银行密码是一二三四", "条目与问题主题相符", "条目与问题主题相符"},
 	} {

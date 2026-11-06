@@ -24,7 +24,7 @@ GET /v1/memory/effectiveness
 ## 2. Những điều cần biết khi đọc số
 
 - LLM chấm chỉ cho thấy "liên quan" và "được dùng", không chứng minh câu trả lời tốt hơn. Bộ chấm đọc một mẫu memory và đánh giá mục nào liên quan tới câu hỏi, câu trả lời có dùng nó hay không. Không có nhóm đối chứng, nên kết luận chỉ là tín hiệu để quyết định giữ, chỉnh hay tắt một tầng.
-- Lý do chấm là trường văn bản duy nhất được lưu. Nó bị bỏ khi có từ ba từ liên tiếp hoặc một số trùng với dữ liệu đầu vào. Đoạn trích ngắn hơn, như một tên riêng hai từ, vẫn có thể lọt nếu model không tuân chỉ dẫn không trích nguyên văn. API và giao diện không đọc trường này.
+- Lý do chấm là trường văn bản duy nhất được lưu. Nó bị bỏ khi có từ ba từ liên tiếp hoặc một số trùng với dữ liệu đầu vào. Đoạn trích ngắn hơn như một tên riêng hai từ, hoặc số được viết khác đi như thêm dấu cách, vẫn có thể lọt nếu model không tuân chỉ dẫn không trích nguyên văn. API và giao diện không đọc trường này.
 - `used_in_reply` không phải KPI "được dùng". Trường này trong `agent_evolution_metrics` chỉ có nghĩa là lần truy hồi có kết quả. KPI "được dùng" chỉ lấy từ `memory_eval_results.used`.
 - Run lỗi giữa chừng không có prompt/shape. Metric `prompt/shape` chỉ ghi ở cuối run có ít nhất một lần gọi LLM, nên run bị lỗi giữa chừng không đóng góp vào nhóm Prompt.
 - Trên Lite không có token LLM nền qua usage caps. Bản Lite không có dịch vụ usage caps, nên các lệnh gọi LLM nền đi qua đó không được ghi và nhóm "LLM nền" có thể trống hoặc thiếu.
