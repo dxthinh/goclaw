@@ -36,10 +36,10 @@ func TestSnapshotAggregatesIncludeChildrenAndOnlyCountRootRequests(t *testing.T)
 	// Trung bình duration chỉ tính trace gốc đã có duration; trace con không làm lệch số này.
 	fixtures := []struct {
 		id, user, status string
-		parent          any
-		end             any
-		duration        any
-		input           int
+		parent           any
+		end              any
+		duration         any
+		input            int
 	}{
 		{"root", "user", "completed", nil, bucket.Add(2 * time.Second), nil, 51},
 		{"child", "child-user", "error", "root", bucket.Add(20 * time.Second), nil, 49},
@@ -54,7 +54,7 @@ func TestSnapshotAggregatesIncludeChildrenAndOnlyCountRootRequests(t *testing.T)
 	}
 	for _, f := range []struct {
 		trace, kind, provider, model string
-		input                       int
+		input                        int
 	}{
 		{"root", "llm_call", "provider", "model", 51},
 		{"child", "llm_call", "provider", "model", 49},

@@ -21,6 +21,7 @@ func runMemoryKPIStoreCases(t *testing.T, h *kpiHarness, refresh func(*testing.T
 		e.metric(t, "prompt", "shape", `{}`, old)
 		e.metric(t, "retrieval", "auto_inject", `{}`, old)
 		e.metric(t, "retrieval", "memory_search", `{}`, old)
+		e.metric(t, "tool", "knowledge_graph_search", `{}`, old)
 		e.metric(t, "tool", "web_search", `{}`, old)
 		e.metric(t, "prompt", "shape", `{}`, recent)
 		for _, r := range []time.Time{now.AddDate(0, 0, -181), now.AddDate(0, 0, -179)} {

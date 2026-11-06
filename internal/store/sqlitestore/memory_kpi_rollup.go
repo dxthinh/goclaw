@@ -78,9 +78,11 @@ func sqliteKPICumulativeStatements() []string {
 		return store.MemoryKPIInsertSQL(with, sqliteKPIDayExpr, sqliteKPINowExpr, metrics...)
 	}
 	return []string{
+		// Dòng auto_inject cũ không có outcome vì trước đây metric này chỉ được ghi khi đã chèn.
 		insert(`WITH agg AS (
 			SELECT tenant_id, agent_id,
-			       metric_key || ':' || COALESCE(NULLIF(`+sqliteJSONText("value", "outcome")+`, ''), 'unknown') AS dimension,
+			       metric_key || ':' || COALESCE(NULLIF(`+sqliteJSONText("value", "outcome")+`, ''),
+			           CASE WHEN metric_key = 'auto_inject' THEN 'injected' ELSE 'unknown' END) AS dimension,
 			       COUNT(*) AS events
 			FROM agent_evolution_metrics
 			WHERE created_at >= ?2 AND created_at < ?3

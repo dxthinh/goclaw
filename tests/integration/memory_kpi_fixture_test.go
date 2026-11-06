@@ -105,6 +105,7 @@ func (e *kpiEnv) seedCumulative(t *testing.T) {
 	e.metric(t, "retrieval", "auto_inject", `{"outcome":"injected"}`, kpiDay) // đúng biên đầu ngày
 	e.metric(t, "retrieval", "auto_inject", `{"outcome":"injected"}`, at)
 	e.metric(t, "retrieval", "auto_inject", `{"outcome":"no_match"}`, at)
+	e.metric(t, "retrieval", "auto_inject", `{"result_count":3,"injected":2,"used_in_reply":true}`, at) // dòng cũ chỉ ghi khi đã chèn
 	e.metric(t, "retrieval", "auto_inject", `{"outcome":"injected"}`, before)
 	e.metric(t, "retrieval", "auto_inject", `{"outcome":"injected"}`, after)
 	e.metric(t, "retrieval", "memory_search", `{"outcome":"matched"}`, at)

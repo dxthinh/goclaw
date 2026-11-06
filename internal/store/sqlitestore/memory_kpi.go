@@ -99,7 +99,9 @@ func (s *SQLiteMemoryKPIStore) PruneRawMetrics(ctx context.Context, before store
 	metrics, err := s.db.ExecContext(ctx,
 		`DELETE FROM agent_evolution_metrics
 		 WHERE created_at < ?
-		   AND (metric_type = 'prompt' OR (metric_type = 'retrieval' AND metric_key = 'auto_inject'))`,
+		   AND (metric_type = 'prompt'
+		     OR (metric_type = 'retrieval' AND metric_key = 'auto_inject')
+		     OR (metric_type = 'tool' AND metric_key = 'knowledge_graph_search'))`,
 		before.Metrics.UTC().Format(sqliteKPITimeLayout))
 	if err != nil {
 		return 0, fmt.Errorf("prune metrics: %w", err)
