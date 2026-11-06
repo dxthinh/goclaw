@@ -36,7 +36,6 @@ var nativeImageModels = []ImageModelInfo{
 	{ID: "gpt-image-2.5-flare", Name: "GPT Image 2.5 Flare"},       // default - fastest at high quality
 	{ID: "gpt-image-2.5-sunburst", Name: "GPT Image 2.5 Sunburst"}, // most capable at editing precision
 	{ID: "gpt-image-2", Name: "GPT Image 2"},                       // previous generation
-	{ID: "gpt-image-1.5", Name: "GPT Image 1.5"},                   // legacy fallback
 }
 
 // gptImageModelPattern matches the OpenAI GPT Image model family ("gpt-image-*",
@@ -55,13 +54,19 @@ func IsGPTImageModel(model string) bool {
 	return gptImageModelPattern.MatchString(model)
 }
 
+// retiredImageModel was shut down upstream on 2026-10-23. Its successors
+// gpt-image-1.5 and gpt-image-1-mini are still served by image_generation, so
+// they stay accepted even though the catalog no longer offers them.
+const retiredImageModel = "gpt-image-1"
+
 // ValidateImageModel returns the model to use, or an error if the caller
-// supplied a value outside the GPT Image family. Empty input returns DefaultImageModel.
+// supplied a value outside the GPT Image family or the retired gpt-image-1.
+// Empty input returns DefaultImageModel.
 func ValidateImageModel(model string) (string, error) {
 	if model == "" {
 		return DefaultImageModel, nil
 	}
-	if !IsGPTImageModel(model) {
+	if !IsGPTImageModel(model) || model == retiredImageModel {
 		ids := make([]string, 0, len(nativeImageModels))
 		for _, m := range nativeImageModels {
 			ids = append(ids, m.ID)
@@ -120,20 +125,40 @@ type NativeImageResult struct {
 	Usage *Usage
 }
 
-// SizeFromAspect converts a common aspect ratio string to a pixel dimension
-// string expected by image generation APIs (e.g. "1792x1024").
-// Falls back to "1024x1024" for unrecognised ratios.
-func SizeFromAspect(aspectRatio string) string {
+// SizeFromAspect converts a common aspect ratio string to the pixel size sent
+// to the image_generation tool for imageModel. Unrecognised ratios fall back
+// to "1024x1024".
+//
+// GPT Image 2 and newer accept custom WIDTHxHEIGHT sizes when both edges are
+// multiples of 16 (2.5 docs: ratio within 1:3..3:1, 655,360..8,294,400 pixels),
+// so each ratio maps to an exact size. The gpt-image-1 family (and the
+// chatgpt-image aliases built on it) only accepts 1024x1024, 1536x1024 and
+// 1024x1536, so ratios snap to the closest of those orientations.
+func SizeFromAspect(imageModel, aspectRatio string) string {
+	if !supportsCustomImageSize(imageModel) {
+		switch aspectRatio {
+		case "16:9", "4:3":
+			return "1536x1024"
+		case "9:16", "3:4":
+			return "1024x1536"
+		default:
+			return "1024x1024"
+		}
+	}
 	switch aspectRatio {
 	case "16:9":
-		return "1792x1024"
+		return "1792x1008"
 	case "9:16":
-		return "1024x1792"
-	case "3:4":
-		return "1024x1365"
+		return "1008x1792"
 	case "4:3":
-		return "1365x1024"
+		return "1536x1152"
+	case "3:4":
+		return "1152x1536"
 	default:
 		return "1024x1024"
 	}
+}
+
+func supportsCustomImageSize(imageModel string) bool {
+	return !strings.HasPrefix(imageModel, "gpt-image-1") && !strings.HasPrefix(imageModel, "chatgpt-image-")
 }
