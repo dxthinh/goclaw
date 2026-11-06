@@ -745,7 +745,7 @@ L0 (Working Memory)           L1 (Episodic Memory)        L2 (Semantic Memory)
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `episodic_summaries` | Session conversation summaries | `agent_id`, `user_id`, `session_key`, `summary`, `l0_abstract`, `key_topics` (TEXT[]), `embedding` (vector), `source_id` (dedup), `expires_at`, `recall_count` (INT), `recall_score` (FLOAT), `last_recalled_at` (TIMESTAMPTZ) |
-| `agent_evolution_metrics` | Self-evolution performance data | `agent_id`, `session_key`, `metric_type` (retrieval/tool/feedback), `metric_key`, `value` (JSONB) |
+| `agent_evolution_metrics` | Self-evolution performance data | `agent_id`, `session_key`, `metric_type` (retrieval/tool/prompt), `metric_key`, `value` (JSONB) |
 | `memory_eval_results` | Một mẫu truy hồi đã chấm (không lưu câu hỏi, nội dung memory hay câu trả lời) | `tenant_id`, `agent_id`, `channel` (auto_inject/memory_search/knowledge_graph_search), `has_episodic`, `has_document`, `has_knowledge_graph`, `item_count`, `relevant_items`, `used`, `reason` (tối đa 200 ký tự), `provider`, `model`, `input_tokens`, `output_tokens`, `trace_id` (không có khóa ngoại), `created_at` |
 | `memory_kpi_daily` | Rollup theo giờ phục vụ `GET /v1/memory/effectiveness`, dạng dài theo ngày UTC | PK `(tenant_id, bucket_date, agent_id, metric, dimension)`, `value` (DOUBLE), `updated_at` |
 | `agent_evolution_suggestions` | Data-driven improvement suggestions | `agent_id`, `suggestion_type`, `suggestion`, `rationale`, `parameters` (JSONB), `status` (pending/approved/rejected/applied) |
@@ -808,7 +808,6 @@ Chạy trong ContextStage, mỗi lượt một lần. So khớp tin nhắn ngư�
 | Parameter | Default |
 |-----------|---------|
 | `MaxEntries` | 5 |
-| `MaxTokens` | 200 |
 | `memory.auto_inject.min_score` | 0.8 (`ts_rank` + cosine, trọng số 1 và 1) |
 | `memory.auto_inject.enabled` | `true` |
 

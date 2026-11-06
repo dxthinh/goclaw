@@ -57,7 +57,7 @@ WHERE k.metric IN ('episodic_total','episodic_stale','episodic_promoted','kg_ent
 ### 4.1 Phễu truy hồi (`funnel`)
 
 - Định nghĩa: mỗi kênh một hàng cho biết có bao nhiêu lần truy hồi đủ điều kiện, có kết quả và thực sự được chèn.
-- Nguồn: `memory_kpi_daily.metric = 'retrieval_events'`, `dimension = '<channel>:<outcome>'`, rollup từ `agent_evolution_metrics` (retrieval `auto_inject`, retrieval `memory_search`, tool `knowledge_graph_search`). `outcome` của auto-inject: `disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`; của memory_search và knowledge_graph_search: `matched`, `no_match`, `error`, `unknown` (dòng cũ không có outcome). Metric của knowledge_graph_search được ghi ở mọi agent, không phụ thuộc cờ `self_evolution_metrics`.
+- Nguồn: `memory_kpi_daily.metric = 'retrieval_events'`, `dimension = '<channel>:<outcome>'`, rollup từ `agent_evolution_metrics` (retrieval `auto_inject`, retrieval `memory_search`, tool `knowledge_graph_search`). `outcome` của auto-inject: `disabled`, `trivial`, `no_match`, `below_threshold`, `no_abstract`, `injected`, `error`; của memory_search và knowledge_graph_search: `matched`, `no_match`, `error`, `unknown` (dòng cũ không có outcome). Metric của knowledge_graph_search được ghi ở mọi agent, không phụ thuộc cờ `self_evolution_metrics`. Dòng auto-inject cũ không có outcome được tính là `injected`, vì trước đây metric này chỉ được ghi khi đã chèn.
 - Công thức (`total` là tổng mọi outcome của kênh):
 
 | Kênh | eligible = searched | matched | injected | disabled | errors |
@@ -210,7 +210,8 @@ WITH win AS (
   SELECT ((now() AT TIME ZONE 'UTC')::date - 6)::timestamp AT TIME ZONE 'UTC' AS from_ts,
          ((now() AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC' AS to_ts
 ), src AS (
-  SELECT m.metric_key || ':' || COALESCE(NULLIF(m.value->>'outcome', ''), 'unknown') AS dimension,
+  SELECT m.metric_key || ':' || COALESCE(NULLIF(m.value->>'outcome', ''),
+           CASE WHEN m.metric_key = 'auto_inject' THEN 'injected' ELSE 'unknown' END) AS dimension,
          COUNT(*) AS events
   FROM agent_evolution_metrics m, win
   WHERE m.tenant_id = '<TENANT_UUID>'
