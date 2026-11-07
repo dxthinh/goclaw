@@ -158,6 +158,17 @@ func seedTenantAgent(t *testing.T, db *sql.DB) (tenantID, agentID uuid.UUID) {
 		db.Exec("DELETE FROM channel_contacts WHERE tenant_id = $1", tenantID)
 
 		// Agent-related
+		// Remove observability rows before deleting agents: otherwise their
+		// agent_id becomes NULL and retained snapshots contaminate later tests.
+		for _, query := range []string{
+			"DELETE FROM usage_snapshots WHERE tenant_id = $1",
+			"DELETE FROM spans WHERE tenant_id = $1",
+			"DELETE FROM traces WHERE tenant_id = $1",
+		} {
+			if _, err := db.Exec(query, tenantID); err != nil {
+				t.Errorf("cleanup observability fixture: %v", err)
+			}
+		}
 		db.Exec("DELETE FROM agent_shares WHERE agent_id = $1", agentID)
 		db.Exec("DELETE FROM agent_context_files WHERE agent_id = $1", agentID)
 		db.Exec("DELETE FROM user_context_files WHERE agent_id = $1", agentID)

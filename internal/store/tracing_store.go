@@ -123,10 +123,12 @@ type TraceListOpts struct {
 }
 
 // CostSummaryOpts configures cost aggregation queries.
+// Costs include each trace once; SessionKey also includes descendants with other session keys.
 type CostSummaryOpts struct {
-	AgentID *uuid.UUID
-	From    *time.Time
-	To      *time.Time
+	SessionKey string
+	AgentID    *uuid.UUID
+	From       *time.Time
+	To         *time.Time
 }
 
 // CostSummaryRow is a single row of aggregated cost data.
