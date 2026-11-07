@@ -2,9 +2,14 @@ package agent
 
 import (
 	"context"
+	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/providers"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
@@ -314,4 +319,61 @@ func TestParseMediaResultConfinedToWorkspace(t *testing.T) {
 			t.Fatal("expected traversal media to be dropped")
 		}
 	})
+}
+
+// Exercise the real upload persistence and run-context enrichment across turns.
+func TestReadImageMediaIDCurrentAndPriorConversation(t *testing.T) {
+	workspace := t.TempDir()
+	src := filepath.Join(t.TempDir(), "upload.png")
+	file, err := os.Create(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			t.Errorf("close upload: %v", closeErr)
+		}
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	loop := &Loop{}
+	ctx := tools.WithToolWorkspace(context.Background(), workspace)
+	req := &RunRequest{SessionKey: "user-a/session-a", Media: []bus.MediaFile{{Path: src, MimeType: "image/png"}}}
+	ctx, messages, refs := loop.enrichInputMedia(ctx, req, []providers.Message{{Role: "user", Content: "<media:image>"}})
+	if len(refs) != 1 {
+		t.Fatalf("expected persisted image, got %+v", refs)
+	}
+	tool := tools.NewReadImageTool(providers.NewRegistry(nil))
+	assertLoaded := func(ctx context.Context) {
+		t.Helper()
+		result := tool.Execute(ctx, map[string]any{"media_id": refs[0].ID})
+		// Reaching provider selection proves the selected image was loaded successfully.
+		if !strings.Contains(result.ForLLM, "No vision provider configured") {
+			t.Fatalf("image did not reach provider selection: %+v", result)
+		}
+	}
+	assertLoaded(ctx)
+	messages[0].MediaRefs = refs
+	messages = append(messages, providers.Message{Role: "user", Content: "analyze the earlier image"})
+	priorCtx, _, _ := loop.enrichInputMedia(tools.WithToolWorkspace(context.Background(), workspace), &RunRequest{SessionKey: req.SessionKey}, messages)
+	assertLoaded(priorCtx)
+
+	for _, other := range []struct {
+		name      string
+		workspace string
+		history   []providers.Message
+	}{
+		{name: "another session with same workspace", workspace: workspace, history: []providers.Message{{Role: "user", Content: "hello"}}},
+		{name: "another user with copied ref", workspace: t.TempDir(), history: messages},
+	} {
+		t.Run(other.name, func(t *testing.T) {
+			otherCtx, _, _ := loop.enrichInputMedia(tools.WithToolWorkspace(context.Background(), other.workspace), &RunRequest{SessionKey: "other-session"}, other.history)
+			result := tool.Execute(otherCtx, map[string]any{"media_id": refs[0].ID})
+			if !result.IsError || !strings.Contains(result.ForLLM, "unavailable in this conversation") {
+				t.Fatalf("unexpected cross-conversation result: %+v", result)
+			}
+		})
+	}
 }
