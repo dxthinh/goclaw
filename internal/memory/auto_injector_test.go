@@ -92,8 +92,8 @@ func TestInject_BelowThresholdStillRecordsTopScore(t *testing.T) {
 	if value["result_count"] != float64(2) || value["above_threshold"] != float64(0) || value["injected"] != float64(0) {
 		t.Errorf("counts = %v", value)
 	}
-	if value["used_in_reply"] != false {
-		t.Errorf("used_in_reply = %v, want false", value["used_in_reply"])
+	if value["has_results"] != true {
+		t.Errorf("has_results = %v, want true for a below-threshold match", value["has_results"])
 	}
 }
 
@@ -146,7 +146,7 @@ func TestInject_InjectedWritesFullContractMetric(t *testing.T) {
 		"injected":        float64(2),
 		"top_score":       1.2,
 		"memory_tokens":   float64(len(res.Section)),
-		"used_in_reply":   true,
+		"has_results":     true,
 	}
 	if len(value) != len(want) {
 		t.Errorf("metric fields = %v, want exactly %v", value, want)

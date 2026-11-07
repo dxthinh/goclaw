@@ -105,15 +105,12 @@ func (s *SQLiteEvolutionMetricsStore) AggregateRetrievalMetrics(ctx context.Cont
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT metric_key,
 		        COUNT(*) AS query_count,
-		        AVG(CASE WHEN COALESCE(json_extract(value, '$.used_in_reply'),'false') = 'true' THEN 1.0 ELSE 0.0 END) AS usage_rate,
+		        AVG(CASE WHEN COALESCE(json_extract(value, '$.has_results'), json_extract(value, '$.result_count') > 0, json_extract(value, '$.used_in_reply'), 0) = 1 THEN 1.0 ELSE 0.0 END) AS usage_rate,
 		        AVG(COALESCE(NULLIF(json_extract(value, '$.top_score'),''), 0)) AS avg_score
 		 FROM agent_evolution_metrics
 		 WHERE agent_id = ? AND metric_type = 'retrieval' AND created_at >= ? AND tenant_id = ?
-		   -- auto_inject ghi cả lượt không chèn để đo phễu; tỷ lệ dùng chỉ tính lượt đã chèn
-		   -- để luật gợi ý ngưỡng không hiểu nhầm lượt không chèn là memory bị bỏ qua.
-		   AND NOT (metric_key = 'auto_inject' AND COALESCE(json_extract(value, '$.injected'), 0) = 0)
-		   -- memory_search cũng ghi cả lượt không có kết quả hoặc lỗi để đo phễu.
-		   AND NOT (metric_key = 'memory_search' AND COALESCE(json_extract(value, '$.outcome'), '') IN ('no_match', 'error'))
+		   AND NOT (metric_key = 'auto_inject' AND COALESCE(json_extract(value, '$.outcome'), '') IN ('disabled', 'trivial', 'error'))
+		   AND NOT (metric_key = 'memory_search' AND COALESCE(json_extract(value, '$.outcome'), '') = 'error')
 		 GROUP BY metric_key
 		 ORDER BY query_count DESC`,
 		agentID.String(), since.UTC().Format(time.RFC3339Nano), tenantID.String())
@@ -131,25 +128,6 @@ func (s *SQLiteEvolutionMetricsStore) AggregateRetrievalMetrics(ctx context.Cont
 		aggs = append(aggs, a)
 	}
 	return aggs, rows.Err()
-}
-
-func (s *SQLiteEvolutionMetricsStore) Cleanup(ctx context.Context, olderThan time.Time) (int64, error) {
-	tenantID := tenantIDForInsert(ctx)
-	var result sql.Result
-	var err error
-	if tenantID != uuid.Nil {
-		result, err = s.db.ExecContext(ctx,
-			`DELETE FROM agent_evolution_metrics WHERE created_at < ? AND tenant_id = ?`,
-			olderThan.UTC().Format(time.RFC3339Nano), tenantID.String())
-	} else {
-		result, err = s.db.ExecContext(ctx,
-			`DELETE FROM agent_evolution_metrics WHERE created_at < ?`,
-			olderThan.UTC().Format(time.RFC3339Nano))
-	}
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 // Ensure SQLiteEvolutionMetricsStore implements store.EvolutionMetricsStore.

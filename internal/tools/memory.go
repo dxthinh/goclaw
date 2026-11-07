@@ -356,7 +356,7 @@ const (
 )
 
 // recordRetrievalMetric records a memory_search retrieval metric in a background goroutine.
-// used_in_reply giữ nguyên nghĩa "có kết quả" để tương thích với các chỗ đang tổng hợp.
+// Result presence measures retrieval success, not whether an answer used memory.
 func (t *MemorySearchTool) recordRetrievalMetric(ctx context.Context, outcome string, documentHits int, episodic []store.EpisodicSearchResult) {
 	if t.metricsStore == nil {
 		return
@@ -384,7 +384,7 @@ func (t *MemorySearchTool) recordRetrievalMetric(ctx context.Context, outcome st
 			"document_hits": documentHits,
 			"episodic_hits": episodicHits,
 			"top_score":     topScore,
-			"used_in_reply": resultCount > 0,
+			"has_results":   resultCount > 0,
 		})
 		if err := t.metricsStore.RecordMetric(bgCtx, store.EvolutionMetric{
 			ID:         uuid.New(),

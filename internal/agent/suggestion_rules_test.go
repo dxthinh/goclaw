@@ -19,7 +19,7 @@ func TestLowRetrievalUsageRule(t *testing.T) {
 		wantNil bool
 	}{
 		{"below min queries -> skip", []store.RetrievalAggregate{{QueryCount: 49, UsageRate: 0.1}}, true},
-		{"low usage triggers", []store.RetrievalAggregate{{Source: "mem", QueryCount: 60, UsageRate: 0.15}}, false},
+		{"low result rate does not suggest unsupported threshold", []store.RetrievalAggregate{{Source: "mem", QueryCount: 60, UsageRate: 0.15}}, true},
 		{"normal usage no trigger", []store.RetrievalAggregate{{QueryCount: 60, UsageRate: 0.5}}, true},
 		{"empty aggs", nil, true},
 	}
