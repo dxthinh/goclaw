@@ -95,15 +95,12 @@ func (s *PGEvolutionMetricsStore) AggregateRetrievalMetrics(ctx context.Context,
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT metric_key,
 		        COUNT(*) AS query_count,
-		        AVG(CASE WHEN COALESCE(value->>'used_in_reply','false') = 'true' THEN 1.0 ELSE 0.0 END) AS usage_rate,
+		        AVG(CASE WHEN COALESCE((value->>'has_results')::boolean, (value->>'result_count')::numeric > 0, (value->>'used_in_reply')::boolean, false) THEN 1.0 ELSE 0.0 END) AS usage_rate,
 		        AVG(COALESCE(NULLIF(value->>'top_score','')::numeric, 0)) AS avg_score
 		 FROM agent_evolution_metrics
 		 WHERE agent_id = $1 AND metric_type = 'retrieval' AND created_at >= $2 AND tenant_id = $3
-		   -- auto_inject ghi cả lượt không chèn để đo phễu; tỷ lệ dùng chỉ tính lượt đã chèn
-		   -- để luật gợi ý ngưỡng không hiểu nhầm lượt không chèn là memory bị bỏ qua.
-		   AND NOT (metric_key = 'auto_inject' AND COALESCE(value->>'injected', '0') = '0')
-		   -- memory_search cũng ghi cả lượt không có kết quả hoặc lỗi để đo phễu.
-		   AND NOT (metric_key = 'memory_search' AND COALESCE(value->>'outcome', '') IN ('no_match', 'error'))
+		   AND NOT (metric_key = 'auto_inject' AND COALESCE(value->>'outcome', '') IN ('disabled', 'trivial', 'error'))
+		   AND NOT (metric_key = 'memory_search' AND COALESCE(value->>'outcome', '') = 'error')
 		 GROUP BY metric_key
 		 ORDER BY query_count DESC`,
 		agentID, since, tenantID)
@@ -121,25 +118,6 @@ func (s *PGEvolutionMetricsStore) AggregateRetrievalMetrics(ctx context.Context,
 		aggs = append(aggs, a)
 	}
 	return aggs, rows.Err()
-}
-
-func (s *PGEvolutionMetricsStore) Cleanup(ctx context.Context, olderThan time.Time) (int64, error) {
-	tenantID := store.TenantIDFromContext(ctx)
-	var result sql.Result
-	var err error
-	if tenantID != uuid.Nil {
-		result, err = s.db.ExecContext(ctx,
-			`DELETE FROM agent_evolution_metrics WHERE created_at < $1 AND tenant_id = $2`,
-			olderThan, tenantID)
-	} else {
-		result, err = s.db.ExecContext(ctx,
-			`DELETE FROM agent_evolution_metrics WHERE created_at < $1`,
-			olderThan)
-	}
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 // RecordToolMetric is a convenience helper for recording tool execution metrics.

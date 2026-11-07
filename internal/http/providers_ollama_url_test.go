@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
@@ -266,8 +267,8 @@ func TestRegisterInMemoryOllamaURLNormalization(t *testing.T) {
 			}
 
 			got := abp.APIBase()
-			if got != tt.wantURL {
-				t.Fatalf("registered APIBase = %q, want %q", got, tt.wantURL)
+			if got != config.DockerLocalhost(tt.wantURL) {
+				t.Fatalf("registered APIBase = %q, want %q", got, config.DockerLocalhost(tt.wantURL))
 			}
 		})
 	}

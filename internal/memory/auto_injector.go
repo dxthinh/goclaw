@@ -10,7 +10,7 @@ import "context"
 type AutoInjector interface {
 	// Inject checks user message against memory index.
 	// Trả khối đã định dạng để gửi kèm lượt hiện tại, hoặc "" nếu không có gì liên quan.
-	// Budget: max ~200 tokens of L0 summaries.
+	// Budget: MaxTokens includes the formatted section and its context separator.
 	Inject(ctx context.Context, params InjectParams) (*InjectResult, error)
 }
 
@@ -34,7 +34,7 @@ type InjectParams struct {
 	RecentContext string
 
 	MaxEntries int // default 5
-	MaxTokens  int // default 200
+	MaxTokens  int // default 200, including formatting and context separator
 
 	// CountTokens đếm token của khối memory cho metric. Truyền từ bộ đếm sẵn có của
 	// agent để không nạp thêm một bộ mã hóa; nil thì ước lượng theo số rune.
@@ -44,7 +44,7 @@ type InjectParams struct {
 // InjectResult contains the injection output + observability data.
 type InjectResult struct {
 	Section        string  // khối memory đã định dạng (rỗng = không có gì liên quan)
-	Outcome        string  // disabled, trivial, no_match, below_threshold, no_abstract, injected, error
+	Outcome        string  // disabled, trivial, no_match, below_threshold, no_abstract, over_budget, injected, error
 	MatchCount     int     // total matches found
 	AboveThreshold int     // số kết quả đạt ngưỡng
 	Injected       int     // entries injected (after budget trim)
@@ -58,7 +58,7 @@ type L0Summary struct {
 	ID      string // for memory_expand(id) deep retrieval
 }
 
-// MemoryConfig holds per-agent memory settings (stored in agents.settings JSONB).
+// MemoryConfig provides legacy defaults; tenant switches and thresholds are read from system_configs.
 type MemoryConfig struct {
 	AutoInjectEnabled    bool    `json:"auto_inject_enabled"`    // default true
 	AutoInjectThreshold  float64 `json:"auto_inject_threshold"`  // default 0.8

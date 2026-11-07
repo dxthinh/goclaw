@@ -10,6 +10,7 @@ export interface ToolAggregate {
 export interface RetrievalAggregate {
   source: string;
   query_count: number;
+  /** Compatibility name: fraction of queries with results, not answer usage. */
   usage_rate: number;
   avg_score: number;
 }

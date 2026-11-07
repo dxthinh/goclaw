@@ -38,6 +38,7 @@ func TestShellAbort_ProcessGroupKilled(t *testing.T) {
 	tool.timeout = 10 * time.Second // generous outer timeout
 
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 
 	done := make(chan *Result, 1)
 	go func() {
@@ -104,11 +105,16 @@ func findLivePIDs(t *testing.T, pids []string) []string {
 
 	var found []string
 	for _, pid := range pids {
-		out, err := exec.Command("ps", "-p", pid, "-o", "pid=").Output()
+		out, err := exec.Command("ps", "-p", pid, "-o", "stat=").Output()
 		if err != nil {
-			continue
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				continue // ps reports no matching process.
+			}
+			t.Fatalf("inspect child %s: %v", pid, err)
 		}
-		if strings.TrimSpace(string(out)) != "" {
+		// A zombie has exited; container PID 1 may delay reaping it.
+		state := strings.TrimSpace(string(out))
+		if state != "" && !strings.HasPrefix(state, "Z") {
 			found = append(found, pid)
 		}
 	}
@@ -117,4 +123,11 @@ func findLivePIDs(t *testing.T, pids []string) []string {
 
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func TestFindLivePIDsIncludesRunningProcess(t *testing.T) {
+	pid := fmt.Sprint(os.Getpid())
+	if got := findLivePIDs(t, []string{pid}); len(got) != 1 || got[0] != pid {
+		t.Fatalf("running test process %s must be detected, got %v", pid, got)
+	}
 }

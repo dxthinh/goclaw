@@ -15,6 +15,7 @@ func tracesCmd() *cobra.Command {
 	cmd.AddCommand(tracesExportCmd())
 	cmd.AddCommand(tracesFollowCmd())
 	cmd.AddCommand(tracesTimelineCmd())
+	addTraceRepairSnapshotsCommand(cmd)
 	return cmd
 }
 

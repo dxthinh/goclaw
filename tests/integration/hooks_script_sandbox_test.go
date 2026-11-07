@@ -117,17 +117,17 @@ func TestHooksB2_MemoryBombBoundedByTimeout(t *testing.T) {
 		t.Skip("memory-bomb test runs under full mode only")
 	}
 	h := hookhandlers.NewScriptHandler(4, 2, 32)
-	// Many smaller arrays + concat — pure ES5.1, no typed arrays.
+	// Allocate repeatedly with a bounded working set. A single 1 GiB string
+	// concat cannot be interrupted while Goja is inside its Go allocation.
 	src := `function handle(e) {
-		var s = "x"; for (var i = 0; i < 30; i++) { s = s + s; }
-		return {decision:"allow", reason: String(s.length)};
+		while (true) { var a = []; for (var i = 0; i < 1024; i++) { a.push(i); } }
 	}`
 	start := time.Now()
-	dec, _ := runScript(t, h, makeScriptCfg(src, 100), uuid.New(), 2*time.Second)
+	dec, err := runScript(t, h, makeScriptCfg(src, 100), uuid.New(), 100*time.Millisecond)
 	elapsed := time.Since(start)
-	// Either timeout (script exceeded its budget) or allow (bomb completed
-	// fast enough — unlikely but acceptable). What MUST hold: process alive
-	// + bounded wall time.
+	if dec != hooks.DecisionTimeout || err == nil {
+		t.Fatalf("allocation loop decision=%v err=%v, want timeout error", dec, err)
+	}
 	if elapsed > 2500*time.Millisecond {
 		t.Fatalf("watchdog did not interrupt in bounded time: %v (dec=%v)", elapsed, dec)
 	}

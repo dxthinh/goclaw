@@ -41,8 +41,8 @@ type ToolAggregate struct {
 // RetrievalAggregate summarizes per-source retrieval metrics.
 type RetrievalAggregate struct {
 	Source     string  `json:"source"`
-	QueryCount int    `json:"query_count"`
-	UsageRate  float64 `json:"usage_rate"` // fraction of results used in reply
+	QueryCount int     `json:"query_count"`
+	UsageRate  float64 `json:"usage_rate"` // compatibility name: fraction of queries with results, not answer usage
 	AvgScore   float64 `json:"avg_score"`
 }
 
@@ -52,7 +52,6 @@ type EvolutionMetricsStore interface {
 	QueryMetrics(ctx context.Context, agentID uuid.UUID, metricType MetricType, since time.Time, limit int) ([]EvolutionMetric, error)
 	AggregateToolMetrics(ctx context.Context, agentID uuid.UUID, since time.Time) ([]ToolAggregate, error)
 	AggregateRetrievalMetrics(ctx context.Context, agentID uuid.UUID, since time.Time) ([]RetrievalAggregate, error)
-	Cleanup(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
 // SuggestionType identifies the kind of evolution suggestion.

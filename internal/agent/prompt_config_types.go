@@ -1,7 +1,5 @@
 package agent
 
-import "github.com/nextlevelbuilder/goclaw/internal/memory"
-
 // PromptConfig controls which template sections to include in the system prompt.
 // Each bool field maps to a named template block.
 type PromptConfig struct {
@@ -25,7 +23,6 @@ type PromptConfig struct {
 	SkillsData         SkillsSectionData
 	TeamData           TeamSectionData
 	WorkspaceData      WorkspaceSectionData
-	MemoryData         MemorySectionData
 	SandboxData        SandboxSectionData
 	OrchestrationData  OrchestrationSectionData
 	ExtraPrompt        string
@@ -100,22 +97,6 @@ type WorkspaceSectionData struct {
 	Enforced       bool
 	ContextFiles   []string
 	EnforcementMsg string
-}
-
-// MemorySectionData populates the memory template section.
-type MemorySectionData struct {
-	L0Summaries []memory.L0Summary
-	HasSearch   bool
-	HasKG       bool
-	VaultDocs   []VaultDocSummary `json:"vault_docs,omitempty"`
-	HasVault    bool              `json:"has_vault,omitempty"`
-}
-
-// VaultDocSummary is a brief vault document entry for prompt injection.
-type VaultDocSummary struct {
-	Title   string `json:"title"`
-	Path    string `json:"path"`
-	DocType string `json:"doc_type"`
 }
 
 // SandboxSectionData populates the sandbox template section.

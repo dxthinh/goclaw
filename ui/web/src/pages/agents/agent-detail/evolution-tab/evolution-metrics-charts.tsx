@@ -57,6 +57,7 @@ export function EvolutionMetricsCharts({ toolAggs, retrievalAggs, loading }: Evo
       {/* Retrieval Quality */}
       <div className="space-y-2">
         <h4 className="text-sm font-medium">{t("detail.evolution.retrievalQuality")}</h4>
+        <p className="text-xs text-muted-foreground">{t("detail.evolution.resultRateHint")}</p>
         {retrievalData.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("detail.evolution.noMetrics")}</p>
         ) : (

@@ -10,31 +10,18 @@ import (
 
 // Minimum data points required before a rule triggers.
 const (
-	minRetrievalQueries = 50
-	minToolCalls        = 20
-	highToolCallsWeek   = 100
+	minToolCalls      = 20
+	highToolCallsWeek = 100
 )
 
-// LowRetrievalUsageRule suggests raising retrieval threshold when usage rate is low.
-// Triggers: usage_rate < 0.2 over 50+ queries for any source.
+// LowRetrievalUsageRule is retained for compatibility but disabled: retrieval
+// result presence does not establish answer usage, and no per-agent threshold
+// configuration is consumed by retrieval.
 type LowRetrievalUsageRule struct{}
 
 func (r *LowRetrievalUsageRule) Name() string { return "low_retrieval_usage" }
 
-func (r *LowRetrievalUsageRule) Evaluate(_ context.Context, _ uuid.UUID, input AnalysisInput) (*store.EvolutionSuggestion, error) {
-	for _, agg := range input.RetrievalAggs {
-		if agg.QueryCount < minRetrievalQueries {
-			continue
-		}
-		if agg.UsageRate < 0.2 {
-			return &store.EvolutionSuggestion{
-				SuggestionType: store.SuggestThreshold,
-				Suggestion:     fmt.Sprintf("Raise retrieval threshold for source %q — only %.0f%% of results used in replies", agg.Source, agg.UsageRate*100),
-				Rationale:      fmt.Sprintf("%d queries, %.1f%% usage rate, avg score %.2f", agg.QueryCount, agg.UsageRate*100, agg.AvgScore),
-				Parameters:     marshalParams(map[string]any{"source": agg.Source, "current_usage_rate": agg.UsageRate, "query_count": agg.QueryCount}),
-			}, nil
-		}
-	}
+func (r *LowRetrievalUsageRule) Evaluate(_ context.Context, _ uuid.UUID, _ AnalysisInput) (*store.EvolutionSuggestion, error) {
 	return nil, nil
 }
 

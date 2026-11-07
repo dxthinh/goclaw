@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/nextlevelbuilder/goclaw/internal/agent"
+	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/skills"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
@@ -44,7 +44,7 @@ func WithSkillCreation(ss store.SkillManageStore, loader *skills.Loader, dataDir
 	}
 }
 
-// WithAgentStore enables threshold suggestion auto-apply on approval.
+// WithAgentStore retains existing gateway wiring; threshold auto-apply is unsupported.
 func WithAgentStore(as store.AgentStore) EvolutionHandlerOpt {
 	return func(h *EvolutionHandler) { h.agentStore = as }
 }
@@ -255,33 +255,7 @@ func (h *EvolutionHandler) handleUpdateSuggestion(w http.ResponseWriter, r *http
 			return
 
 		case store.SuggestThreshold:
-			if h.agentStore == nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "threshold auto-apply not available"})
-				return
-			}
-			// Đếm qua tổng hợp thay vì dòng thô: auto-inject ghi mọi lượt, còn lượt không chèn gì
-			// không phải dữ liệu để đánh giá ngưỡng.
-			since := time.Now().AddDate(0, 0, -7)
-			aggregates, err := h.metrics.AggregateRetrievalMetrics(r.Context(), agentID, since)
-			if err != nil {
-				slog.Warn("evolution.query_metrics_for_guardrail failed", "error", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to query metrics for guardrail check"})
-				return
-			}
-			dataPoints := 0
-			for _, a := range aggregates {
-				dataPoints += a.QueryCount
-			}
-			guardrails := agent.DefaultGuardrails()
-			if err := agent.CheckGuardrails(guardrails, *existing, dataPoints); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			if err := agent.ApplySuggestion(r.Context(), h.agentStore, h.suggestions, *existing, guardrails); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "action": "threshold_applied"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(store.LocaleFromContext(r.Context()), i18n.MsgRetrievalThresholdUnsupported)})
 			return
 		}
 		// Other types: fall through to status-only update.

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -505,7 +506,7 @@ func TestProvidersHandlerListProviderModelsAIMLAPIUsesCuratedCatalog(t *testing.
 func TestProvidersHandlerListProviderModelsOllamaRichMetadata(t *testing.T) {
 	token := setupProvidersAdminToken(t)
 
-	upstream := httptest.NewServer(ollamaTagsHandler(`{
+	upstream := newLocalOllamaServer(t, ollamaTagsHandler(`{
 		"models": [
 			{
 				"name": "gemma4:8b-it-q4_K_M",
@@ -576,7 +577,7 @@ func TestProvidersHandlerListProviderModelsOllamaStripsV1Suffix(t *testing.T) {
 	token := setupProvidersAdminToken(t)
 
 	var capturedPath string
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := newLocalOllamaServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.Path
 		if r.URL.Path != "/api/tags" {
 			http.NotFound(w, r)
@@ -618,7 +619,7 @@ func TestProvidersHandlerListProviderModelsOllamaStripsV1Suffix(t *testing.T) {
 func TestProvidersHandlerListProviderModelsOllamaNoV1Suffix(t *testing.T) {
 	token := setupProvidersAdminToken(t)
 
-	upstream := httptest.NewServer(ollamaTagsHandler(`{"models": [{"name": "mistral:latest", "details": {"family": "mistral", "parameter_size": "7B", "quantization_level": "Q4_0"}}]}`))
+	upstream := newLocalOllamaServer(t, ollamaTagsHandler(`{"models": [{"name": "mistral:latest", "details": {"family": "mistral", "parameter_size": "7B", "quantization_level": "Q4_0"}}]}`))
 	t.Cleanup(upstream.Close)
 
 	providerStore := newMockProviderStore()
@@ -649,7 +650,7 @@ func TestProvidersHandlerListProviderModelsOllamaNoV1Suffix(t *testing.T) {
 func TestProvidersHandlerListProviderModelsOllamaFallbackOn404(t *testing.T) {
 	token := setupProvidersAdminToken(t)
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := newLocalOllamaServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r) // Ollama /api/tags returns 404
 	}))
 	t.Cleanup(upstream.Close)
@@ -678,7 +679,7 @@ func TestProvidersHandlerListProviderModelsOllamaFallbackOn404(t *testing.T) {
 func TestProvidersHandlerListProviderModelsOllamaEmptyList(t *testing.T) {
 	token := setupProvidersAdminToken(t)
 
-	upstream := httptest.NewServer(ollamaTagsHandler(`{"models": []}`))
+	upstream := newLocalOllamaServer(t, ollamaTagsHandler(`{"models": []}`))
 	t.Cleanup(upstream.Close)
 
 	providerStore := newMockProviderStore()
@@ -706,7 +707,7 @@ func TestProvidersHandlerListProviderModelsOllamaEmptyList(t *testing.T) {
 func TestProvidersHandlerListProviderModelsOllamaPartialDetails(t *testing.T) {
 	token := setupProvidersAdminToken(t)
 
-	upstream := httptest.NewServer(ollamaTagsHandler(`{
+	upstream := newLocalOllamaServer(t, ollamaTagsHandler(`{
 		"models": [
 			{
 				"name": "nodetails:latest",
@@ -762,7 +763,7 @@ func TestProvidersHandlerListProviderModelsOllamaCloudSendsAuthHeader(t *testing
 	token := setupProvidersAdminToken(t)
 
 	var capturedAuth string
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := newLocalOllamaServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
 		if r.URL.Path != "/api/tags" {
 			http.NotFound(w, r)
@@ -800,4 +801,25 @@ func TestProvidersHandlerListProviderModelsOllamaCloudSendsAuthHeader(t *testing
 	if len(result.Models) != 1 || result.Models[0].ID != "cloud-model:latest" {
 		t.Errorf("models = %#v, want [{ID: cloud-model:latest}]", result.Models)
 	}
+}
+
+// IPv6 loopback stays inside the test container: DockerLocalhost intentionally
+// redirects IPv4 loopback provider URLs to the Docker host.
+func newLocalOllamaServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Fatalf("listen on IPv6 loopback: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	if err := server.Listener.Close(); err != nil {
+		server.Close()
+		if closeErr := listener.Close(); closeErr != nil {
+			t.Errorf("close IPv6 listener: %v", closeErr)
+		}
+		t.Fatalf("close default test listener: %v", err)
+	}
+	server.Listener = listener
+	server.Start()
+	return server
 }

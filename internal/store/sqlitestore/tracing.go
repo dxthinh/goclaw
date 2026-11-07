@@ -252,10 +252,9 @@ func (s *SQLiteTracingStore) GetSessionCosts(ctx context.Context, sessionKeys []
 		return result, nil
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
-	q := `SELECT session_key, COALESCE(SUM(total_cost), 0)
-		FROM traces
-		WHERE session_key IN (` + placeholders + `)
-		  AND parent_trace_id IS NULL`
+	q := `WITH RECURSIVE session_traces AS (
+ SELECT session_key AS root_session, id, tenant_id, total_cost FROM traces
+ WHERE session_key IN (` + placeholders + `)`
 	args := make([]any, 0, len(keys)+1)
 	for _, key := range keys {
 		args = append(args, key)
@@ -268,7 +267,10 @@ func (s *SQLiteTracingStore) GetSessionCosts(ctx context.Context, sessionKeys []
 		q += ` AND tenant_id = ?`
 		args = append(args, tid)
 	}
-	q += ` GROUP BY session_key`
+	q += ` UNION
+ SELECT p.root_session, c.id, c.tenant_id, c.total_cost
+ FROM traces c JOIN session_traces p ON c.parent_trace_id = p.id AND c.tenant_id = p.tenant_id
+ ) SELECT root_session, COALESCE(SUM(total_cost), 0) FROM session_traces GROUP BY root_session`
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -307,7 +309,7 @@ func (s *SQLiteTracingStore) GetMonthlyAgentCost(ctx context.Context, agentID uu
 	start := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
 	q := `SELECT COALESCE(SUM(total_cost), 0) FROM traces
-		 WHERE agent_id = ? AND created_at >= ? AND created_at < ? AND parent_trace_id IS NULL`
+		 WHERE agent_id = ? AND created_at >= ? AND created_at < ?`
 	qArgs := []any{agentID, start, end}
 	if !store.IsCrossTenant(ctx) {
 		tid := store.TenantIDFromContext(ctx)
@@ -325,14 +327,21 @@ func (s *SQLiteTracingStore) GetCostSummary(ctx context.Context, opts store.Cost
 	var conditions []string
 	var args []any
 
-	conditions = append(conditions, "parent_trace_id IS NULL")
-
 	if !store.IsCrossTenant(ctx) {
 		tenantID := store.TenantIDFromContext(ctx)
 		if tenantID != uuid.Nil {
 			conditions = append(conditions, "tenant_id = ?")
 			args = append(args, tenantID)
 		}
+	}
+	if opts.SessionKey != "" {
+		conditions = append(conditions, `id IN (WITH RECURSIVE session_traces AS (
+            SELECT id, tenant_id FROM traces WHERE session_key = ?
+            UNION
+            SELECT c.id, c.tenant_id FROM traces c JOIN session_traces p
+              ON c.parent_trace_id = p.id AND c.tenant_id = p.tenant_id
+        ) SELECT id FROM session_traces)`)
+		args = append(args, opts.SessionKey)
 	}
 	if opts.AgentID != nil {
 		conditions = append(conditions, "agent_id = ?")
@@ -347,7 +356,10 @@ func (s *SQLiteTracingStore) GetCostSummary(ctx context.Context, opts store.Cost
 		args = append(args, *opts.To)
 	}
 
-	where := " WHERE " + strings.Join(conditions, " AND ")
+	where := ""
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
+	}
 	q := `SELECT agent_id, COALESCE(SUM(total_cost), 0), COALESCE(SUM(total_input_tokens), 0),
 		  COALESCE(SUM(total_output_tokens), 0), COUNT(*)
 		  FROM traces` + where + ` GROUP BY agent_id ORDER BY SUM(total_cost) DESC`

@@ -3,12 +3,14 @@ package tracing
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -619,4 +621,112 @@ func mergeTraceAndSpanRows(
 	}
 
 	return snapshots
+}
+
+// RepairSnapshots recomputes retained LLM usage for complete UTC hours [from,to).
+// A nil backup previews only. For writes, backup must synchronously create a full
+// database backup and return success before any writes. Run with gateway stopped.
+// Point-in-time memory/KG and root-request metrics remain historical values.
+func RepairSnapshots(ctx context.Context, db *sql.DB, from, to time.Time, backup func(context.Context) error) (int64, error) {
+	if err := validateRepairRange(from, to, time.Now().UTC()); err != nil {
+		return 0, err
+	}
+	if backup != nil {
+		if err := backup(ctx); err != nil {
+			return 0, fmt.Errorf("%s: %w", i18n.T(store.LocaleFromContext(ctx), i18n.MsgSnapshotRepairBackup), err)
+		}
+	}
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: backup == nil})
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if backup != nil {
+		// Block collector/pruner and competing snapshot writers until commit.
+		if _, err := tx.ExecContext(ctx, `LOCK TABLE traces, spans, usage_snapshots IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+			return 0, err
+		}
+	}
+	// Revalidate after backup/lock acquisition: retention may have advanced.
+	if err := validateRepairRange(from, to, time.Now().UTC()); err != nil {
+		return 0, err
+	}
+	var incomplete bool
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM traces t WHERE t.start_time >= $1 AND t.start_time < $2
+		AND (t.created_at < $3 OR t.status = 'running'
+		 OR t.span_count <> (SELECT COUNT(*) FROM spans s WHERE s.trace_id = t.id)))`,
+		from, to, time.Now().UTC().Add(-traceRetention)).Scan(&incomplete)
+	if err != nil {
+		return 0, err
+	}
+	if incomplete {
+		return 0, errors.New(i18n.T(store.LocaleFromContext(ctx), i18n.MsgSnapshotRepairIncomplete))
+	}
+	// Existing counts are a lower bound on retained source. Refuse to reduce
+	// them if traces disappeared, including wholly missing source hours.
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS (
+        SELECT 1 FROM usage_snapshots u
+        WHERE u.bucket_hour >= $1 AND u.bucket_hour < $2 AND (
+          u.request_count > (SELECT COUNT(*) FROM traces t
+            WHERE t.start_time >= u.bucket_hour AND t.start_time < u.bucket_hour + interval '1 hour'
+              AND t.tenant_id=u.tenant_id AND t.agent_id IS NOT DISTINCT FROM u.agent_id
+              AND COALESCE(t.channel,'')=u.channel AND t.parent_trace_id IS NULL)
+          OR u.llm_call_count > (SELECT COUNT(*) FROM traces t JOIN spans s ON s.trace_id=t.id
+            WHERE t.start_time >= u.bucket_hour AND t.start_time < u.bucket_hour + interval '1 hour'
+              AND t.tenant_id=u.tenant_id AND t.agent_id IS NOT DISTINCT FROM u.agent_id
+              AND COALESCE(t.channel,'')=u.channel AND s.span_type='llm_call'
+              AND COALESCE(s.provider,'')=u.provider AND COALESCE(s.model,'')=u.model)
+        ))`, from, to).Scan(&incomplete)
+	if err != nil {
+		return 0, err
+	}
+	if incomplete {
+		return 0, errors.New(i18n.T(store.LocaleFromContext(ctx), i18n.MsgSnapshotRepairCounts))
+	}
+	var count int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM traces WHERE start_time >= $1 AND start_time < $2`, from, to).Scan(&count); err != nil {
+		return 0, err
+	}
+	if backup == nil {
+		return count, nil
+	}
+	// Replace only monetary/token/call fields, preserving historical non-LLM
+	// metrics. UNION is unnecessary: each span joins exactly one trace.
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO usage_snapshots (bucket_hour, tenant_id, agent_id, channel, provider, model,
+		 llm_call_count, input_tokens, output_tokens, total_cost,
+		 cache_read_tokens, cache_create_tokens, thinking_tokens)
+		SELECT date_trunc('hour', t.start_time AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+		 t.tenant_id, t.agent_id, COALESCE(t.channel,''), COALESCE(s.provider,''), COALESCE(s.model,''),
+		 SUM(CASE WHEN s.span_type='llm_call' THEN 1 ELSE 0 END), COALESCE(SUM(s.input_tokens),0), COALESCE(SUM(s.output_tokens),0), COALESCE(SUM(s.total_cost),0),
+		 COALESCE(SUM((s.metadata->>'cache_read_tokens')::bigint),0),
+		 COALESCE(SUM((s.metadata->>'cache_creation_tokens')::bigint),0),
+		 COALESCE(SUM((s.metadata->>'thinking_tokens')::bigint),0)
+		FROM traces t JOIN spans s ON s.trace_id=t.id AND s.span_type IN ('llm_call','tool_call')
+		WHERE t.start_time >= $1 AND t.start_time < $2
+		GROUP BY 1,2,3,4,5,6
+		ON CONFLICT (bucket_hour, COALESCE(agent_id, '00000000-0000-0000-0000-000000000000'), provider, model, channel, tenant_id)
+		DO UPDATE SET llm_call_count=EXCLUDED.llm_call_count,
+		 input_tokens=EXCLUDED.input_tokens, output_tokens=EXCLUDED.output_tokens,
+		 total_cost=EXCLUDED.total_cost, cache_read_tokens=EXCLUDED.cache_read_tokens,
+		 cache_create_tokens=EXCLUDED.cache_create_tokens, thinking_tokens=EXCLUDED.thinking_tokens`, from, to)
+	if err != nil {
+		return 0, err
+	}
+	return count, tx.Commit()
+}
+
+func validateRepairRange(from, to, now time.Time) error {
+	cutoff := now.Add(-traceRetention)
+	// Round UP: the hour containing the cutoff may already be partially pruned.
+	first := cutoff.Truncate(time.Hour)
+	if first.Before(cutoff) {
+		first = first.Add(time.Hour)
+	}
+	if !from.Equal(from.Truncate(time.Hour)) || !to.Equal(to.Truncate(time.Hour)) ||
+		!from.Before(to) || from.Before(first) || to.After(now.Truncate(time.Hour)) {
+		return errors.New(i18n.T("", i18n.MsgSnapshotRepairRange, first.Format(time.RFC3339), now.Truncate(time.Hour).Format(time.RFC3339)))
+	}
+	return nil
 }

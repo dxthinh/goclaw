@@ -18,7 +18,8 @@
   "tabs": {
     "documents": "Tài liệu",
     "knowledgeGraph": "Đồ thị tri thức",
-    "effectiveness": "Hiệu quả"
+    "effectiveness": "Hiệu quả",
+    "episodic": "Ký ức theo phiên"
   },
   "columns": {
     "path": "Đường dẫn",
@@ -304,6 +305,23 @@
     "empty": {
       "title": "Chưa có số liệu hiệu quả",
       "hint": "Số liệu được gộp mỗi giờ nên hoạt động mới có thể mất tối đa một giờ để xuất hiện. Chưa có gì được ghi nhận trong khoảng này."
+    }
+  },
+  "episodic": {
+    "noData": "Chưa có ký ức theo phiên",
+    "noDataHint": "Bản tóm tắt được tạo tự động từ các phiên của agent",
+    "selectAgent": "Chọn agent để xem ký ức theo phiên",
+    "searchPlaceholder": "Tìm kiếm ký ức theo phiên...",
+    "clearSearch": "Xóa",
+    "results": "kết quả",
+    "turns": "lượt",
+    "tokens": "token",
+    "expand": "Hiện toàn bộ bản tóm tắt",
+    "collapse": "Ẩn bản tóm tắt",
+    "source": {
+      "session": "Phiên",
+      "v2_daily": "Hằng ngày",
+      "manual": "Thủ công"
     }
   }
 }

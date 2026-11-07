@@ -80,6 +80,8 @@ func injectTestParams() InjectParams {
 		UserID:      "user-1",
 		SessionKey:  "sess-1",
 		UserMessage: injectTestMessage,
+		// This fixture counts bytes to verify metric plumbing; budget tests use BPE.
+		MaxTokens:   1000,
 		CountTokens: func(text string) (int, error) { return len(text), nil },
 	}
 }

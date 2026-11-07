@@ -14,7 +14,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
-func TestSQLiteTracingStoreGetSessionCostsTenantScopedRootTraces(t *testing.T) {
+func TestSQLiteTracingStoreGetSessionCostsTenantScopedDescendants(t *testing.T) {
 	db := openTestDB(t)
 	if err := EnsureSchema(db); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
@@ -30,14 +30,16 @@ func TestSQLiteTracingStoreGetSessionCostsTenantScopedRootTraces(t *testing.T) {
 
 	rootA1 := createSessionCostTrace(t, traces, ctxA, "session-a", nil, 1.25, now)
 	createSessionCostTrace(t, traces, ctxA, "session-a", nil, 0.75, now.Add(time.Second))
-	createSessionCostTrace(t, traces, ctxA, "session-a", &rootA1, 99, now.Add(2*time.Second))
+	child := createSessionCostTrace(t, traces, ctxA, "session-a", &rootA1, 99, now.Add(2*time.Second))
+	createSessionCostTrace(t, traces, ctxA, "delegate-session", &child, 4, now.Add(3*time.Second))
+	createSessionCostTrace(t, traces, ctxB, "delegate-session", &child, 1000, now.Add(4*time.Second))
 	createSessionCostTrace(t, traces, ctxB, "session-a", nil, 8, now.Add(3*time.Second))
 
 	costs, err := traces.GetSessionCosts(ctxA, []string{"session-a", "session-a", " ", "missing"})
 	if err != nil {
 		t.Fatalf("GetSessionCosts: %v", err)
 	}
-	if got, want := costs["session-a"], 2.0; got != want {
+	if got, want := costs["session-a"], 105.0; got != want {
 		t.Fatalf("session-a cost = %v, want %v", got, want)
 	}
 	if _, ok := costs["missing"]; ok {

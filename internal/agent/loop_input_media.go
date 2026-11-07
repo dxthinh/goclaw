@@ -112,11 +112,8 @@ func (l *Loop) enrichInputMedia(ctx context.Context, req *RunRequest, messages [
 		ctx = l.loadHistoricalImagesForTool(ctx, mediaRefs, messages)
 	}
 
-	// 2b. Collect image MediaRefs (historical + current) for exact media_id
-	// resolution by read_image and create_image.
-	if imageRefs := collectRefsByKind(messages, mediaRefs, "image"); len(imageRefs) > 0 {
-		ctx = tools.WithMediaImageRefs(ctx, imageRefs)
-	}
+	// Scope image IDs to the authorized history and this session's legacy store.
+	ctx = tools.WithImageMediaAccess(ctx, collectRefsByKind(messages, mediaRefs, "image"), req.SessionKey, l.mediaStore)
 
 	// 2c. Collect document MediaRefs (historical + current) for read_document tool.
 	if docRefs := collectRefsByKind(messages, mediaRefs, "document"); len(docRefs) > 0 {
