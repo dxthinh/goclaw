@@ -18,7 +18,8 @@
   "tabs": {
     "documents": "文档",
     "knowledgeGraph": "知识图谱",
-    "effectiveness": "效果"
+    "effectiveness": "效果",
+    "episodic": "情景记忆"
   },
   "columns": {
     "path": "路径",
@@ -304,6 +305,23 @@
     "empty": {
       "title": "暂无效果数据",
       "hint": "数据每小时汇总一次，新的活动最多可能需要一小时才会显示。此时间段内没有任何记录。"
+    }
+  },
+  "episodic": {
+    "noData": "暂无情景记忆",
+    "noDataHint": "摘要根据Agent会话自动生成",
+    "selectAgent": "选择Agent以查看情景记忆",
+    "searchPlaceholder": "搜索情景记忆...",
+    "clearSearch": "清除",
+    "results": "条结果",
+    "turns": "轮",
+    "tokens": "令牌",
+    "expand": "显示完整摘要",
+    "collapse": "收起摘要",
+    "source": {
+      "session": "会话",
+      "v2_daily": "每日",
+      "manual": "手动"
     }
   }
 }
