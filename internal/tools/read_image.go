@@ -154,9 +154,19 @@ func (t *ReadImageTool) Execute(ctx context.Context, args map[string]any) *Resul
 
 	imgPath, _ := args["path"].(string)
 	imgURL, _ := args["url"].(string)
-	mediaID, validMediaID := args["media_id"].(string)
-	if _, provided := args["media_id"]; provided && (!validMediaID || strings.TrimSpace(mediaID) == "") {
-		return ErrorResult(i18n.T(store.LocaleFromContext(ctx), i18n.MsgImageMediaIDRequired))
+	rawMediaID, hasMediaID := args["media_id"]
+	mediaID, isStringID := rawMediaID.(string)
+	if hasMediaID {
+		blankID := rawMediaID == nil || (isStringID && strings.TrimSpace(mediaID) == "")
+		switch {
+		case !blankID && !isStringID, blankID && imgPath == "" && imgURL == "":
+			// Một media_id sai kiểu, hoặc rỗng khi không có nguồn nào khác, không được
+			// lặng lẽ rơi về ảnh của lượt hiện tại.
+			return ErrorResult(i18n.T(store.LocaleFromContext(ctx), i18n.MsgImageMediaIDRequired))
+		case blankID:
+			// Nhiều model điền "" cho tham số tùy chọn; path/url vẫn là nguồn hợp lệ.
+			mediaID = ""
+		}
 	}
 
 	if imgPath != "" && imgURL != "" && mediaID == "" {

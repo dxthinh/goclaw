@@ -291,6 +291,25 @@ func TestReadImageWorkspacePathIsolation(t *testing.T) {
 	}
 }
 
+func TestReadImageBlankMediaIDIgnoredWithOtherSource(t *testing.T) {
+	tool := NewReadImageTool(nil)
+	ctx := WithToolWorkspace(context.Background(), t.TempDir())
+	for _, id := range []any{nil, "", " "} {
+		res := tool.Execute(ctx, map[string]any{"media_id": id, "path": "missing/from-path.png"})
+		if !res.IsError || !strings.Contains(res.ForLLM, "image path") {
+			t.Fatalf("media_id=%#v with path did not use the path: %s", id, res.ForLLM)
+		}
+		res = tool.Execute(ctx, map[string]any{"media_id": id, "url": "http://127.0.0.1/image.png"})
+		if !res.IsError || !strings.Contains(res.ForLLM, "Invalid image URL") {
+			t.Fatalf("media_id=%#v with url did not use the url: %s", id, res.ForLLM)
+		}
+	}
+	res := tool.Execute(ctx, map[string]any{"media_id": 123, "path": "missing/from-path.png"})
+	if !res.IsError || !strings.Contains(res.ForLLM, "must be a non-empty image ID") {
+		t.Fatalf("non-string media_id was ignored: %s", res.ForLLM)
+	}
+}
+
 func TestReadImageMediaIDInvalidInput(t *testing.T) {
 	tool := NewReadImageTool(nil)
 	ctx := WithMediaImages(context.Background(), []providers.ImageContent{{Data: "current image"}})
