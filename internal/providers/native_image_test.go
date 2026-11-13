@@ -15,6 +15,8 @@ func TestValidateImageModel(t *testing.T) {
 		{name: "empty falls back to default", input: "", want: DefaultImageModel},
 		{name: "flare", input: "gpt-image-2.5-flare", want: "gpt-image-2.5-flare"},
 		{name: "sunburst", input: "gpt-image-2.5-sunburst", want: "gpt-image-2.5-sunburst"},
+		{name: "2.6 flare", input: "gpt-image-2.6-flare", want: "gpt-image-2.6-flare"},
+		{name: "2.6 sunburst", input: "gpt-image-2.6-sunburst", want: "gpt-image-2.6-sunburst"},
 		{name: "previous generation", input: "gpt-image-2", want: "gpt-image-2"},
 		{name: "legacy", input: "gpt-image-1.5", want: "gpt-image-1.5"},
 		{name: "future family member passes through", input: "gpt-image-3", want: "gpt-image-3"},
@@ -62,5 +64,25 @@ func TestDefaultImageModelLeadsCatalog(t *testing.T) {
 		if m.Name == "" {
 			t.Errorf("catalog model %q has no display name", m.ID)
 		}
+	}
+}
+
+// GPT Image 2.6 phải có trong catalog để UI cho chọn, và được gửi nguyên ID lên upstream.
+func TestNativeImageCatalogOffersGPTImage26(t *testing.T) {
+	ids := map[string]bool{}
+	for _, m := range NativeImageModels() {
+		ids[m.ID] = true
+	}
+	for _, want := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+		if !ids[want] {
+			t.Errorf("catalog thiếu %q", want)
+		}
+	}
+
+	p := NewCodexProvider("codex-test", &staticTokenSource{token: "tok"}, "http://unused", "gpt-test")
+	body := p.buildNativeImageRequestBody("gpt-test", NativeImageRequest{ImageModel: "gpt-image-2.6-sunburst", Prompt: "x", OutputFormat: "png"})
+	tool := body["tools"].([]map[string]any)[0]
+	if tool["model"] != "gpt-image-2.6-sunburst" {
+		t.Errorf("tools[0].model = %v, muốn gpt-image-2.6-sunburst", tool["model"])
 	}
 }
