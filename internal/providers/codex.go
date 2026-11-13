@@ -140,7 +140,19 @@ func (p *CodexProvider) ChatStream(ctx context.Context, req ChatRequest, onChunk
 	var lastErr error
 	reasoningDropped := false
 	for attempt := 1; attempt <= cfg.Attempts; attempt++ {
-		result, emitted, err := p.chatStreamOnce(ctx, req, onChunk)
+		// Theo dõi riêng chữ và ảnh đã tới tay client trong lượt gọi này: hai loại đó không
+		// thu hồi được, còn result chỉ nhận ảnh sau khi stream kết thúc nên không đủ để biết.
+		replayUnsafe := false
+		attemptOnChunk := onChunk
+		if onChunk != nil {
+			attemptOnChunk = func(chunk StreamChunk) {
+				if chunk.Content != "" || len(chunk.Images) > 0 {
+					replayUnsafe = true
+				}
+				onChunk(chunk)
+			}
+		}
+		result, emitted, err := p.chatStreamOnce(ctx, req, attemptOnChunk)
 		if err == nil {
 			return result, nil
 		}
@@ -149,7 +161,10 @@ func (p *CodexProvider) ChatStream(ctx context.Context, req ChatRequest, onChunk
 		// Model ảnh từ chối tham số complexity mà backend suy ra từ reasoning.effort.
 		// Gọi lại đúng một lần không kèm reasoning để lượt vẽ ảnh không làm hỏng cả run.
 		// Lần gọi lại này không tính vào số lần retry và không cần chờ backoff.
-		if !reasoningDropped && isImageComplexityRejection(err) && hasThinkingLevel(req) && !codexResultHasReplayUnsafeOutput(result) {
+		// Thinking đã stream không chặn việc gọi lại: lượt gọi lại không có reasoning nên
+		// không sinh thinking trùng, và giữ lại một đoạn suy luận cũ trên UI đỡ tệ hơn
+		// để cả run chết.
+		if !reasoningDropped && isImageComplexityRejection(err) && hasThinkingLevel(req) && !replayUnsafe && !codexResultHasReplayUnsafeOutput(result) {
 			slog.Warn("codex: image model rejected reasoning-derived complexity, retrying without reasoning effort",
 				"provider", p.name, "model", req.Model, "error", err)
 			req = withoutThinkingLevel(req)

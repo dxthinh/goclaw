@@ -140,3 +140,42 @@ func TestIsImageComplexityRejection(t *testing.T) {
 		t.Error("nil không phải lỗi complexity")
 	}
 }
+
+// Chunk ảnh được phát ngay cho client nhưng chỉ vào result.Images khi stream kết thúc,
+// nên phải dựa vào những gì đã phát ra chứ không dựa vào result.
+func TestCodexChatStream_ImageComplexityRejection_NoReplayAfterImageChunk(t *testing.T) {
+	server, requests := complexityServer(t,
+		`{"type":"response.image_generation_call.partial_image","item_id":"ig_1","partial_image_b64":"aGVsbG8=","output_format":"png"}`)
+	p := complexityTestProvider(server.URL)
+
+	images := 0
+	_, err := p.ChatStream(context.Background(), ChatRequest{
+		Messages: []Message{{Role: "user", Content: "vẽ"}},
+		Options:  map[string]any{OptThinkingLevel: "high"},
+	}, func(c StreamChunk) { images += len(c.Images) })
+	if images == 0 {
+		t.Fatal("server giả lập phải phát ra chunk ảnh")
+	}
+	if err == nil || !strings.Contains(err.Error(), "Complexity") {
+		t.Fatalf("err = %v, muốn lỗi Complexity", err)
+	}
+	if n := len(requests()); n != 1 {
+		t.Errorf("số request = %d, muốn 1 vì ảnh đã phát ra", n)
+	}
+}
+
+func TestCodexChatStream_ImageComplexityRejection_NoReplayAfterTextChunk(t *testing.T) {
+	server, requests := complexityServer(t, `{"type":"response.output_text.delta","delta":"Em vẽ đây"}`)
+	p := complexityTestProvider(server.URL)
+
+	_, err := p.ChatStream(context.Background(), ChatRequest{
+		Messages: []Message{{Role: "user", Content: "vẽ"}},
+		Options:  map[string]any{OptThinkingLevel: "high"},
+	}, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("muốn lỗi")
+	}
+	if n := len(requests()); n != 1 {
+		t.Errorf("số request = %d, muốn 1 vì chữ đã phát ra", n)
+	}
+}
