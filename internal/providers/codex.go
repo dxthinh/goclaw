@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -137,12 +138,25 @@ func (p *CodexProvider) ChatStream(ctx context.Context, req ChatRequest, onChunk
 	}
 
 	var lastErr error
+	reasoningDropped := false
 	for attempt := 1; attempt <= cfg.Attempts; attempt++ {
 		result, emitted, err := p.chatStreamOnce(ctx, req, onChunk)
 		if err == nil {
 			return result, nil
 		}
 		lastErr = err
+
+		// Model ảnh từ chối tham số complexity mà backend suy ra từ reasoning.effort.
+		// Gọi lại đúng một lần không kèm reasoning để lượt vẽ ảnh không làm hỏng cả run.
+		// Lần gọi lại này không tính vào số lần retry và không cần chờ backoff.
+		if !reasoningDropped && isImageComplexityRejection(err) && hasThinkingLevel(req) && !codexResultHasReplayUnsafeOutput(result) {
+			slog.Warn("codex: image model rejected reasoning-derived complexity, retrying without reasoning effort",
+				"provider", p.name, "model", req.Model, "error", err)
+			req = withoutThinkingLevel(req)
+			reasoningDropped = true
+			attempt--
+			continue
+		}
 
 		// If any user-visible chunk already escaped, do not replay the run: retrying
 		// could duplicate streamed text/tool calls/images. Pre-output Codex backend
