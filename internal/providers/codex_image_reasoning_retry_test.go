@@ -82,19 +82,24 @@ func TestCodexChat_ImageComplexityRejection_RetriesWithoutReasoning(t *testing.T
 	}
 }
 
-func TestCodexChat_ImageComplexityRejection_NoReplayAfterVisibleText(t *testing.T) {
+// Không có callback thì chữ mở đầu mới chỉ nằm trong result, chưa tới nơi gọi: vẫn gọi
+// lại, và kết quả trả về chỉ gồm nội dung của lượt gọi lại.
+func TestCodexChat_ImageComplexityRejection_RetriesWhenTextOnlyBuffered(t *testing.T) {
 	server, requests := complexityServer(t, `{"type":"response.output_text.delta","delta":"Em vẽ đây"}`)
 	p := complexityTestProvider(server.URL)
 
-	_, err := p.Chat(context.Background(), ChatRequest{
+	result, err := p.Chat(context.Background(), ChatRequest{
 		Messages: []Message{{Role: "user", Content: "vẽ"}},
 		Options:  map[string]any{OptThinkingLevel: "high"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "Complexity") {
-		t.Fatalf("err = %v, muốn lỗi Complexity", err)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
 	}
-	if n := len(requests()); n != 1 {
-		t.Errorf("số request = %d, muốn 1 vì chữ đã phát ra", n)
+	if result.Content != "done" {
+		t.Errorf("Content = %q, muốn %q (không lẫn chữ của lượt bị bỏ)", result.Content, "done")
+	}
+	if n := len(requests()); n != 2 {
+		t.Errorf("số request = %d, muốn 2", n)
 	}
 }
 

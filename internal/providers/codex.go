@@ -140,8 +140,9 @@ func (p *CodexProvider) ChatStream(ctx context.Context, req ChatRequest, onChunk
 	var lastErr error
 	reasoningDropped := false
 	for attempt := 1; attempt <= cfg.Attempts; attempt++ {
-		// Theo dõi riêng chữ và ảnh đã tới tay client trong lượt gọi này: hai loại đó không
-		// thu hồi được, còn result chỉ nhận ảnh sau khi stream kết thúc nên không đủ để biết.
+		// Theo dõi chữ và ảnh đã tới tay client trong lượt gọi này: hai loại đó không thu hồi
+		// được. Nội dung chỉ nằm trong result (không có callback, hoặc tool call chỉ được ráp
+		// khi stream kết thúc) thì chưa tới ai, nên bỏ result đó đi và gọi lại là an toàn.
 		replayUnsafe := false
 		attemptOnChunk := onChunk
 		if onChunk != nil {
@@ -164,7 +165,7 @@ func (p *CodexProvider) ChatStream(ctx context.Context, req ChatRequest, onChunk
 		// Thinking đã stream không chặn việc gọi lại: lượt gọi lại không có reasoning nên
 		// không sinh thinking trùng, và giữ lại một đoạn suy luận cũ trên UI đỡ tệ hơn
 		// để cả run chết.
-		if !reasoningDropped && isImageComplexityRejection(err) && hasThinkingLevel(req) && !replayUnsafe && !codexResultHasReplayUnsafeOutput(result) {
+		if !reasoningDropped && isImageComplexityRejection(err) && hasThinkingLevel(req) && !replayUnsafe {
 			slog.Warn("codex: image model rejected reasoning-derived complexity, retrying without reasoning effort",
 				"provider", p.name, "model", req.Model, "error", err)
 			req = withoutThinkingLevel(req)

@@ -31,13 +31,3 @@ func withoutThinkingLevel(req ChatRequest) ChatRequest {
 	req.Options = opts
 	return req
 }
-
-// codexResultHasReplayUnsafeOutput cho biết lượt gọi đã sinh nội dung mà gọi lại sẽ
-// bị lặp: chữ trả lời, tool call hoặc ảnh. Phần thinking không tính vì lượt gọi lại
-// sẽ thay thế nó.
-func codexResultHasReplayUnsafeOutput(result *ChatResponse) bool {
-	if result == nil {
-		return false
-	}
-	return result.Content != "" || len(result.ToolCalls) > 0 || len(result.Images) > 0
-}
