@@ -252,7 +252,9 @@ func (d *gatewayDeps) runLifecycle(
 	// Task recovery ticker: re-dispatches stale/pending team tasks on startup and periodically.
 	var taskTicker *tasks.TaskTicker
 	if d.pgStores.Teams != nil {
-		taskTicker = tasks.NewTaskTicker(d.pgStores.Teams, d.pgStores.Agents, d.msgBus, deps.postTurn, d.cfg.Gateway.TaskRecoveryIntervalSec)
+		// postTurn là *tools.TeamToolManager khi team được bật; nó cũng dispatch lại task ticker recover.
+		redispatch, _ := deps.postTurn.(tasks.TaskRedispatcher)
+		taskTicker = tasks.NewTaskTicker(d.pgStores.Teams, d.pgStores.Agents, d.msgBus, redispatch, d.cfg.Gateway.TaskRecoveryIntervalSec)
 		taskTicker.Start()
 	}
 

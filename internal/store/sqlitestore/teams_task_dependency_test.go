@@ -110,3 +110,31 @@ func TestTeamTaskSQLite_QueuedBehindBusyOwnerNotStale(t *testing.T) {
 		t.Errorf("idle status = %q, want stale", got.Status)
 	}
 }
+
+// Recover chỉ trả về task thật sự vừa được đưa về pending, không gồm task
+// pending khác vừa được tạo.
+func TestTeamTaskSQLite_RecoverReturnsOnlyRecoveredRows(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		f := newDepFixture(t)
+		stuck := f.create(t, "stuck")
+		fresh := f.create(t, "fresh")
+		if err := f.teams.ClaimTask(f.ctx, stuck.ID, f.memberID, f.teamID); err != nil {
+			t.Fatalf("ClaimTask: %v", err)
+		}
+		mustExec(t, f.db, `UPDATE team_tasks SET lock_expires_at = ? WHERE id = ?`, time.Now().Add(-time.Hour), stuck.ID)
+
+		var got []store.RecoveredTaskInfo
+		var err error
+		if force {
+			got, err = f.teams.ForceRecoverAllTasks(f.ctx)
+		} else {
+			got, err = f.teams.RecoverAllStaleTasks(f.ctx)
+		}
+		if err != nil {
+			t.Fatalf("force=%v: recover: %v", force, err)
+		}
+		if len(got) != 1 || got[0].ID != stuck.ID {
+			t.Errorf("force=%v: recovered = %+v, want only %s (fresh %s không được tính)", force, got, stuck.ID, fresh.ID)
+		}
+	}
+}

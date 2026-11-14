@@ -431,38 +431,47 @@ const activeTeamJoin = `JOIN agent_teams tm ON tm.id = t.team_id
 func (s *SQLiteTeamStore) RecoverAllStaleTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	// SQLite: UPDATE ... FROM not supported in older versions; use subquery in WHERE.
-	_, err := s.db.ExecContext(ctx,
+	// RETURNING trả đúng các dòng vừa recover, để ticker không dispatch nhầm task
+	// pending khác vừa được tạo.
+	rows, err := s.db.QueryContext(ctx,
 		`UPDATE team_tasks SET status = ?, locked_at = NULL, lock_expires_at = NULL,
 		     followup_at = NULL, followup_count = 0, followup_message = NULL,
 		     followup_channel = NULL, followup_chat_id = NULL, updated_at = ?
 		 WHERE status = ? AND lock_expires_at IS NOT NULL AND lock_expires_at < ?
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
-		   )`,
+		   )
+		 `+recoveredTaskReturning,
 		store.TeamTaskStatusPending, now, store.TeamTaskStatusInProgress, now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return s.queryRecoveredTasks(ctx, store.TeamTaskStatusPending)
+	defer rows.Close()
+	return scanRecoveredTaskInfoRows(rows)
 }
+
+// recoveredTaskReturning trả về cột của RecoveredTaskInfo từ các dòng vừa UPDATE.
+const recoveredTaskReturning = `RETURNING id, team_id, tenant_id, task_number, subject, COALESCE(channel, ''), COALESCE(chat_id, '')`
 
 func (s *SQLiteTeamStore) ForceRecoverAllTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
-	_, err := s.db.ExecContext(ctx,
+	rows, err := s.db.QueryContext(ctx,
 		`UPDATE team_tasks SET status = ?, locked_at = NULL, lock_expires_at = NULL,
 		     followup_at = NULL, followup_count = 0, followup_message = NULL,
 		     followup_channel = NULL, followup_chat_id = NULL, updated_at = ?
 		 WHERE status = ?
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
-		   )`,
+		   )
+		 `+recoveredTaskReturning,
 		store.TeamTaskStatusPending, now, store.TeamTaskStatusInProgress,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return s.queryRecoveredTasks(ctx, store.TeamTaskStatusPending)
+	defer rows.Close()
+	return scanRecoveredTaskInfoRows(rows)
 }
 
 func (s *SQLiteTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID) ([]store.TeamTaskData, error) {

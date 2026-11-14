@@ -248,3 +248,39 @@ func TestDispatchMessageContent(t *testing.T) {
 		t.Errorf("dispatch_count = %v, want 1", got.Metadata["dispatch_count"])
 	}
 }
+
+// Owner đang chạy một task thì task pending của họ tiếp tục xếp hàng.
+func TestDispatchUnblocked_SkipsOwnerWithRunningTask(t *testing.T) {
+	h := newDispatchHarness(t)
+	member := testMemberID
+	h.addTask(&store.TeamTaskData{Subject: "running", Status: store.TeamTaskStatusInProgress, OwnerAgentID: &member})
+	queued := h.addTask(&store.TeamTaskData{Subject: "queued", Status: store.TeamTaskStatusPending, OwnerAgentID: &member})
+
+	h.mgr.DispatchUnblockedTasks(h.ctx(), testTeamID)
+
+	if got := h.status(queued.ID); got != store.TeamTaskStatusPending {
+		t.Errorf("queued status = %q, want pending (owner đang bận)", got)
+	}
+	if msgs := h.drainInbound(); len(msgs) != 0 {
+		t.Errorf("dispatch %d tin, want 0", len(msgs))
+	}
+}
+
+// DispatchRecoveredTasks chỉ dispatch đúng các task được chỉ định.
+func TestDispatchRecoveredTasks_OnlyListedTasks(t *testing.T) {
+	h := newDispatchHarness(t)
+	member := testMemberID
+	other := uuid.New()
+	h.mgr.agentStore.(*dispatchAgentStore).agents[other] = &store.AgentData{BaseModel: store.BaseModel{ID: other}, AgentKey: "other-agent"}
+	recovered := h.addTask(&store.TeamTaskData{Subject: "recovered", Status: store.TeamTaskStatusPending, OwnerAgentID: &member})
+	fresh := h.addTask(&store.TeamTaskData{Subject: "just created", Status: store.TeamTaskStatusPending, OwnerAgentID: &other})
+
+	h.mgr.DispatchRecoveredTasks(h.ctx(), testTeamID, []uuid.UUID{recovered.ID})
+
+	if got := h.status(recovered.ID); got != store.TeamTaskStatusInProgress {
+		t.Errorf("recovered status = %q, want in_progress", got)
+	}
+	if got := h.status(fresh.ID); got != store.TeamTaskStatusPending {
+		t.Errorf("task không được chỉ định bị dispatch: status = %q", got)
+	}
+}

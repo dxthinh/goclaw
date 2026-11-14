@@ -342,6 +342,42 @@ func (m *TeamToolManager) restoreTraceContext(ctx context.Context, task *store.T
 // Called after task completion/cancellation to start newly-unblocked work
 // instead of waiting for the ticker (up to 5 min delay).
 func (m *TeamToolManager) DispatchUnblockedTasks(ctx context.Context, teamID uuid.UUID) {
+	m.dispatchPendingTasks(ctx, teamID, nil)
+}
+
+// DispatchRecoveredTasks dispatch lại đúng các task ticker vừa đưa về pending
+// (khóa hết hạn hoặc vừa mở khóa). Không đụng task pending khác trong team, vì
+// task lead vừa tạo trong lượt đang chạy chưa qua kiểm tra post-turn.
+func (m *TeamToolManager) DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID) {
+	if len(taskIDs) == 0 {
+		return
+	}
+	only := make(map[uuid.UUID]bool, len(taskIDs))
+	for _, id := range taskIDs {
+		only[id] = true
+	}
+	m.dispatchPendingTasks(ctx, teamID, only)
+}
+
+// busyOwners trả về các owner đang giữ một task in_progress trong team, để
+// dispatch giữ đúng một task chạy mỗi owner.
+func (m *TeamToolManager) busyOwners(ctx context.Context, teamID uuid.UUID) (map[uuid.UUID]bool, error) {
+	active, err := m.teamStore.ListTasks(ctx, teamID, "", store.TeamTaskFilterActive, "", "", "", maxBlockedDependentsScan, 0)
+	if err != nil {
+		return nil, err
+	}
+	busy := make(map[uuid.UUID]bool)
+	for _, t := range active {
+		if t.Status == store.TeamTaskStatusInProgress && t.OwnerAgentID != nil {
+			busy[*t.OwnerAgentID] = true
+		}
+	}
+	return busy, nil
+}
+
+// dispatchPendingTasks dispatch task pending có owner, tối đa một task mỗi owner
+// và bỏ qua owner đang có task in_progress. only khác nil thì chỉ xét các task đó.
+func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.UUID, only map[uuid.UUID]bool) {
 	team, err := m.teamStore.GetTeam(ctx, teamID)
 	if err != nil || team == nil {
 		return
@@ -350,13 +386,20 @@ func (m *TeamToolManager) DispatchUnblockedTasks(ctx context.Context, teamID uui
 	if err != nil {
 		return
 	}
-	// Track which owners already have a task dispatched this round.
+	// Owner đang chạy một task thì task pending của họ tiếp tục xếp hàng.
 	// ListRecoverableTasks orders by priority DESC, created_at — so the first
 	// pending task per owner is automatically the highest priority.
-	dispatched := make(map[uuid.UUID]bool)
+	dispatched, err := m.busyOwners(ctx, teamID)
+	if err != nil {
+		slog.Warn("DispatchUnblockedTasks: cannot list active tasks", "team_id", teamID, "error", err)
+		return
+	}
 	for i := range tasks {
 		task := &tasks[i]
 		if task.Status != store.TeamTaskStatusPending || task.OwnerAgentID == nil {
+			continue
+		}
+		if only != nil && !only[task.ID] {
 			continue
 		}
 		ownerID := *task.OwnerAgentID

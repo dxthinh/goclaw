@@ -26,14 +26,14 @@ const (
 )
 
 // TaskTicker periodically recovers stale tasks and re-dispatches pending work
-// (via postTurn.DispatchUnblockedTasks for each team with recovered tasks).
+// (via DispatchRecoveredTasks, only for the tasks it recovered).
 // All recovery/stale/followup queries are batched across v2 active teams (single SQL each).
 type TaskTicker struct {
-	teams    store.TeamStore
-	agents   store.AgentStore
-	msgBus   *bus.MessageBus
-	postTurn tools.PostTurnProcessor // dispatch lại task sau khi recover; nil thì bỏ qua
-	interval time.Duration
+	teams      store.TeamStore
+	agents     store.AgentStore
+	msgBus     *bus.MessageBus
+	redispatch TaskRedispatcher // dispatch lại task sau khi recover; nil thì bỏ qua
+	interval   time.Duration
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -42,7 +42,15 @@ type TaskTicker struct {
 	lastFollowupSent map[uuid.UUID]time.Time // taskID → last followup sent time
 }
 
-func NewTaskTicker(teams store.TeamStore, agents store.AgentStore, msgBus *bus.MessageBus, postTurn tools.PostTurnProcessor, intervalSec int) *TaskTicker {
+// TaskRedispatcher dispatch lại đúng các task ticker vừa đưa về pending.
+// *tools.TeamToolManager cài interface này.
+type TaskRedispatcher interface {
+	DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID)
+}
+
+var _ TaskRedispatcher = (*tools.TeamToolManager)(nil)
+
+func NewTaskTicker(teams store.TeamStore, agents store.AgentStore, msgBus *bus.MessageBus, redispatch TaskRedispatcher, intervalSec int) *TaskTicker {
 	interval := defaultRecoveryInterval
 	if intervalSec > 0 {
 		interval = time.Duration(intervalSec) * time.Second
@@ -51,7 +59,7 @@ func NewTaskTicker(teams store.TeamStore, agents store.AgentStore, msgBus *bus.M
 		teams:            teams,
 		agents:           agents,
 		msgBus:           msgBus,
-		postTurn:         postTurn,
+		redispatch:       redispatch,
 		interval:         interval,
 		stopCh:           make(chan struct{}),
 		lastFollowupSent: make(map[uuid.UUID]time.Time),
@@ -177,27 +185,30 @@ func (t *TaskTicker) recoverAll(forceRecover bool) {
 	t.pruneCooldowns()
 }
 
-// dispatchRecovered gọi DispatchUnblockedTasks một lần cho mỗi cặp tenant/team
-// có task vừa trở về pending. Context mang tenant để store lọc đúng phạm vi.
+// dispatchRecovered gọi DispatchRecoveredTasks một lần cho mỗi cặp tenant/team,
+// chỉ với các task vừa trở về pending. Context mang tenant để store lọc đúng phạm vi.
 func (t *TaskTicker) dispatchRecovered(ctx context.Context, groups ...[]store.RecoveredTaskInfo) {
-	if t.postTurn == nil {
+	if t.redispatch == nil {
 		return
 	}
 	type teamKey struct{ TeamID, TenantID uuid.UUID }
-	seen := map[teamKey]bool{}
+	byTeam := map[teamKey][]uuid.UUID{}
+	var order []teamKey
 	for _, list := range groups {
 		for _, task := range list {
 			key := teamKey{TeamID: task.TeamID, TenantID: task.TenantID}
-			if seen[key] {
-				continue
+			if _, ok := byTeam[key]; !ok {
+				order = append(order, key)
 			}
-			seen[key] = true
-			scopeCtx := ctx
-			if task.TenantID != uuid.Nil {
-				scopeCtx = store.WithTenantID(ctx, task.TenantID)
-			}
-			t.postTurn.DispatchUnblockedTasks(scopeCtx, task.TeamID)
+			byTeam[key] = append(byTeam[key], task.ID)
 		}
+	}
+	for _, key := range order {
+		scopeCtx := ctx
+		if key.TenantID != uuid.Nil {
+			scopeCtx = store.WithTenantID(ctx, key.TenantID)
+		}
+		t.redispatch.DispatchRecoveredTasks(scopeCtx, key.TeamID, byTeam[key])
 	}
 }
 

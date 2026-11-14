@@ -13,19 +13,22 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
-// dispatchRecorder ghi lại các lần ticker gọi DispatchUnblockedTasks.
+// dispatchCall là một lần ticker gọi DispatchRecoveredTasks.
+type dispatchCall struct {
+	TeamID   uuid.UUID
+	TenantID uuid.UUID
+	TaskIDs  []uuid.UUID
+}
+
+// dispatchRecorder ghi lại các lần ticker gọi DispatchRecoveredTasks.
 type dispatchRecorder struct {
 	mu    sync.Mutex
-	calls []getTeamCall
+	calls []dispatchCall
 }
 
-func (r *dispatchRecorder) ProcessPendingTasks(context.Context, uuid.UUID, []uuid.UUID) error {
-	return nil
-}
-
-func (r *dispatchRecorder) DispatchUnblockedTasks(ctx context.Context, teamID uuid.UUID) {
+func (r *dispatchRecorder) DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID) {
 	r.mu.Lock()
-	r.calls = append(r.calls, getTeamCall{TeamID: teamID, TenantID: store.TenantIDFromContext(ctx)})
+	r.calls = append(r.calls, dispatchCall{TeamID: teamID, TenantID: store.TenantIDFromContext(ctx), TaskIDs: taskIDs})
 	r.mu.Unlock()
 }
 
@@ -134,19 +137,29 @@ func TestTickerHints_StaleReviewDoesNotSuggestApprove(t *testing.T) {
 	}
 }
 
-// Ticker phải dispatch lại task đã recover ngay trong nhịp đó, với context mang tenant.
+// Ticker phải dispatch lại task đã recover ngay trong nhịp đó, với context mang
+// tenant, và chỉ với đúng các task nó vừa đưa về pending.
 func TestTicker_RedispatchesRecoveredTasks(t *testing.T) {
 	for _, force := range []bool{true, false} {
 		h := newTickerHarness()
 		h.tt.recoverAll(force)
 		h.recorder.mu.Lock()
-		calls := append([]getTeamCall(nil), h.recorder.calls...)
+		calls := append([]dispatchCall(nil), h.recorder.calls...)
 		h.recorder.mu.Unlock()
 		if len(calls) != 1 {
-			t.Fatalf("force=%v: DispatchUnblockedTasks calls = %d, want 1 (một lần mỗi team)", force, len(calls))
+			t.Fatalf("force=%v: DispatchRecoveredTasks calls = %d, want 1 (một lần mỗi team)", force, len(calls))
 		}
 		if calls[0].TeamID != h.teamID || calls[0].TenantID != h.tenantID {
 			t.Errorf("force=%v: dispatch call = %+v, want team %s tenant %s", force, calls[0], h.teamID, h.tenantID)
+		}
+		want := map[uuid.UUID]bool{h.ts.recovered[0].ID: true, h.ts.orphans[0].ID: true}
+		if len(calls[0].TaskIDs) != len(want) {
+			t.Fatalf("force=%v: task IDs = %v, want recovered + orphan", force, calls[0].TaskIDs)
+		}
+		for _, id := range calls[0].TaskIDs {
+			if !want[id] {
+				t.Errorf("force=%v: dispatch task %s không do ticker recover", force, id)
+			}
 		}
 	}
 }
