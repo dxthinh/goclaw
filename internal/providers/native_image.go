@@ -29,12 +29,18 @@ type ImageModelInfo struct {
 }
 
 // nativeImageModels is the curated catalog of image models the ChatGPT Responses
-// API image_generation tool accepts, newest first. The ChatGPT backend exposes no
+// API image_generation tool accepts, default first. The ChatGPT backend exposes no
 // image-model listing endpoint (GET /codex/models only returns chat models), so
 // this catalog is the single source the web UI reads via the provider models API.
+//
+// GPT Image 2.6 (2026-11-04) được liệt kê để chọn thủ công nhưng chưa làm mặc định:
+// tài liệu công khai chỉ xác nhận 2.6 trên Image API, chưa xác nhận trên tool
+// image_generation của Responses API mà đường ChatGPT OAuth này dùng.
 var nativeImageModels = []ImageModelInfo{
 	{ID: "gpt-image-2.5-flare", Name: "GPT Image 2.5 Flare"},       // default - fastest at high quality
 	{ID: "gpt-image-2.5-sunburst", Name: "GPT Image 2.5 Sunburst"}, // most capable at editing precision
+	{ID: "gpt-image-2.6-flare", Name: "GPT Image 2.6 Flare"},       // newest, fast iteration
+	{ID: "gpt-image-2.6-sunburst", Name: "GPT Image 2.6 Sunburst"}, // newest, detailed work
 	{ID: "gpt-image-2", Name: "GPT Image 2"},                       // previous generation
 	{ID: "gpt-image-1.5", Name: "GPT Image 1.5"},                   // legacy fallback
 }

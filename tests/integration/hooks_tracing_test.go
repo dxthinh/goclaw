@@ -36,6 +36,8 @@ func TestHooksTracing_EmitHookSpan(t *testing.T) {
 		ID:        traceID,
 		Status:    store.SpanStatusCompleted,
 		StartTime: time.Now().Add(-5 * time.Second),
+		// CreatedAt zero sẽ bị pruneOldTraces xóa, xem chú thích ở test dispatcher bên dưới.
+		CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("CreateTrace: %v", err)
 	}
@@ -90,6 +92,10 @@ func TestHooksTracing_DispatcherEmitsSpan(t *testing.T) {
 	if err := c.CreateTrace(tenantCtx(tenantID), &store.TraceData{
 		ID: traceID, Status: store.SpanStatusCompleted,
 		StartTime: time.Now().Add(-5 * time.Second),
+		// Phải đặt CreatedAt: Start() chạy pruneOldTraces trong goroutine và xóa mọi trace
+		// có created_at cũ hơn hạn giữ. Giá trị zero sẽ bị xóa nếu prune chạy sau lệnh
+		// insert này, làm span không ghi được vì mất khóa ngoại.
+		CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("CreateTrace: %v", err)
 	}
