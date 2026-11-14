@@ -204,6 +204,7 @@ Tasks can declare `blocked_by` — a list of prerequisite task IDs. When a task 
 - Task remains blocked until ALL prerequisites are completed
 - When a blocking task completes, all dependent tasks with now-satisfied blockers automatically transition from `blocked` → `pending`
 - Cancelled tasks (via `cancel` or `reject`) also unblock their dependents
+- Failed tasks do **not** unblock their dependents: they stay `blocked` until the lead retries the failed task (and it completes) or cancels it. The failure notice to the lead lists the tasks still blocked
 
 The `blocked` status is one of 8 possible statuses: `pending`, `in_progress`, `in_review`, `completed`, `failed`, `cancelled`, `blocked`, `stale`.
 
@@ -452,7 +453,10 @@ The `spawn` tool no longer accepts an `agent` parameter. If an LLM attempts `spa
 
 - **Lead self-dispatch guard**: Tasks assigned to the lead agent are auto-failed (prevents dual-session loop).
 - **Circuit breaker**: Tasks auto-fail after 3 dispatch attempts (`maxTaskDispatches`). Prevents infinite loops when agents can't complete a task.
-- **Dispatch count tracking**: Each dispatch increments `metadata.dispatch_count`.
+- **Dispatch count tracking**: Each dispatch increments `metadata.dispatch_count`. An explicit `retry` or `reject` resets it to 0, so the breaker only counts re-dispatches caused by failures.
+- **Visible failures**: Every dispatch failure (lead guard, circuit breaker, unknown agent, full inbound queue) marks the task `failed`, broadcasts `team.task.failed` and notifies the lead.
+- **Recovery re-dispatch**: When the task ticker resets tasks with expired locks to `pending` (or unblocks orphaned tasks), it dispatches them again in the same tick. Pending tasks queued behind a busy owner are not marked `stale`.
+- **Owner check**: Only the task owner or the lead can `complete` a task. `approve` and `reject` through the tool always require the lead; dashboard users approve through the `teams.tasks.approve` / `teams.tasks.reject` RPCs.
 
 ### Auto-Completion
 
