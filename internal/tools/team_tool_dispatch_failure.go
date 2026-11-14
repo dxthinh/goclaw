@@ -15,8 +15,12 @@ import (
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
-// maxBlockedDependentsScan giới hạn số task active đọc khi tìm task bị chặn.
-const maxBlockedDependentsScan = 200
+// maxBlockedDependentsScan là cỡ trang khi đọc task active để tìm task bị chặn;
+// maxBlockedDependentsPages chặn trên tổng số trang (10.000 task).
+const (
+	maxBlockedDependentsScan  = 200
+	maxBlockedDependentsPages = 50
+)
 
 // failDispatch đánh dấu task thất bại khi không dispatch được, phát event và báo lead.
 // Trạng thái task trong bộ nhớ có thể đã cũ (caller vừa AssignTask), nên thử
@@ -119,22 +123,31 @@ func resetDispatchCount(task *store.TeamTaskData) {
 }
 
 // ListBlockedDependents trả về các task đang blocked chờ taskID.
-// Dùng ListTasks có sẵn rồi lọc BlockedBy trong Go, không thêm truy vấn store mới.
+// Dùng ListTasks có sẵn, đọc theo trang tới hết danh sách active, rồi lọc
+// BlockedBy trong Go, không thêm truy vấn store mới.
 func ListBlockedDependents(ctx context.Context, teamStore store.TeamStore, teamID, taskID uuid.UUID) []store.TeamTaskData {
 	if teamStore == nil {
 		return nil
 	}
-	tasks, err := teamStore.ListTasks(ctx, teamID, "", store.TeamTaskFilterActive, "", "", "", maxBlockedDependentsScan, 0)
-	if err != nil {
-		slog.Warn("team_tasks: list blocked dependents failed", "task_id", taskID, "error", err)
-		return nil
-	}
 	var out []store.TeamTaskData
-	for _, t := range tasks {
-		if t.Status == store.TeamTaskStatusBlocked && slices.Contains(t.BlockedBy, taskID) {
-			out = append(out, t)
+	for page, offset := 0, 0; page < maxBlockedDependentsPages; page, offset = page+1, offset+maxBlockedDependentsScan {
+		tasks, err := teamStore.ListTasks(ctx, teamID, "", store.TeamTaskFilterActive, "", "", "", maxBlockedDependentsScan, offset)
+		if err != nil {
+			slog.Warn("team_tasks: list blocked dependents failed", "task_id", taskID, "error", err)
+			return out
+		}
+		// ListTasks có thể trả thêm một dòng để báo còn trang sau; dòng đó
+		// thuộc trang kế nên chỉ xét maxBlockedDependentsScan dòng đầu.
+		for _, t := range tasks[:min(len(tasks), maxBlockedDependentsScan)] {
+			if t.Status == store.TeamTaskStatusBlocked && slices.Contains(t.BlockedBy, taskID) {
+				out = append(out, t)
+			}
+		}
+		if len(tasks) <= maxBlockedDependentsScan {
+			return out
 		}
 	}
+	slog.Warn("team_tasks: blocked dependents scan stopped at page limit", "task_id", taskID, "pages", maxBlockedDependentsPages)
 	return out
 }
 

@@ -393,3 +393,39 @@ func TestDispatch_ConcurrentCallsKeepOneTaskPerOwner(t *testing.T) {
 		t.Errorf("in_progress tasks = %d, want 1 (một task mỗi owner)", running)
 	}
 }
+
+// pagedListStore phân trang ListTasks giống store thật (trả tối đa limit+1 dòng
+// theo thứ tự ổn định), để kiểm tra việc đọc qua nhiều trang.
+type pagedListStore struct {
+	*mockTaskStore
+	ordered []uuid.UUID
+}
+
+func (s pagedListStore) ListTasks(_ context.Context, _ uuid.UUID, _, _, _, _, _ string, limit, offset int) ([]store.TeamTaskData, error) {
+	var out []store.TeamTaskData
+	for i := offset; i < len(s.ordered) && len(out) < limit+1; i++ {
+		out = append(out, *s.tasks[s.ordered[i]])
+	}
+	return out, nil
+}
+
+func TestListBlockedDependents_ReadsAllPages(t *testing.T) {
+	h := newDispatchHarness(t)
+	upstream := uuid.New()
+	ps := pagedListStore{mockTaskStore: h.tasks}
+	var want uuid.UUID
+	for i := range 450 {
+		task := h.addTask(&store.TeamTaskData{Subject: fmt.Sprintf("task %d", i), Status: store.TeamTaskStatusPending})
+		if i == 420 {
+			want = task.ID
+			h.tasks.tasks[task.ID].Status = store.TeamTaskStatusBlocked
+			h.tasks.tasks[task.ID].BlockedBy = []uuid.UUID{upstream}
+		}
+		ps.ordered = append(ps.ordered, task.ID)
+	}
+
+	got := ListBlockedDependents(h.ctx(), ps, testTeamID, upstream)
+	if len(got) != 1 || got[0].ID != want {
+		t.Fatalf("dependents = %d, want task ở trang thứ ba", len(got))
+	}
+}
