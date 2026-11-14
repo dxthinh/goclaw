@@ -386,15 +386,13 @@ func (m *TeamToolManager) DispatchRecoveredTasks(ctx context.Context, teamID uui
 // busyOwners trả về các owner đang giữ một task in_progress trong team, để
 // dispatch giữ đúng một task chạy mỗi owner.
 func (m *TeamToolManager) busyOwners(ctx context.Context, teamID uuid.UUID) (map[uuid.UUID]bool, error) {
-	active, err := m.teamStore.ListTasks(ctx, teamID, "", store.TeamTaskFilterActive, "", "", "", maxBlockedDependentsScan, 0)
+	owners, err := m.teamStore.ListBusyTaskOwners(ctx, teamID)
 	if err != nil {
 		return nil, err
 	}
-	busy := make(map[uuid.UUID]bool)
-	for _, t := range active {
-		if t.Status == store.TeamTaskStatusInProgress && t.OwnerAgentID != nil {
-			busy[*t.OwnerAgentID] = true
-		}
+	busy := make(map[uuid.UUID]bool, len(owners))
+	for _, id := range owners {
+		busy[id] = true
 	}
 	return busy, nil
 }

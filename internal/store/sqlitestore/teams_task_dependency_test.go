@@ -138,3 +138,19 @@ func TestTeamTaskSQLite_RecoverReturnsOnlyRecoveredRows(t *testing.T) {
 		}
 	}
 }
+
+func TestTeamTaskSQLite_ListBusyTaskOwners(t *testing.T) {
+	f := newDepFixture(t)
+	running := f.create(t, "running")
+	f.create(t, "pending")
+	if err := f.teams.ClaimTask(f.ctx, running.ID, f.memberID, f.teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	owners, err := f.teams.ListBusyTaskOwners(f.ctx, f.teamID)
+	if err != nil {
+		t.Fatalf("ListBusyTaskOwners: %v", err)
+	}
+	if len(owners) != 1 || owners[0] != f.memberID {
+		t.Errorf("owners = %v, want [%s]", owners, f.memberID)
+	}
+}

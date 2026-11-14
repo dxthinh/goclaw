@@ -474,6 +474,27 @@ func (s *SQLiteTeamStore) ForceRecoverAllTasks(ctx context.Context) ([]store.Rec
 	return scanRecoveredTaskInfoRows(rows)
 }
 
+// ListBusyTaskOwners trả về các owner đang giữ task in_progress trong team.
+func (s *SQLiteTeamStore) ListBusyTaskOwners(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT owner_agent_id FROM team_tasks
+		 WHERE team_id = ? AND tenant_id = ? AND status = ? AND owner_agent_id IS NOT NULL`,
+		teamID, tenantIDForInsert(ctx), store.TeamTaskStatusInProgress)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 func (s *SQLiteTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID) ([]store.TeamTaskData, error) {
 	now := time.Now()
 	tid := tenantIDForInsert(ctx)

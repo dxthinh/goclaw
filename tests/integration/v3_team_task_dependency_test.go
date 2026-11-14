@@ -167,3 +167,30 @@ func TestTeamTask_QueuedBehindBusyOwnerNotStale(t *testing.T) {
 		t.Errorf("queued status = %q, want pending", got.Status)
 	}
 }
+
+func TestTeamTask_ListBusyTaskOwners(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, memberID := seedTeam(t, db, tenantID, agentID)
+
+	running := makeTask(teamID, "running", store.TeamTaskStatusPending)
+	pending := makeTask(teamID, "pending", store.TeamTaskStatusPending)
+	for _, tk := range []*store.TeamTaskData{running, pending} {
+		if err := ts.CreateTask(ctx, tk); err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+	}
+	if err := ts.ClaimTask(ctx, running.ID, memberID, teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	owners, err := ts.ListBusyTaskOwners(ctx, teamID)
+	if err != nil {
+		t.Fatalf("ListBusyTaskOwners: %v", err)
+	}
+	if len(owners) != 1 || owners[0] != memberID {
+		t.Errorf("owners = %v, want [%s]", owners, memberID)
+	}
+}

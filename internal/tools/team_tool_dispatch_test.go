@@ -335,3 +335,25 @@ func TestDispatchRecoveredTasks_NotLimitedByRecoverableListCap(t *testing.T) {
 		t.Errorf("recovered status = %q, want in_progress", got)
 	}
 }
+
+// cappedBoardStore mô phỏng bảng task có quá nhiều dòng active: danh sách
+// ListTasks bị cắt và không còn chứa task in_progress của owner.
+type cappedBoardStore struct{ *mockTaskStore }
+
+func (s cappedBoardStore) ListTasks(context.Context, uuid.UUID, string, string, string, string, string, int, int) ([]store.TeamTaskData, error) {
+	return nil, nil
+}
+
+func TestDispatchUnblocked_BusyOwnerNotHiddenByBoardCap(t *testing.T) {
+	h := newDispatchHarness(t)
+	h.mgr = NewTeamToolManager(cappedBoardStore{h.tasks}, h.mgr.agentStore, h.bus, t.TempDir())
+	member := testMemberID
+	h.addTask(&store.TeamTaskData{Subject: "running", Status: store.TeamTaskStatusInProgress, OwnerAgentID: &member})
+	queued := h.addTask(&store.TeamTaskData{Subject: "queued", Status: store.TeamTaskStatusPending, OwnerAgentID: &member})
+
+	h.mgr.DispatchUnblockedTasks(h.ctx(), testTeamID)
+
+	if got := h.status(queued.ID); got != store.TeamTaskStatusPending {
+		t.Errorf("queued status = %q, want pending (owner đang bận)", got)
+	}
+}

@@ -174,6 +174,9 @@ func (b *baseNoopTeamStore) ForceRecoverAllTasks(_ context.Context) ([]store.Rec
 func (b *baseNoopTeamStore) ListRecoverableTasks(_ context.Context, _ uuid.UUID) ([]store.TeamTaskData, error) {
 	return nil, fmt.Errorf("not implemented: ListRecoverableTasks")
 }
+func (b *baseNoopTeamStore) ListBusyTaskOwners(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
+	return nil, fmt.Errorf("not implemented: ListBusyTaskOwners")
+}
 func (b *baseNoopTeamStore) MarkAllStaleTasks(_ context.Context, _ time.Time) ([]store.RecoveredTaskInfo, error) {
 	return nil, fmt.Errorf("not implemented: MarkAllStaleTasks")
 }
@@ -727,6 +730,20 @@ func (s *mockTaskStore) ListRecoverableTasks(_ context.Context, teamID uuid.UUID
 		}
 		if t.Status == store.TeamTaskStatusPending || t.Status == store.TeamTaskStatusStale {
 			out = append(out, *t)
+		}
+	}
+	return out, nil
+}
+
+func (s *mockTaskStore) ListBusyTaskOwners(_ context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[uuid.UUID]bool{}
+	var out []uuid.UUID
+	for _, t := range s.tasks {
+		if t.TeamID == teamID && t.Status == store.TeamTaskStatusInProgress && t.OwnerAgentID != nil && !seen[*t.OwnerAgentID] {
+			seen[*t.OwnerAgentID] = true
+			out = append(out, *t.OwnerAgentID)
 		}
 	}
 	return out, nil

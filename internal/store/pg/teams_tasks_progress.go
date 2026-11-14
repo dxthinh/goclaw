@@ -121,6 +121,28 @@ func (s *PGTeamStore) ForceRecoverAllTasks(ctx context.Context) ([]store.Recover
 	return scanRecoveredTaskInfoRows(rows)
 }
 
+// ListBusyTaskOwners trả về các owner đang giữ task in_progress trong team.
+// Dùng index idx_tt_owner_status (team_id, owner_agent_id, status).
+func (s *PGTeamStore) ListBusyTaskOwners(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT owner_agent_id FROM team_tasks
+		 WHERE team_id = $1 AND tenant_id = $2 AND status = $3 AND owner_agent_id IS NOT NULL`,
+		teamID, tenantIDForInsert(ctx), store.TeamTaskStatusInProgress)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // ListRecoverableTasks returns pending + stale-locked tasks for a single team.
 // Used by DispatchUnblockedTasks after task completion.
 func (s *PGTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID) ([]store.TeamTaskData, error) {
