@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -65,7 +66,7 @@ func (m *TeamToolManager) failDispatch(ctx context.Context, task *store.TeamTask
 	if s, ok := task.Metadata["origin_sender_id"].(string); ok && s != "" {
 		meta[MetaOriginSenderID] = s
 	}
-	if !m.TryPublishInbound(bus.InboundMessage{
+	m.publishLeadNotice(bus.InboundMessage{
 		Channel:  channel,
 		SenderID: "system:escalation", // cùng đường giao ngay như escalation của blocker
 		ChatID:   chatID,
@@ -75,10 +76,37 @@ func (m *TeamToolManager) failDispatch(ctx context.Context, task *store.TeamTask
 		PeerKind: peerKind,
 		TenantID: store.TenantIDFromContext(ctx),
 		AgentID:  leadAg.AgentKey,
-	}) {
-		slog.Warn("team_tasks.dispatch: failure notice to lead dropped (bus unavailable or buffer full)",
-			"task_id", task.ID, "lead", leadAg.AgentKey)
+	}, task.ID)
+}
+
+// Nhịp và số lần thử lại khi gửi tin báo lead gặp hàng đợi inbound đầy.
+// Là biến để test rút ngắn được.
+var (
+	leadNoticeRetryInterval = 2 * time.Second
+	leadNoticeMaxRetries    = 60
+)
+
+// publishLeadNotice gửi tin báo lead. Khi hàng đợi inbound đầy (chính lý do một
+// số dispatch thất bại), thử lại trong goroutine nền thay vì bỏ tin: task đã
+// failed nên ticker sẽ không nhắc lại, tin này là thông báo duy nhất cho lead.
+func (m *TeamToolManager) publishLeadNotice(msg bus.InboundMessage, taskID uuid.UUID) {
+	if m.msgBus == nil {
+		return
 	}
+	if m.msgBus.TryPublishInbound(msg) {
+		return
+	}
+	interval, retries := leadNoticeRetryInterval, leadNoticeMaxRetries
+	go func() {
+		for range retries {
+			time.Sleep(interval)
+			if m.msgBus.TryPublishInbound(msg) {
+				return
+			}
+		}
+		slog.Warn("team_tasks.dispatch: failure notice to lead dropped after retries (inbound queue stayed full)",
+			"task_id", taskID, "lead", msg.AgentID)
+	}()
 }
 
 // resetDispatchCount đặt bộ đếm dispatch về 0 trước một lần dispatch có chủ ý

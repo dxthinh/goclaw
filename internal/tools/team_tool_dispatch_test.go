@@ -284,3 +284,33 @@ func TestDispatchRecoveredTasks_OnlyListedTasks(t *testing.T) {
 		t.Errorf("task không được chỉ định bị dispatch: status = %q", got)
 	}
 }
+
+// Hàng đợi đầy: tin báo lead được thử lại và tới nơi khi hàng đợi có chỗ.
+func TestDispatchFailure_FullQueueLeadNoticeIsRetried(t *testing.T) {
+	oldInterval, oldMax := leadNoticeRetryInterval, leadNoticeMaxRetries
+	leadNoticeRetryInterval, leadNoticeMaxRetries = 10*time.Millisecond, 200
+	t.Cleanup(func() { leadNoticeRetryInterval, leadNoticeMaxRetries = oldInterval, oldMax })
+
+	h := newDispatchHarness(t)
+	member := testMemberID
+	task := h.addTask(&store.TeamTaskData{Subject: "dropped task", Status: store.TeamTaskStatusInProgress, OwnerAgentID: &member})
+	for h.bus.TryPublishInbound(bus.InboundMessage{Content: "filler"}) {
+	}
+
+	h.mgr.dispatchTaskToAgent(h.ctx(), task, h.team, testMemberID)
+
+	// Consumer bắt đầu đọc hàng đợi: tin báo lead phải xuất hiện.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		msg, ok := h.bus.ConsumeInbound(ctx)
+		cancel()
+		if ok && msg.AgentID == "lead-agent" {
+			if !strings.Contains(msg.Content, task.ID.String()) {
+				t.Errorf("tin báo lead không nêu task: %s", msg.Content)
+			}
+			return
+		}
+	}
+	t.Fatal("lead không nhận được tin báo sau khi hàng đợi có chỗ")
+}
