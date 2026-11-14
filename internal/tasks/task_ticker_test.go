@@ -131,7 +131,7 @@ func (s *stubAgentStore) GetByID(ctx context.Context, id uuid.UUID) (*store.Agen
 func TestNewTaskTicker_DefaultInterval(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 0)
+	tt := NewTaskTicker(ts, as, nil, nil, 0)
 	if tt.interval != defaultRecoveryInterval {
 		t.Errorf("interval = %v, want %v", tt.interval, defaultRecoveryInterval)
 	}
@@ -140,7 +140,7 @@ func TestNewTaskTicker_DefaultInterval(t *testing.T) {
 func TestNewTaskTicker_CustomInterval(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 7)
+	tt := NewTaskTicker(ts, as, nil, nil, 7)
 	if tt.interval != 7*time.Second {
 		t.Errorf("interval = %v, want 7s", tt.interval)
 	}
@@ -149,7 +149,7 @@ func TestNewTaskTicker_CustomInterval(t *testing.T) {
 func TestNewTaskTicker_NegativeIntervalUsesDefault(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, -1)
+	tt := NewTaskTicker(ts, as, nil, nil, -1)
 	if tt.interval != defaultRecoveryInterval {
 		t.Errorf("interval = %v, want default", tt.interval)
 	}
@@ -161,7 +161,7 @@ func TestTaskTicker_StartStop(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
 	// Use a large interval so periodic ticks don't fire.
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 	tt.Start()
 	tt.Stop() // must not block
 
@@ -174,7 +174,7 @@ func TestTaskTicker_StartStop(t *testing.T) {
 func TestTaskTicker_StopIsIdempotentAndClean(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 	tt.Start()
 
 	done := make(chan struct{})
@@ -196,7 +196,7 @@ func TestTaskTicker_PeriodicTick_CallsRecoverOnTick(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
 	// Very short interval so we get at least one tick.
-	tt := NewTaskTicker(ts, as, nil, 0)
+	tt := NewTaskTicker(ts, as, nil, nil, 0)
 	// Override interval to something tiny.
 	tt.interval = 10 * time.Millisecond
 
@@ -224,7 +224,7 @@ func TestTaskTicker_PeriodicTick_CallsRecoverOnTick(t *testing.T) {
 func TestTaskTicker_RecoverAll_ForceRecoverCalled(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 
 	tt.recoverAll(true)
 
@@ -239,7 +239,7 @@ func TestTaskTicker_RecoverAll_ForceRecoverCalled(t *testing.T) {
 func TestTaskTicker_RecoverAll_StaleCalled(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 
 	tt.recoverAll(false)
 
@@ -261,7 +261,7 @@ func TestTaskTicker_RecoverAll_ErrorsAreToleratedGracefully(t *testing.T) {
 		staleErr:        errors.New("db offline"),
 	}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 
 	// Must not panic
 	tt.recoverAll(true)
@@ -305,7 +305,7 @@ func TestFollowupInterval_InvalidJSONUsesDefault(t *testing.T) {
 func TestPruneCooldowns_RemovesExpiredEntries(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 
 	id1 := uuid.New()
 	id2 := uuid.New()
@@ -328,7 +328,7 @@ func TestPruneCooldowns_RemovesExpiredEntries(t *testing.T) {
 func TestPruneCooldowns_EmptyMapIsNoop(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 	tt.pruneCooldowns() // must not panic
 }
 
@@ -338,7 +338,7 @@ func TestProcessTeamFollowups_CooldownPreventsRepeat(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	taskID := uuid.New()
 	// Mark as sent recently.
@@ -369,7 +369,7 @@ func TestProcessTeamFollowups_SkipsEmptyChannel(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	taskID := uuid.New()
 	tasks := []store.TeamTaskData{
@@ -392,7 +392,7 @@ func TestProcessTeamFollowups_SendsReminderWhenEligible(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	taskID := uuid.New()
 	tasks := []store.TeamTaskData{
@@ -426,7 +426,7 @@ func TestProcessTeamFollowups_MaxReached_NoNextAt(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	taskID := uuid.New()
 	tasks := []store.TeamTaskData{
@@ -453,7 +453,7 @@ func TestProcessTeamFollowups_MaxReached_NoNextAt(t *testing.T) {
 func TestNotifyLeaders_NilMsgBusIsNoop(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 
 	// Must not panic even with tasks.
 	tt.notifyLeaders(context.Background(), []store.RecoveredTaskInfo{
@@ -466,7 +466,7 @@ func TestNotifyLeaders_NilMsgBusIsNoop(t *testing.T) {
 func TestTaskTicker_ConcurrentStartStop_Race(t *testing.T) {
 	ts := &stubTeamStore{}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 	tt.Start()
 
 	var wg sync.WaitGroup
@@ -485,7 +485,7 @@ func TestTaskTicker_ConcurrentStartStop_Race(t *testing.T) {
 func TestProcessFollowups_NoTasksIsNoop(t *testing.T) {
 	ts := &stubTeamStore{followupTasks: nil}
 	as := &stubAgentStore{}
-	tt := NewTaskTicker(ts, as, nil, 3600)
+	tt := NewTaskTicker(ts, as, nil, nil, 3600)
 
 	tt.processFollowups(context.Background())
 
@@ -539,7 +539,7 @@ func TestNotifyLeaders_NilTeam_NoPanic(t *testing.T) {
 	}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	// Must not panic.
 	tt.notifyLeaders(context.Background(), []store.RecoveredTaskInfo{
@@ -586,7 +586,7 @@ func TestNotifyLeaders_MultiTenantCacheIsolation(t *testing.T) {
 		},
 	}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	tasks := []store.RecoveredTaskInfo{
 		{ID: uuid.New(), TeamID: teamT1, TenantID: tenantX},
@@ -638,7 +638,7 @@ func TestNotifyLeaders_CachedOnSameTenant(t *testing.T) {
 		},
 	}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	// Two tasks same team+tenant but different ChatID → two scopes, same cache key.
 	tasks := []store.RecoveredTaskInfo{
@@ -691,7 +691,7 @@ func TestProcessFollowups_MultiTenantTenantCtx(t *testing.T) {
 	}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	tt.processFollowups(context.Background())
 
@@ -740,7 +740,7 @@ func TestProcessFollowups_NilTeam_NoPanic(t *testing.T) {
 	}
 	as := &stubAgentStore{}
 	mb := bus.New()
-	tt := NewTaskTicker(ts, as, mb, 3600)
+	tt := NewTaskTicker(ts, as, mb, nil, 3600)
 
 	// Must not panic.
 	tt.processFollowups(context.Background())

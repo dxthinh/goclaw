@@ -15,6 +15,10 @@ import (
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
+// taskLockRenewalInterval là nhịp gia hạn khóa task khi member đang chạy.
+// Là biến để test rút ngắn được.
+var taskLockRenewalInterval = 5 * time.Minute
+
 // startTaskLockRenewal extends the task lock every 5 min while the agent works.
 // Returns a stop func — call it when the run finishes. Returns nil if taskID is
 // invalid or teamStore is nil.
@@ -24,14 +28,16 @@ func startTaskLockRenewal(ctx context.Context, teamStore store.TeamStore, taskID
 	}
 	ch := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(taskLockRenewalInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
+				// Lỗi một lần (DB chập chờn) không dừng vòng gia hạn: thử lại ở nhịp sau,
+				// nếu không khóa hết hạn khi member vẫn đang chạy và ticker recover nhầm.
 				if err := teamStore.RenewTaskLock(ctx, taskID, teamID); err != nil {
-					slog.Warn("teammate lock renewal failed", "task_id", taskID, "error", err)
-					return
+					slog.Warn("teammate lock renewal failed, will retry next tick", "task_id", taskID, "error", err)
+					continue
 				}
 				slog.Debug("teammate lock renewed", "task_id", taskID)
 			case <-ch:
@@ -60,20 +66,22 @@ type teammateTaskMeta struct {
 // after a teammate run: error→fail, completed/escalated→skip, reviewed→renew,
 // loopKilled→fail, default→auto-complete.
 // Returns the resolved team (for announce routing) and dispatches unblocked tasks.
+// failNote is non-empty when this call failed the task and other tasks stay
+// blocked by it; the caller appends it to the announce for the lead.
 func resolveTeamTaskOutcome(
 	ctx context.Context,
 	deps *ConsumerDeps,
 	outcome scheduler.RunOutcome,
 	flags *tools.TaskActionFlags,
 	meta teammateTaskMeta,
-) *store.TeamData {
+) (cachedTeam *store.TeamData, failNote string) {
 	if meta.TaskID == uuid.Nil || deps.TeamStore == nil {
-		return nil
+		return nil, ""
 	}
 
-	cachedTeam, _ := deps.TeamStore.GetTeam(ctx, meta.TeamID)
+	cachedTeam, _ = deps.TeamStore.GetTeam(ctx, meta.TeamID)
 	if cachedTeam == nil {
-		return nil
+		return nil, ""
 	}
 
 	// Check current task status — agent may have already updated it via tool.
@@ -88,7 +96,7 @@ func resolveTeamTaskOutcome(
 		if deps.PostTurn != nil {
 			deps.PostTurn.DispatchUnblockedTasks(ctx, meta.TeamID)
 		}
-		return cachedTeam
+		return cachedTeam, ""
 	}
 
 	toAgent := meta.ToAgent
@@ -136,6 +144,7 @@ func resolveTeamTaskOutcome(
 		if err := deps.TeamStore.FailTask(ctx, meta.TaskID, meta.TeamID, runFailure.Error()); err != nil {
 			slog.Warn("auto-complete: FailTask error", "task_id", meta.TaskID, "error", err)
 		} else {
+			failNote = tools.BlockedDependentsNote(ctx, deps.TeamStore, meta.TeamID, meta.TaskID)
 			bus.BroadcastForTenant(deps.MsgBus, protocol.EventTeamTaskFailed, store.TenantIDFromContext(ctx), tools.BuildTaskEventPayload(
 				meta.TeamID.String(), meta.TaskID.String(),
 				store.TeamTaskStatusFailed,
@@ -171,6 +180,7 @@ func resolveTeamTaskOutcome(
 		if err := deps.TeamStore.FailTask(ctx, meta.TaskID, meta.TeamID, failMsg); err != nil {
 			slog.Warn("auto-fail: FailTask error (loop kill)", "task_id", meta.TaskID, "error", err)
 		} else {
+			failNote = tools.BlockedDependentsNote(ctx, deps.TeamStore, meta.TeamID, meta.TaskID)
 			bus.BroadcastForTenant(deps.MsgBus, protocol.EventTeamTaskFailed, store.TenantIDFromContext(ctx), tools.BuildTaskEventPayload(
 				meta.TeamID.String(), meta.TaskID.String(),
 				store.TeamTaskStatusFailed,
@@ -228,5 +238,5 @@ func resolveTeamTaskOutcome(
 		deps.PostTurn.DispatchUnblockedTasks(ctx, meta.TeamID)
 	}
 
-	return cachedTeam
+	return cachedTeam, failNote
 }

@@ -155,9 +155,8 @@ func (s *PGTeamStore) FailTask(ctx context.Context, taskID, teamID uuid.UUID, er
 		return fmt.Errorf("task not in progress or not found")
 	}
 
-	if err := unblockDependentTasks(ctx, tx, taskID); err != nil {
-		return err
-	}
+	// Không mở khóa task phụ thuộc: chúng giữ blocked tới khi task này được
+	// retry rồi completed, hoặc bị cancel.
 	return tx.Commit()
 }
 
@@ -189,9 +188,8 @@ func (s *PGTeamStore) FailPendingTask(ctx context.Context, taskID, teamID uuid.U
 		return fmt.Errorf("task not pending/blocked or not found")
 	}
 
-	if err := unblockDependentTasks(ctx, tx, taskID); err != nil {
-		return err
-	}
+	// Không mở khóa task phụ thuộc: chúng giữ blocked tới khi task này được
+	// retry rồi completed, hoặc bị cancel.
 	return tx.Commit()
 }
 

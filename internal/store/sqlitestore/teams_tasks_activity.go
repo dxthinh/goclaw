@@ -487,6 +487,8 @@ func (s *SQLiteTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.
 	return scanTaskRowsJoined(rows)
 }
 
+// MarkAllStaleTasks bỏ qua task pending mà owner đang giữ một task in_progress
+// khác trong cùng team (task đó đang xếp hàng, không bị bỏ quên).
 func (s *SQLiteTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	_, err := s.db.ExecContext(ctx,
@@ -494,8 +496,14 @@ func (s *SQLiteTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.
 		 WHERE status = ? AND updated_at < ?
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
+		   )
+		   AND NOT EXISTS (
+		     SELECT 1 FROM team_tasks busy
+		     WHERE busy.team_id = team_tasks.team_id AND busy.tenant_id = team_tasks.tenant_id
+		       AND busy.owner_agent_id = team_tasks.owner_agent_id
+		       AND busy.status = ? AND busy.id <> team_tasks.id
 		   )`,
-		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan,
+		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan, store.TeamTaskStatusInProgress,
 	)
 	if err != nil {
 		return nil, err
@@ -519,7 +527,8 @@ func (s *SQLiteTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan 
 	return s.queryRecoveredTasks(ctx, store.TeamTaskStatusStale)
 }
 
-// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers have reached terminal status.
+// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers are completed or cancelled.
+// Blocker failed không tính là đã giải quyết: task phụ thuộc chờ lead retry hoặc cancel.
 func (s *SQLiteTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	// Find blocked tasks where every entry in blocked_by is in terminal status.
@@ -533,9 +542,9 @@ func (s *SQLiteTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.
 		   AND NOT EXISTS (
 		     SELECT 1 FROM json_each(t.blocked_by) AS je
 		     JOIN team_tasks bt ON bt.id = je.value AND bt.tenant_id = t.tenant_id
-		     WHERE bt.status NOT IN (?, ?, ?)
+		     WHERE bt.status NOT IN (?, ?)
 		   )`,
-		store.TeamTaskStatusCompleted, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
+		store.TeamTaskStatusCompleted, store.TeamTaskStatusCancelled,
 	)
 	if err != nil {
 		return nil, err

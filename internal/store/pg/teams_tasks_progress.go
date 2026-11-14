@@ -146,6 +146,8 @@ func (s *PGTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID
 }
 
 // MarkAllStaleTasks marks pending tasks older than olderThan as stale across all active teams.
+// Bỏ qua task pending mà owner đang giữ một task in_progress khác trong cùng team:
+// dispatch chạy một task mỗi owner, nên task đó đang xếp hàng chứ không bị bỏ quên.
 func (s *PGTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	rows, err := s.db.QueryContext(ctx,
@@ -154,8 +156,14 @@ func (s *PGTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time
 		 FROM agent_teams tm
 		 WHERE t.team_id = tm.id AND tm.status = 'active'
 		   AND t.status = $3 AND t.updated_at < $4
+		   AND NOT EXISTS (
+		     SELECT 1 FROM team_tasks busy
+		     WHERE busy.team_id = t.team_id AND busy.tenant_id = t.tenant_id
+		       AND busy.owner_agent_id = t.owner_agent_id
+		       AND busy.status = $5 AND busy.id <> t.id
+		   )
 		 RETURNING t.id, t.team_id, t.tenant_id, t.task_number, t.subject, COALESCE(t.channel, ''), COALESCE(t.chat_id, '')`,
-		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan,
+		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan, store.TeamTaskStatusInProgress,
 	)
 	if err != nil {
 		return nil, err
@@ -183,8 +191,9 @@ func (s *PGTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan time
 	return scanRecoveredTaskInfoRows(rows)
 }
 
-// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers have reached terminal status.
+// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers are completed or cancelled.
 // Safety net for cases where unblockDependentTasks() transaction rolled back.
+// Blocker failed không tính là đã giải quyết: task phụ thuộc chờ lead retry hoặc cancel.
 func (s *PGTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	rows, err := s.db.QueryContext(ctx,
@@ -197,11 +206,11 @@ func (s *PGTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.Reco
 		   AND NOT EXISTS (
 		     SELECT 1 FROM unnest(t.blocked_by) AS bid(id)
 		     JOIN team_tasks bt ON bt.id = bid.id AND bt.tenant_id = t.tenant_id
-		     WHERE bt.status NOT IN ($3, $4, $5)
+		     WHERE bt.status NOT IN ($3, $4)
 		   )
 		 RETURNING t.id, t.team_id, t.tenant_id, t.task_number, t.subject, COALESCE(t.channel, ''), COALESCE(t.chat_id, '')`,
 		store.TeamTaskStatusPending, now,
-		store.TeamTaskStatusCompleted, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
+		store.TeamTaskStatusCompleted, store.TeamTaskStatusCancelled,
 	)
 	if err != nil {
 		return nil, err

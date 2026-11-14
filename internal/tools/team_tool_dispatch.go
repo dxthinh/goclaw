@@ -56,10 +56,7 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	if agentID == team.LeadAgentID {
 		slog.Warn("team_tasks.dispatch: blocked dispatch to lead agent",
 			"task_id", task.ID, "agent_id", agentID, "team_id", teamID)
-		_ = m.teamStore.UpdateTask(ctx, task.ID, map[string]any{
-			"status": store.TeamTaskStatusFailed,
-			"result": "Cannot dispatch task to the team lead — reassign to a team member",
-		})
+		m.failDispatch(ctx, task, team, "Cannot dispatch task to the team lead — reassign to a team member")
 		return
 	}
 
@@ -71,11 +68,7 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	if dispatchCount >= maxTaskDispatches {
 		slog.Warn("team_tasks.dispatch: max dispatch count reached, auto-failing task",
 			"task_id", task.ID, "dispatch_count", dispatchCount)
-		failReason := fmt.Sprintf("Task auto-failed after %d dispatch attempts", dispatchCount)
-		_ = m.teamStore.UpdateTask(ctx, task.ID, map[string]any{
-			"status": store.TeamTaskStatusFailed,
-			"result": failReason,
-		})
+		m.failDispatch(ctx, task, team, fmt.Sprintf("Task auto-failed after %d dispatch attempts", dispatchCount))
 		return
 	}
 
@@ -89,6 +82,7 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	ag, err := m.cachedGetAgentByID(ctx, agentID)
 	if err != nil {
 		slog.Warn("team_tasks.dispatch: cannot resolve agent", "agent_id", agentID, "error", err)
+		m.failDispatch(ctx, task, team, "Cannot resolve the assigned agent: "+err.Error())
 		return
 	}
 
@@ -235,8 +229,9 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 		AgentID:  ag.AgentKey,
 		Metadata: meta,
 	}) {
-		slog.Warn("team_tasks.dispatch: inbound buffer full, task dispatch dropped — ticker will retry",
+		slog.Warn("team_tasks.dispatch: inbound buffer full, task dispatch dropped — task marked failed",
 			"task_id", task.ID, "agent_key", ag.AgentKey)
+		m.failDispatch(ctx, task, team, "Dispatch dropped: inbound queue is full")
 		return
 	}
 	slog.Info("team_tasks.dispatch: sent task to agent",
@@ -370,10 +365,7 @@ func (m *TeamToolManager) DispatchUnblockedTasks(ctx context.Context, teamID uui
 		if ownerID == team.LeadAgentID {
 			slog.Warn("DispatchUnblockedTasks: auto-failing lead-owned task",
 				"task_id", task.ID, "team_id", teamID)
-			_ = m.teamStore.UpdateTask(ctx, task.ID, map[string]any{
-				"status": store.TeamTaskStatusFailed,
-				"result": "Cannot dispatch task to the team lead — reassign to a team member",
-			})
+			m.failDispatch(ctx, task, team, "Cannot dispatch task to the team lead — reassign to a team member")
 			continue
 		}
 		if dispatched[ownerID] {

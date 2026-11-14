@@ -324,6 +324,7 @@ func handleTeammateMessage(
 		// Auto-complete/fail the associated team task (v2 only).
 		// Cache team lookup — reused later for announce routing.
 		var cachedTeam *store.TeamData
+		var failNote string
 		if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" {
 			teamTaskID, _ := uuid.Parse(taskIDStr)
 			teamID, _ := uuid.Parse(inMeta[tools.MetaTeamID])
@@ -336,7 +337,7 @@ func handleTeammateMessage(
 					ChatID:   inMeta[tools.MetaOriginChatID],
 					PeerKind: inMeta[tools.MetaOriginPeerKind],
 				}
-				cachedTeam = resolveTeamTaskOutcome(ctx, deps, outcome, taskActionFlags, meta)
+				cachedTeam, failNote = resolveTeamTaskOutcome(ctx, deps, outcome, taskActionFlags, meta)
 			}
 		}
 
@@ -345,6 +346,8 @@ func handleTeammateMessage(
 		if !ok {
 			return
 		}
+		// Task vừa bị đánh failed mà còn task khác bị chặn: nêu chúng cho lead.
+		announceContent += failNote
 
 		// Announce result (or failure) to lead agent via announce queue.
 		// Queue merges concurrent completions into a single batched announce.

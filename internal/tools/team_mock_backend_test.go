@@ -744,6 +744,9 @@ type capturedEvent struct {
 type capturedDispatch struct {
 	TaskID  uuid.UUID
 	AgentID uuid.UUID
+	// DispatchCount là giá trị metadata["dispatch_count"] tại thời điểm dispatch
+	// (nil nếu chưa có), để kiểm tra bộ đếm được đặt lại trước dispatch có chủ ý.
+	DispatchCount any
 }
 
 // ============================================================
@@ -841,7 +844,11 @@ func (mb *mockBackend) BroadcastTeamEvent(_ context.Context, name string, payloa
 
 func (mb *mockBackend) DispatchTaskToAgent(_ context.Context, task *store.TeamTaskData, _ *store.TeamData, agentID uuid.UUID) {
 	mb.mu.Lock()
-	mb.dispatches = append(mb.dispatches, capturedDispatch{TaskID: task.ID, AgentID: agentID})
+	var dc any
+	if task.Metadata != nil {
+		dc = task.Metadata["dispatch_count"]
+	}
+	mb.dispatches = append(mb.dispatches, capturedDispatch{TaskID: task.ID, AgentID: agentID, DispatchCount: dc})
 	mb.mu.Unlock()
 }
 
