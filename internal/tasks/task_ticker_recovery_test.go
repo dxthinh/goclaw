@@ -27,6 +27,9 @@ type dispatchRecorder struct {
 }
 
 func (r *dispatchRecorder) DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID) {
+	if ctx.Err() != nil {
+		panic("DispatchRecoveredTasks nhận context đã hết hạn")
+	}
 	r.mu.Lock()
 	r.calls = append(r.calls, dispatchCall{TeamID: teamID, TenantID: store.TenantIDFromContext(ctx), TaskIDs: taskIDs})
 	r.mu.Unlock()

@@ -357,3 +357,39 @@ func TestDispatchUnblocked_BusyOwnerNotHiddenByBoardCap(t *testing.T) {
 		t.Errorf("queued status = %q, want pending (owner đang bận)", got)
 	}
 }
+
+// slowBusyStore làm chậm bước đọc owner bận để hai lần dispatch song song
+// cùng đọc trước khi bên kia kịp assign.
+type slowBusyStore struct{ *mockTaskStore }
+
+func (s slowBusyStore) ListBusyTaskOwners(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	owners, err := s.mockTaskStore.ListBusyTaskOwners(ctx, teamID)
+	time.Sleep(30 * time.Millisecond) // kết quả đã đọc; bên kia kịp đọc cùng trạng thái
+	return owners, err
+}
+
+// Hai lần dispatch cùng team chạy song song (ticker, post-turn của hai member)
+// vẫn chỉ cho owner chạy một task.
+func TestDispatch_ConcurrentCallsKeepOneTaskPerOwner(t *testing.T) {
+	h := newDispatchHarness(t)
+	h.mgr = NewTeamToolManager(slowBusyStore{h.tasks}, h.mgr.agentStore, h.bus, t.TempDir())
+	member := testMemberID
+	h.addTask(&store.TeamTaskData{Subject: "recovered", Status: store.TeamTaskStatusPending, OwnerAgentID: &member, Priority: 2})
+	h.addTask(&store.TeamTaskData{Subject: "queued", Status: store.TeamTaskStatusPending, OwnerAgentID: &member, Priority: 1})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); h.mgr.DispatchUnblockedTasks(h.ctx(), testTeamID) }()
+	go func() { defer wg.Done(); h.mgr.DispatchUnblockedTasks(h.ctx(), testTeamID) }()
+	wg.Wait()
+
+	running := 0
+	for _, task := range h.tasks.tasks {
+		if task.Status == store.TeamTaskStatusInProgress {
+			running++
+		}
+	}
+	if running != 1 {
+		t.Errorf("in_progress tasks = %d, want 1 (một task mỗi owner)", running)
+	}
+}

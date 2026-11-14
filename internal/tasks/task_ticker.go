@@ -179,7 +179,11 @@ func (t *TaskTicker) recoverAll(forceRecover bool) {
 
 	// Step 6: Dispatch again the tasks that recovery or unblocking returned to
 	// pending, so they do not wait for the lead or the stale timeout.
-	t.dispatchRecovered(recoverCtx, recovered, fixed)
+	// Timeout riêng: các bước trên có thể dùng hết hạn của recoverCtx, mà task
+	// đã về pending thì nhịp sau không recover lại nữa.
+	dispatchCtx, dispatchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.dispatchRecovered(dispatchCtx, recovered, fixed)
+	dispatchCancel()
 
 	// Step 7: Prune old cooldown entries to prevent memory leak.
 	t.pruneCooldowns()

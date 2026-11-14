@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -400,6 +401,13 @@ func (m *TeamToolManager) busyOwners(ctx context.Context, teamID uuid.UUID) (map
 // dispatchPendingTasks dispatch task pending có owner trong danh sách đã sắp theo
 // ưu tiên, tối đa một task mỗi owner và bỏ qua owner đang có task in_progress.
 func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.UUID, tasks []store.TeamTaskData) {
+	// Ticker và post-turn có thể dispatch cùng team cùng lúc. Nếu cả hai đọc
+	// danh sách owner bận trước khi bên kia assign, một owner sẽ nhận hai task.
+	// Khóa theo team giữ bước đọc owner bận và assign liền nhau (một tiến trình).
+	lock, _ := m.dispatchLocks.LoadOrStore(teamID, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
+
 	team, err := m.teamStore.GetTeam(ctx, teamID)
 	if err != nil || team == nil {
 		return
