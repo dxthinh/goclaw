@@ -5,7 +5,6 @@ package integration
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/nextlevelbuilder/goclaw/internal/agent"
@@ -100,7 +99,7 @@ func TestV3EvolutionSuggestions_TenantIsolation(t *testing.T) {
 	sg := store.EvolutionSuggestion{
 		ID: uuid.New(), TenantID: tenantA, AgentID: agentA,
 		SuggestionType: store.SuggestToolOrder,
-		Suggestion: "test", Rationale: "test", Status: "pending",
+		Suggestion:     "test", Rationale: "test", Status: "pending",
 	}
 	ss.CreateSuggestion(ctxA, sg)
 
@@ -132,7 +131,7 @@ func TestV3SuggestionEngine_Pipeline(t *testing.T) {
 		})
 	}
 
-	// Seed retrieval metrics (low usage to trigger LowRetrievalUsageRule).
+	// Legacy result-presence metrics must not produce threshold adaptation.
 	for i := 0; i < 55; i++ {
 		value, _ := json.Marshal(map[string]any{"used_in_reply": false, "top_score": 0.5})
 		ms.RecordMetric(ctx, store.EvolutionMetric{
@@ -158,6 +157,11 @@ func TestV3SuggestionEngine_Pipeline(t *testing.T) {
 	if len(all) == 0 {
 		t.Fatal("no pending suggestions in DB after Analyze")
 	}
+	for _, suggestion := range all {
+		if suggestion.SuggestionType == store.SuggestThreshold {
+			t.Fatal("result presence generated an unsupported threshold suggestion")
+		}
+	}
 
 	// Run again — should NOT create duplicates (dedup by type).
 	created2, _ := engine.Analyze(ctx, agentID)
@@ -170,7 +174,4 @@ func TestV3SuggestionEngine_Pipeline(t *testing.T) {
 	if len(all2) != len(all) {
 		t.Errorf("suggestion count changed after dedup run: %d → %d", len(all), len(all2))
 	}
-
-	// Cleanup metrics manually (test-specific, beyond seedTenantAgent cleanup).
-	_, _ = ms.Cleanup(ctx, time.Now().Add(1*time.Hour))
 }

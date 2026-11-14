@@ -167,7 +167,7 @@ Memory layers: L1 (`memory_search`) returns ranked abstracts; L2 (`memory_expand
 
 | Tool | Description |
 |---|---|
-| `read_image` | Analyze/describe images using vision AI (Gemini, Anthropic, OpenRouter, DashScope) |
+| `read_image` | Analyze/describe images using vision AI (Gemini, Anthropic, OpenRouter, DashScope). Use `media_id` from an uploaded image tag in the current or prior message of the authorized conversation, a workspace `path`, or a public HTTP/HTTPS `url`. An explicit `media_id` takes precedence over a redundant `path` and cannot be combined with `url`. Unknown, missing, or inaccessible IDs fail explicitly without path or attachment fallback. Workspace isolation and URL SSRF checks still apply; legacy stored images are resolved only within the current session. ID resolution requires the agent run’s conversation media context; bridge calls without that context fail closed and may use an authorized workspace path instead. |
 | `read_audio` | Transcribe audio to text using Gemini File API, native OpenAI audio input, or OpenAI-compatible transcription models; unsupported provider/model routes fail closed instead of sending audio as image data |
 | `read_document` | Extract and analyze documents (PDF, DOCX, images). Supports local-first extraction via pdftotext/pandoc before falling back to cloud vision (opt-in via config) |
 | `read_video` | Analyze/transcribe video content |

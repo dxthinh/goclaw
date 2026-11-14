@@ -585,12 +585,12 @@ Metrics are recorded during agent execution and stored per-agent in the database
 | Type | Description | Examples |
 |------|-------------|----------|
 | **tool** | Tool invocation performance | invocation_count, success_rate, failure_count, avg_duration_ms |
-| **retrieval** | Knowledge retrieval quality | recall_rate, precision, relevance_score, query_count |
+| **retrieval** | Retrieval result presence | query_count, usage_rate (queries with results), avg_score |
 | **feedback** | User satisfaction signals | rating, sentiment, effectiveness_score |
 
 **Collection points:**
 - Tool execution: name, status (success/failure), duration recorded in agent loop
-- Retrieval queries: recall metrics computed from vector search results
+- Retrieval queries: result counts and top scores; no inference that the answer used a result
 - User feedback: optional post-run feedback API or implicit signals (abort/rephrase patterns)
 
 Metrics aggregate over 7-day rolling windows for suggestion analysis.
@@ -605,7 +605,6 @@ Metrics aggregate over 7-day rolling windows for suggestion analysis.
 Metrics Aggregation (7-day window)
     ↓
 Rule Evaluation (run daily/weekly)
-    ├─ LowRetrievalUsageRule
     ├─ ToolFailureRule
     └─ RepeatedToolRule
     ↓
@@ -618,7 +617,7 @@ Admin Review → Approve/Reject/Rollback
 
 | Type | Trigger | Recommendation | Parameters |
 |------|---------|-----------------|------------|
-| `low_retrieval_usage` | Avg recall < threshold for 7 days | Lower `retrieval_threshold` parameter | `{current_threshold, proposed_threshold, confidence}` |
+| `low_retrieval_usage` | Disabled | No effective per-agent threshold setting; result presence is not answer usage | Historical suggestions remain readable |
 | `tool_failure` | Single tool failure rate > 20% | Review tool config or fallback | `{tool_name, failure_count, success_count}` |
 | `repeated_tool` | Tool called 5+ consecutive times without context change | Consider extracting as skill | `{tool_name, occurrence_count, pattern_score}` |
 
@@ -626,38 +625,29 @@ Admin Review → Approve/Reject/Rollback
 
 ### 8.3 Auto-Adapt Guardrails
 
-Suggestions can be auto-applied with safety constraints (optional admin-enabled). Guardrails prevent runaway adaptation.
+Retrieval threshold suggestions and automatic apply are disabled. Historical
+`threshold` suggestions can be read and rejected, but approval returns HTTP 400.
+`agents.other_config.retrieval_threshold` is not consumed by memory search.
+Automatic rollback based on retrieval result presence is disabled too; historical
+applied records remain available for operator review.
 
-**Constraints:**
+The `usage_rate` wire field is retained for compatibility and means the fraction
+of queries returning results, **not** results used in answers. New raw metrics
+write `has_results`; aggregation prefers it, then `result_count`, then the legacy
+`used_in_reply` boolean. Historical auto-inject metrics omitted empty searches,
+so historical windows can overstate the result rate. There is no backfill of
+unrecorded queries or answer-quality scoring.
 
-| Name | Default | Purpose |
-|------|---------|---------|
-| `max_delta_per_cycle` | 0.1 | Max parameter change per apply cycle (prevents aggressive swings) |
-| `min_data_points` | 100 | Minimum metrics before applying (avoid overfitting on small sample) |
-| `rollback_on_drop_pct` | 20.0 | Auto-rollback if quality metric drops >20% after apply |
-| `locked_params` | `[]` | Parameters that cannot be auto-changed (e.g., security settings) |
-
-**Apply Flow:**
-
-1. Admin approves `low_retrieval_usage` suggestion (raises `retrieval_threshold` by +0.05)
-2. System checks: min_data_points met? parameter not locked? delta ≤ 0.1? → OK
-3. Baseline values saved for rollback
-4. Suggestion status → `applied`
-5. Monitor: if recall drops >20%, auto-rollback and set status → `rolled_back`
-
-**Baseline Storage:**
-
-Previous parameter values stored in suggestion `parameters._baseline` for rollback:
-
-```json
-{
-  "current_threshold": 0.5,
-  "proposed_threshold": 0.55,
-  "_baseline": {
-    "retrieval_threshold": 0.5
-  }
-}
-```
+Auto-injection enforces `InjectParams.MaxTokens` (default 200) on the complete
+formatted text, including heading and list markers, using the existing token
+fixed, bundled GoClaw budget encoding passed through `BudgetCounter.CountText`.
+Entries that do not fit are skipped whole; if none fit, the section is empty and
+the outcome is `over_budget`. When the callback is missing or returns an error,
+the runtime uses its existing rune estimate. Empty successful searches count
+toward the result rate; disabled, trivial and failed calls are excluded. `AutoInjectMaxTokens` in the legacy
+memory defaults supplies the default budget; it is not a new per-agent settings
+contract. Memory stays in the dynamic context path, outside the stable system
+prompt builder.
 
 ### 8.4 Cron Scheduling
 

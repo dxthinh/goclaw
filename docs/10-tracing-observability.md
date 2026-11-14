@@ -306,3 +306,62 @@ Use `grep` or your editor's symbol search for specific files.
 | [06-store-data-model.md](./06-store-data-model.md) | traces/spans tables schema, delegation_history table |
 | [08-scheduling-cron.md](./08-scheduling-cron.md) | Scheduler lanes, /stop and /stopall commands |
 | [09-security.md](./09-security.md) | Rate limiting, RBAC access control |
+
+### Repair retained historical usage snapshots
+
+`goclaw traces repair-snapshots` is an offline PostgreSQL maintenance command
+in the main server/runtime binary. It connects directly using the configured
+PostgreSQL DSN; `--server` does not select its database. It does not run migrations.
+The default is a read-only preview. It recomputes token, cost, cache and thinking metrics for LLM and billed tool
+spans, plus LLM call counts, including child traces, attributed to the child's agent and
+trace-start hour. Historical request counts and memory/KG samples are preserved.
+The operation covers all tenants and requires database operator access.
+
+1. Stop the gateway and all other writers/pruners. Verify that no manual deletion
+   or shortened retention has removed source traces/spans in the chosen range.
+   Automatic trace retention is seven days by trace `created_at`; aggregation uses
+   trace `start_time`. The command accepts only complete UTC hours strictly after
+   the retention boundary, never the partly retained boundary hour or current hour.
+2. Preview an explicit range (replace these example dates):
+
+   ```bash
+   goclaw traces repair-snapshots --from 2026-11-02T00:00:00Z --to 2026-11-03T00:00:00Z
+   ```
+
+3. Apply with a **new** backup path:
+
+   ```bash
+   goclaw traces repair-snapshots --from 2026-11-02T00:00:00Z --to 2026-11-03T00:00:00Z --apply --offline --backup /secure/usage-before-repair.sql
+   ```
+
+   The command first runs `pg_dump` into an exclusively created mode-0600 SQL
+   file, syncs and closes it successfully, then locks source/snapshot tables,
+   rechecks retention bounds and writes in one transaction. Backup or validation
+   failure prevents snapshot writes. A failed dump can leave a partial file;
+   remove it only after inspection and use a new path for the next attempt.
+   `pg_dump` must be installed and compatible with the server. Keep the backup
+   until verification and a restore rehearsal on a disposable database succeed
+   (`psql -X --set ON_ERROR_STOP=1 --file /secure/usage-before-repair.sql` with
+   connection environment pointing at that disposable database).
+4. Compare the chosen hours against retained spans, then restart the gateway.
+
+Running traces, mismatched persisted span counts and sources older than retention
+are refused. There is no durable pruning watermark in the current schema:
+complete deletion outside the normal retention policy cannot always be inferred
+from surviving rows. `--offline` explicitly attests that the operator verified
+source completeness; do not repair a range with uncertain history. Hours beyond
+retention cannot be reconstructed and must remain unchanged. Repeating a repair
+with complete, unchanged source is idempotent.
+
+Session-list costs include descendants from delegated sessions once per requested
+session, with tenant isolation. Cost summaries and the public `GetMonthlyAgentCost`
+method include every trace's
+own cost once (parents do not include descendant totals). `GET /v1/costs/summary`
+also accepts `session_key`; it includes descendants even when a delegated trace
+has a different session key, grouping costs by the agent that incurred them.
+Existing response fields remain unchanged; `trace_count` now includes children.
+The offline repair command belongs to the main server binary. The standalone
+[operator CLI](https://github.com/nextlevelbuilder/goclaw-cli) reads the existing
+session/trace HTTP contracts; their response fields are unchanged. SQLite cost
+queries have the same semantics; this PostgreSQL repair command does not operate
+on desktop SQLite snapshots.

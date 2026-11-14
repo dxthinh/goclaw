@@ -104,11 +104,6 @@ func (b *BridgePromptBuilder) Build(cfg PromptConfig) (string, error) {
 	// Build the prompt using existing logic.
 	prompt := BuildSystemPrompt(spc)
 
-	// Append L0 memory section if present (v3 auto-inject).
-	if cfg.Memory && len(cfg.MemoryData.L0Summaries) > 0 {
-		prompt += "\n\n" + formatMemorySection(cfg.MemoryData)
-	}
-
 	// Append orchestration delegation targets section (v3).
 	if cfg.Orchestration {
 		if orchLines := buildOrchestrationSection(cfg.OrchestrationData); len(orchLines) > 0 {
@@ -117,24 +112,4 @@ func (b *BridgePromptBuilder) Build(cfg PromptConfig) (string, error) {
 	}
 
 	return prompt, nil
-}
-
-// formatMemorySection renders L0 memory summaries for prompt injection.
-func formatMemorySection(data MemorySectionData) string {
-	var section strings.Builder
-	section.WriteString("## Memory Context\n\nRelevant memories from past sessions:\n")
-	for _, s := range data.L0Summaries {
-		section.WriteString("- " + s.Summary)
-		if s.ID != "" {
-			section.WriteString(" [use memory_search(\"" + s.ID + "\") for details]")
-		}
-		section.WriteString("\n")
-	}
-	if data.HasSearch {
-		section.WriteString("\nUse `memory_search` for detailed retrieval.")
-	}
-	if data.HasKG {
-		section.WriteString(" Use `knowledge_graph_search` for relationship queries.")
-	}
-	return section.String()
 }

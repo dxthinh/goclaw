@@ -80,28 +80,41 @@ func TestV3EvolutionMetrics_AggregateTools(t *testing.T) {
 	}
 }
 
-func TestV3EvolutionMetrics_Cleanup(t *testing.T) {
+func TestV3EvolutionMetrics_RetrievalResultPresence(t *testing.T) {
 	db := testDB(t)
 	tenantID, agentID := seedTenantAgent(t, db)
 	ctx := tenantCtx(tenantID)
 	ms := pg.NewPGEvolutionMetricsStore(db)
 
-	// Record an old metric.
-	value, _ := json.Marshal(map[string]any{"success": true})
-	if err := ms.RecordMetric(ctx, store.EvolutionMetric{
-		ID: uuid.New(), TenantID: tenantID, AgentID: agentID,
-		SessionKey: "old", MetricType: store.MetricTool, MetricKey: "old_tool",
-		Value: value,
-	}); err != nil {
-		t.Fatalf("RecordMetric: %v", err)
+	// New result flags take precedence, with compatibility for historical rows.
+	for _, value := range []string{
+		`{"has_results":true}`,
+		`{"has_results":false,"used_in_reply":true}`,
+		`{"result_count":2,"used_in_reply":false}`,
+		`{"result_count":0,"used_in_reply":true}`,
+		`{"used_in_reply":true}`,
+		`{"used_in_reply":false}`,
+		`{}`,
+		`{"has_results":true,"result_count":0}`,
+	} {
+		if err := ms.RecordMetric(ctx, store.EvolutionMetric{
+			ID: uuid.New(), TenantID: tenantID, AgentID: agentID,
+			MetricType: store.MetricRetrieval, MetricKey: "memory_search",
+			Value: json.RawMessage(value),
+		}); err != nil {
+			t.Fatalf("RecordMetric: %v", err)
+		}
 	}
-
-	// Cleanup with future threshold (should delete everything).
-	deleted, err := ms.Cleanup(ctx, time.Now().Add(1*time.Hour))
+	aggs, err := ms.AggregateRetrievalMetrics(ctx, agentID, time.Now().Add(-time.Hour))
 	if err != nil {
-		t.Fatalf("Cleanup: %v", err)
+		t.Fatalf("AggregateRetrievalMetrics: %v", err)
 	}
-	if deleted < 1 {
-		t.Errorf("expected >=1 deleted, got %d", deleted)
+	if len(aggs) != 1 || aggs[0].QueryCount != 8 || aggs[0].UsageRate != 0.5 {
+		t.Fatalf("unexpected result presence aggregate: %+v", aggs)
+	}
+	otherTenant, _ := seedTenantAgent(t, db)
+	aggs, err = ms.AggregateRetrievalMetrics(tenantCtx(otherTenant), agentID, time.Time{})
+	if err != nil || len(aggs) != 0 {
+		t.Fatalf("cross-tenant aggregate: %+v, %v", aggs, err)
 	}
 }

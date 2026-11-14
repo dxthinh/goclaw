@@ -255,7 +255,7 @@
       "suggestionsLabel": "Evolution Suggestions",
       "suggestionsHint": "Generate data-driven improvement suggestions from recorded metrics",
       "toolSuccess": "Tool Success Rate",
-      "retrievalQuality": "Retrieval Quality",
+      "retrievalQuality": "Retrieval Results",
       "feedback": "Feedback",
       "noMetrics": "No metrics recorded yet. Metrics will appear as the agent handles requests.",
       "noSuggestions": "No suggestions generated yet. Suggestions are created by the daily analysis cron.",
@@ -284,7 +284,9 @@
       "confirm": "Confirm",
       "confirming": "...",
       "successRate": "Success Rate",
-      "usageRate": "Usage Rate",
+      "usageRate": "Queries with Results",
+      "resultRateHint": "Result presence does not measure use in answers.",
+      "thresholdUnsupported": "Threshold adaptation is unsupported.",
       "tooltipCalls": "{{count}} calls, {{ms}}ms avg",
       "tooltipQueries": "{{count}} queries, score {{score}}"
     }

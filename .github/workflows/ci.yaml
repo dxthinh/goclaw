@@ -53,6 +53,7 @@ jobs:
       - run: go build ./...
       - run: go build -tags sqliteonly ./...
       - run: go vet ./...
+      - run: go vet -tags integration ./tests/...
       # -timeout=5m caps each test binary so a deadlocked test fails fast
       # instead of blocking CI for the 10-minute default. Bumped from 90s
       # because real 1s retry backoffs in HTTPHandler and goja memory-bomb
@@ -95,5 +96,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test
       - run: pnpm lint
       - run: pnpm build

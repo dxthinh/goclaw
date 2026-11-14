@@ -70,6 +70,29 @@ func (s *Store) LoadPath(id string) (string, error) {
 	return matches[0], nil
 }
 
+// LoadSessionPath resolves a canonical media UUID only within the given session.
+// Unlike LoadPath, it never searches other sessions or interprets glob/path input.
+func (s *Store) LoadSessionPath(sessionKey, id string) (string, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed.String() != id || sessionKey == "" {
+		return "", fmt.Errorf("media: unavailable in session")
+	}
+	dir := s.sessionDir(sessionKey)
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("media: unavailable in session")
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, id+".*"))
+	if err != nil || len(matches) != 1 {
+		return "", fmt.Errorf("media: unavailable in session")
+	}
+	info, err = os.Lstat(matches[0])
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("media: unavailable in session")
+	}
+	return matches[0], nil
+}
+
 // MediaRootPath exposes the managed legacy-media boundary to media reader
 // tools. Returned paths are still containment-checked by the caller.
 func (s *Store) MediaRootPath() string {

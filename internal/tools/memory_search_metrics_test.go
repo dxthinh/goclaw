@@ -103,7 +103,7 @@ func TestMemorySearch_RecordsOutcomeAndHits(t *testing.T) {
 					"episodic_hits": tt.wantEpisodic,
 					"result_count":  tt.wantDocs + tt.wantEpisodic,
 					"top_score":     tt.wantTop,
-					"used_in_reply": tt.wantUsed,
+					"has_results":   tt.wantUsed,
 				}
 				for k, v := range want {
 					if value[k] != v {

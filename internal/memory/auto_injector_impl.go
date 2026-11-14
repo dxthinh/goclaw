@@ -21,6 +21,7 @@ const (
 	outcomeNoMatch        = "no_match"
 	outcomeBelowThreshold = "below_threshold"
 	outcomeNoAbstract     = "no_abstract"
+	outcomeOverBudget     = "over_budget"
 	outcomeInjected       = "injected"
 	outcomeError          = "error"
 )
@@ -82,11 +83,22 @@ func (a *pgAutoInjector) evaluate(ctx context.Context, params InjectParams) (*In
 	if err != nil {
 		return &InjectResult{Outcome: outcomeError}, fmt.Errorf("auto-inject search: %w", err)
 	}
-	return evaluateMatches(results, a.autoInjectMinScore(ctx), maxEntries), nil
+	return evaluateMatchesWithBudget(results, a.autoInjectMinScore(ctx), maxEntries, params.MaxTokens, params.CountTokens), nil
 }
 
 // evaluateMatches áp ngưỡng lên kết quả đã sắp giảm dần theo điểm và dựng khối memory.
 func evaluateMatches(results []store.EpisodicSearchResult, threshold float64, maxEntries int) *InjectResult {
+	return evaluateMatchesWithBudget(results, threshold, maxEntries, 0, nil)
+}
+
+func evaluateMatchesWithBudget(results []store.EpisodicSearchResult, threshold float64, maxEntries, maxTokens int, count func(string) (int, error)) *InjectResult {
+	if maxTokens <= 0 {
+		maxTokens = DefaultMemoryConfig().AutoInjectMaxTokens
+	}
+	if maxEntries <= 0 {
+		maxEntries = 5
+	}
+	budgetLimited := false
 	result := &InjectResult{MatchCount: len(results)}
 	abstracts := make([]string, 0, maxEntries)
 	for _, r := range results {
@@ -98,7 +110,12 @@ func evaluateMatches(results []store.EpisodicSearchResult, threshold float64, ma
 		}
 		result.AboveThreshold++
 		if abstract := strings.TrimSpace(r.L0Abstract); abstract != "" && len(abstracts) < maxEntries {
-			abstracts = append(abstracts, abstract)
+			candidate := append(abstracts, abstract)
+			if sectionTokens("\n\n"+formatMemorySection(candidate), count) > maxTokens {
+				budgetLimited = true
+				continue
+			}
+			abstracts = candidate
 		}
 	}
 
@@ -107,6 +124,8 @@ func evaluateMatches(results []store.EpisodicSearchResult, threshold float64, ma
 		result.Outcome = outcomeNoMatch
 	case result.AboveThreshold == 0:
 		result.Outcome = outcomeBelowThreshold
+	case len(abstracts) == 0 && budgetLimited:
+		result.Outcome = outcomeOverBudget
 	case len(abstracts) == 0:
 		result.Outcome = outcomeNoAbstract
 	default:
@@ -142,7 +161,7 @@ func (a *pgAutoInjector) recordRetrievalMetric(params InjectParams, result *Inje
 			"injected":        result.Injected,
 			"top_score":       result.TopScore,
 			"memory_tokens":   sectionTokens(result.Section, params.CountTokens),
-			"used_in_reply":   result.Injected > 0,
+			"has_results":     result.MatchCount > 0,
 		})
 		if err != nil {
 			slog.Debug("evolution.metric.auto_inject_marshal_failed", "error", err)

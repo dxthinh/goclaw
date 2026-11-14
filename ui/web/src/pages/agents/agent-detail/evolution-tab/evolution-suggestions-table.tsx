@@ -78,6 +78,7 @@ export function EvolutionSuggestionsTable({ suggestions, loading, onUpdateStatus
                   </td>
                   <td className="px-3 py-2 max-w-[280px]">
                     <p className="text-sm truncate" title={s.suggestion}>{s.suggestion}</p>
+                    {s.suggestion_type === "threshold" && <p className="text-xs text-muted-foreground">{t("detail.evolution.thresholdUnsupported")}</p>}
                     <p className="text-xs text-muted-foreground truncate" title={s.rationale}>{s.rationale}</p>
                   </td>
                   <td className="px-3 py-2">
@@ -95,6 +96,7 @@ export function EvolutionSuggestionsTable({ suggestions, loading, onUpdateStatus
                           <Button
                             size="sm" variant="ghost"
                             className="h-7 w-7 p-0 text-green-600 hover:text-green-700"
+                            disabled={s.suggestion_type === "threshold"}
                             title={t("detail.evolution.approve")}
                             onClick={() => setConfirm({ id: s.id, action: "approved" })}
                           >

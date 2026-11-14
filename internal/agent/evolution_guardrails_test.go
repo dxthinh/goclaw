@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -37,21 +39,21 @@ func TestCheckGuardrails(t *testing.T) {
 			name:       "insufficient data",
 			guardrails: DefaultGuardrails(),
 			dataPoints: 50,
-			sgType:     store.SuggestThreshold,
+			sgType:     store.SuggestToolOrder,
 			wantErr:    "insufficient data",
 		},
 		{
 			name:       "sufficient data passes",
 			guardrails: DefaultGuardrails(),
 			dataPoints: 200,
-			sgType:     store.SuggestThreshold,
+			sgType:     store.SuggestToolOrder,
 		},
 		{
 			name:       "locked param hit",
 			guardrails: AdaptationGuardrails{MinDataPoints: 10, LockedParams: []string{"source"}},
 			dataPoints: 200,
 			params:     map[string]any{"source": "mem"},
-			sgType:     store.SuggestThreshold,
+			sgType:     store.SuggestToolOrder,
 			wantErr:    "parameter \"source\" is locked",
 		},
 		{
@@ -59,22 +61,22 @@ func TestCheckGuardrails(t *testing.T) {
 			guardrails: DefaultGuardrails(),
 			dataPoints: 200,
 			params:     map[string]any{"source": "mem"},
-			sgType:     store.SuggestThreshold,
+			sgType:     store.SuggestToolOrder,
 		},
 		{
 			name:       "zero min defaults to 100",
 			guardrails: AdaptationGuardrails{MinDataPoints: 0},
 			dataPoints: 50,
-			sgType:     store.SuggestThreshold,
+			sgType:     store.SuggestToolOrder,
 			wantErr:    "insufficient data",
 		},
 		{
-			name:       "threshold with usage rate passes (no broken delta check)",
+			name:       "threshold adaptation is unsupported",
 			guardrails: DefaultGuardrails(),
 			dataPoints: 200,
 			params:     map[string]any{"current_usage_rate": 0.15, "source": "vault"},
 			sgType:     store.SuggestThreshold,
-			// Previously this would fail with "delta 0.15 exceeds max 0.10" — now passes.
+			wantErr:    "unsupported",
 		},
 	}
 
@@ -98,5 +100,18 @@ func TestCheckGuardrails(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestApplySuggestionRejectsThresholdBeforeWriting(t *testing.T) {
+	err := ApplySuggestion(context.Background(), nil, nil, store.EvolutionSuggestion{SuggestionType: store.SuggestThreshold}, DefaultGuardrails())
+	if err == nil || !strings.Contains(err.Error(), "does not support") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEvaluateAppliedDoesNotInferAnswerQuality(t *testing.T) {
+	if err := EvaluateApplied(context.Background(), uuid.New(), DefaultGuardrails(), nil, nil, nil); err != nil {
+		t.Fatal(err)
 	}
 }

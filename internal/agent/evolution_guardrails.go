@@ -54,83 +54,17 @@ func CheckGuardrails(g AdaptationGuardrails, sg store.EvolutionSuggestion, dataP
 		}
 	}
 
-	// Threshold suggestions: the applied delta is capped at MaxDeltaPerCycle in ApplySuggestion,
-	// so no additional delta check is needed here. MinDataPoints and LockedParams already guard safety.
+	if sg.SuggestionType == store.SuggestThreshold {
+		return fmt.Errorf("retrieval threshold adaptation is unsupported")
+	}
 
 	return nil
 }
 
-// ApplySuggestion applies an approved suggestion's parameters to the agent's other_config JSONB.
-// Stores the previous values in the suggestion's parameters for rollback.
-// Scope: only retrieval-related parameters. Never security or core settings.
+// ApplySuggestion rejects unsupported adaptation. No per-agent retrieval threshold
+// is consumed by retrieval; result presence is not evidence of answer quality.
 func ApplySuggestion(ctx context.Context, agentStore store.AgentStore, sugStore store.EvolutionSuggestionStore, sg store.EvolutionSuggestion, guardrails AdaptationGuardrails) error {
-	// Load current agent config.
-	agent, err := agentStore.GetByID(ctx, sg.AgentID)
-	if err != nil {
-		return fmt.Errorf("load agent: %w", err)
-	}
-
-	var otherConfig map[string]any
-	if len(agent.OtherConfig) > 0 {
-		_ = json.Unmarshal(agent.OtherConfig, &otherConfig)
-	}
-	if otherConfig == nil {
-		otherConfig = make(map[string]any)
-	}
-
-	// Store baseline for rollback: snapshot current retrieval params.
-	baseline := make(map[string]any)
-	if v, ok := otherConfig["retrieval_threshold"]; ok {
-		baseline["retrieval_threshold"] = v
-	}
-
-	// Apply suggestion-specific changes based on type.
-	switch sg.SuggestionType {
-	case store.SuggestThreshold:
-		// Raise retrieval threshold by MaxDeltaPerCycle (bounded by guardrails).
-		current, _ := otherConfig["retrieval_threshold"].(float64)
-		if current == 0 {
-			current = 0.3 // default threshold
-		}
-		delta := guardrails.MaxDeltaPerCycle
-		if delta <= 0 {
-			delta = 0.05 // fallback
-		}
-		newThreshold := current + delta
-		if newThreshold > 0.95 {
-			newThreshold = 0.95
-		}
-		otherConfig["retrieval_threshold"] = newThreshold
-	default:
-		// Non-threshold suggestions are informational only, no auto-apply.
-		return fmt.Errorf("suggestion type %q does not support auto-apply", sg.SuggestionType)
-	}
-
-	// Save updated config.
-	configJSON, _ := json.Marshal(otherConfig)
-	if err := agentStore.Update(ctx, sg.AgentID, map[string]any{
-		"other_config": json.RawMessage(configJSON),
-	}); err != nil {
-		return fmt.Errorf("update agent config: %w", err)
-	}
-
-	// Persist baseline into suggestion parameters for future rollback.
-	var sgParams map[string]any
-	_ = json.Unmarshal(sg.Parameters, &sgParams)
-	if sgParams == nil {
-		sgParams = make(map[string]any)
-	}
-	sgParams["_baseline"] = baseline
-	updatedParams, _ := json.Marshal(sgParams)
-	if err := sugStore.UpdateSuggestionParameters(ctx, sg.ID, updatedParams); err != nil {
-		return fmt.Errorf("save baseline: %w", err)
-	}
-	if err := sugStore.UpdateSuggestionStatus(ctx, sg.ID, "applied", "auto-adapt"); err != nil {
-		return fmt.Errorf("update suggestion status: %w", err)
-	}
-
-	slog.Info("evolution.auto_adapt.applied", "agent", sg.AgentID, "type", sg.SuggestionType)
-	return nil
+	return fmt.Errorf("suggestion type %q does not support auto-apply", sg.SuggestionType)
 }
 
 // RollbackSuggestion reverts an applied suggestion by restoring baseline values.
@@ -176,55 +110,13 @@ func RollbackSuggestion(ctx context.Context, agentStore store.AgentStore, sugSto
 	return nil
 }
 
-// EvaluateApplied checks if applied suggestions improved or degraded quality.
-// Rolls back suggestions where quality dropped more than the guardrail threshold.
+// EvaluateApplied is retained for callers; automatic quality-based rollback is
+// disabled until answer-quality evidence and an effective adaptation route exist.
 func EvaluateApplied(ctx context.Context, agentID uuid.UUID, guardrails AdaptationGuardrails,
 	metricsStore store.EvolutionMetricsStore, sugStore store.EvolutionSuggestionStore,
 	agentStore store.AgentStore) error {
 
-	// Find applied suggestions for this agent.
-	applied, err := sugStore.ListSuggestions(ctx, agentID, "applied", 20)
-	if err != nil {
-		return err
-	}
-
-	rollbackPct := guardrails.RollbackOnDrop
-	if rollbackPct <= 0 {
-		rollbackPct = 20.0
-	}
-
-	for _, sg := range applied {
-		// Only evaluate threshold suggestions (the only auto-apply type).
-		if sg.SuggestionType != store.SuggestThreshold {
-			continue
-		}
-
-		// Compare current retrieval usage to baseline.
-		var sgParams map[string]any
-		_ = json.Unmarshal(sg.Parameters, &sgParams)
-		baselineRate, _ := sgParams["current_usage_rate"].(float64)
-		if baselineRate == 0 {
-			continue
-		}
-
-		// Get current retrieval metrics.
-		currentAggs, err := metricsStore.AggregateRetrievalMetrics(ctx, agentID, sg.CreatedAt)
-		if err != nil || len(currentAggs) == 0 {
-			continue
-		}
-
-		// Check if usage rate dropped significantly.
-		for _, agg := range currentAggs {
-			drop := (baselineRate - agg.UsageRate) / baselineRate * 100
-			if drop > rollbackPct {
-				slog.Warn("evolution.auto_adapt.quality_drop",
-					"agent", agentID, "source", agg.Source,
-					"baseline", baselineRate, "current", agg.UsageRate, "drop_pct", drop)
-				_ = RollbackSuggestion(ctx, agentStore, sugStore, sg)
-				break
-			}
-		}
-	}
-
+	// Retrieval result presence cannot measure answer quality. Historical threshold
+	// suggestions must not trigger automatic config writes or rollback decisions.
 	return nil
 }

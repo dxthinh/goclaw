@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,8 +11,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nextlevelbuilder/goclaw/internal/i18n"
+	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/security"
+	"github.com/nextlevelbuilder/goclaw/internal/store"
 	usagecaps "github.com/nextlevelbuilder/goclaw/internal/usage/caps"
 )
 
@@ -41,6 +45,40 @@ func WithMediaImageRefs(ctx context.Context, refs []providers.MediaRef) context.
 func MediaImageRefsFromCtx(ctx context.Context) []providers.MediaRef {
 	v, _ := ctx.Value(ctxMediaImageRefs).([]providers.MediaRef)
 	return v
+}
+
+// imageMediaScope holds legacy storage access for one authorized conversation.
+type imageMediaScope struct {
+	sessionKey string
+	store      *media.Store
+}
+
+const ctxImageMediaScope toolContextKey = "tool_image_media_scope"
+
+// WithImageMediaAccess keeps the existing image-ref contract and adds scoped legacy access.
+func WithImageMediaAccess(ctx context.Context, refs []providers.MediaRef, sessionKey string, mediaStore *media.Store) context.Context {
+	ctx = WithMediaImageRefs(ctx, slices.Clone(refs))
+	return context.WithValue(ctx, ctxImageMediaScope, imageMediaScope{sessionKey, mediaStore})
+}
+
+func (t *ReadImageTool) loadImageByID(ctx context.Context, id string) ([]providers.ImageContent, error) {
+	ref, err := resolveImageMediaRef(ctx, id)
+	if err == nil && ref.Kind == "image" {
+		var imagePath string
+		scope, _ := ctx.Value(ctxImageMediaScope).(imageMediaScope)
+		switch {
+		case ref.Path != "" && ToolWorkspaceFromCtx(ctx) != "":
+			imagePath, err = resolveStructuredMediaRefPath(WithRestrictToWorkspace(ctx, true), ref.Path, "image")
+		case ref.Path == "" && scope.store != nil && scope.sessionKey != "":
+			imagePath, err = scope.store.LoadSessionPath(scope.sessionKey, ref.ID)
+		}
+		if err == nil && imagePath != "" {
+			if images, loadErr := readImageFile(imagePath); loadErr == nil {
+				return images, nil
+			}
+		}
+	}
+	return nil, errors.New(i18n.T(store.LocaleFromContext(ctx), i18n.MsgImageMediaUnavailable, id))
 }
 
 // --- ReadImageTool ---
@@ -116,7 +154,20 @@ func (t *ReadImageTool) Execute(ctx context.Context, args map[string]any) *Resul
 
 	imgPath, _ := args["path"].(string)
 	imgURL, _ := args["url"].(string)
-	mediaID, _ := args["media_id"].(string)
+	rawMediaID, hasMediaID := args["media_id"]
+	mediaID, isStringID := rawMediaID.(string)
+	if hasMediaID {
+		blankID := rawMediaID == nil || (isStringID && strings.TrimSpace(mediaID) == "")
+		switch {
+		case !blankID && !isStringID, blankID && imgPath == "" && imgURL == "":
+			// Một media_id sai kiểu, hoặc rỗng khi không có nguồn nào khác, không được
+			// lặng lẽ rơi về ảnh của lượt hiện tại.
+			return ErrorResult(i18n.T(store.LocaleFromContext(ctx), i18n.MsgImageMediaIDRequired))
+		case blankID:
+			// Nhiều model điền "" cho tham số tùy chọn; path/url vẫn là nguồn hợp lệ.
+			mediaID = ""
+		}
+	}
 
 	if imgPath != "" && imgURL != "" && mediaID == "" {
 		return ErrorResult("Both 'path' and 'url' parameters cannot be specified. Choose only one.")
@@ -139,14 +190,7 @@ func (t *ReadImageTool) Execute(ctx context.Context, args map[string]any) *Resul
 		}
 		images = fileImages
 	} else if mediaID != "" {
-		ref, err := resolveImageMediaRef(ctx, mediaID)
-		if err != nil {
-			return ErrorResult(err.Error())
-		}
-		if ref.Path == "" {
-			return ErrorResult(fmt.Sprintf("image media_id %q has no accessible workspace path", mediaID))
-		}
-		fileImages, err := t.loadImageFromPath(ctx, ref.Path)
+		fileImages, err := t.loadImageByID(ctx, mediaID)
 		if err != nil {
 			return ErrorResult(err.Error())
 		}
@@ -281,6 +325,18 @@ func (t *ReadImageTool) callProvider(ctx context.Context, cp credentialProvider,
 
 // loadImageFromPath reads an image file from the workspace and returns it as ImageContent.
 func (t *ReadImageTool) loadImageFromPath(ctx context.Context, path string) ([]providers.ImageContent, error) {
+	resolved, err := resolveStructuredMediaPath(ctx, path, "image")
+	if err != nil {
+		return nil, err
+	}
+
+	return readImageFile(resolved)
+}
+
+func readImageFile(path string) ([]providers.ImageContent, error) {
+	if err := ValidateRegularFileForRead(path); err != nil {
+		return nil, fmt.Errorf("image is not a safe regular file: %w", err)
+	}
 	// Infer MIME type from extension
 	ext := strings.ToLower(filepath.Ext(path))
 	mimeTypes := map[string]string{
@@ -293,13 +349,8 @@ func (t *ReadImageTool) loadImageFromPath(ctx context.Context, path string) ([]p
 		return nil, fmt.Errorf("unsupported image format: %s (supported: jpg, png, gif, webp, bmp)", ext)
 	}
 
-	resolved, err := resolveStructuredMediaPath(ctx, path, "image")
-	if err != nil {
-		return nil, err
-	}
-
 	// Pre-check file size before loading into memory.
-	fi, err := os.Stat(resolved)
+	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat image file: %w", err)
 	}
@@ -307,7 +358,7 @@ func (t *ReadImageTool) loadImageFromPath(ctx context.Context, path string) ([]p
 		return nil, fmt.Errorf("image file too large (%d bytes, max %d)", fi.Size(), maxImageFileBytes)
 	}
 
-	data, err := os.ReadFile(resolved)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read image file: %w", err)
 	}

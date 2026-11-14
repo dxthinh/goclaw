@@ -53,7 +53,7 @@ export function EvolutionSuggestionsList({ suggestions, loading, onUpdateStatus 
             <div className="flex justify-end gap-1.5">
               {s.status === 'pending' && (
                 <>
-                  <button onClick={() => setConfirm({ id: s.id, action: 'approved' })} className="px-2 py-1 text-[10px] rounded bg-success/10 text-success hover:bg-success/20 transition-colors">{t('detail.evolutionTab.approve')}</button>
+                  <button disabled={s.suggestion_type === 'threshold'} onClick={() => setConfirm({ id: s.id, action: 'approved' })} className="px-2 py-1 text-[10px] rounded bg-success/10 text-success hover:bg-success/20 transition-colors">{t('detail.evolutionTab.approve')}</button>
                   <button onClick={() => setConfirm({ id: s.id, action: 'rejected' })} className="px-2 py-1 text-[10px] rounded bg-error/10 text-error hover:bg-error/20 transition-colors">{t('detail.evolutionTab.reject')}</button>
                 </>
               )}

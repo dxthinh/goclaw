@@ -311,7 +311,7 @@ func (h *TracesHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TracesHandler) handleCostSummary(w http.ResponseWriter, r *http.Request) {
-	opts := store.CostSummaryOpts{}
+	opts := store.CostSummaryOpts{SessionKey: r.URL.Query().Get("session_key")}
 
 	if v := r.URL.Query().Get("agent_id"); v != "" {
 		id, err := uuid.Parse(v)
