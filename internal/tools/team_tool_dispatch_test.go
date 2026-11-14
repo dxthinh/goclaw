@@ -314,3 +314,24 @@ func TestDispatchFailure_FullQueueLeadNoticeIsRetried(t *testing.T) {
 	}
 	t.Fatal("lead không nhận được tin báo sau khi hàng đợi có chỗ")
 }
+
+// truncatedRecoverableStore mô phỏng ListRecoverableTasks bị giới hạn số dòng
+// (team có nhiều task pending): task vừa recover không có trong danh sách trả về.
+type truncatedRecoverableStore struct{ *mockTaskStore }
+
+func (s truncatedRecoverableStore) ListRecoverableTasks(context.Context, uuid.UUID) ([]store.TeamTaskData, error) {
+	return nil, nil
+}
+
+func TestDispatchRecoveredTasks_NotLimitedByRecoverableListCap(t *testing.T) {
+	h := newDispatchHarness(t)
+	h.mgr = NewTeamToolManager(truncatedRecoverableStore{h.tasks}, h.mgr.agentStore, h.bus, t.TempDir())
+	member := testMemberID
+	recovered := h.addTask(&store.TeamTaskData{Subject: "recovered", Status: store.TeamTaskStatusPending, OwnerAgentID: &member})
+
+	h.mgr.DispatchRecoveredTasks(h.ctx(), testTeamID, []uuid.UUID{recovered.ID})
+
+	if got := h.status(recovered.ID); got != store.TeamTaskStatusInProgress {
+		t.Errorf("recovered status = %q, want in_progress", got)
+	}
+}

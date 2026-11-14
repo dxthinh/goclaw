@@ -1,10 +1,12 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -342,21 +344,43 @@ func (m *TeamToolManager) restoreTraceContext(ctx context.Context, task *store.T
 // Called after task completion/cancellation to start newly-unblocked work
 // instead of waiting for the ticker (up to 5 min delay).
 func (m *TeamToolManager) DispatchUnblockedTasks(ctx context.Context, teamID uuid.UUID) {
-	m.dispatchPendingTasks(ctx, teamID, nil)
+	// ListRecoverableTasks orders by priority DESC, created_at — so the first
+	// pending task per owner is automatically the highest priority.
+	tasks, err := m.teamStore.ListRecoverableTasks(ctx, teamID)
+	if err != nil {
+		return
+	}
+	m.dispatchPendingTasks(ctx, teamID, tasks)
 }
 
 // DispatchRecoveredTasks dispatch lại đúng các task ticker vừa đưa về pending
 // (khóa hết hạn hoặc vừa mở khóa). Không đụng task pending khác trong team, vì
 // task lead vừa tạo trong lượt đang chạy chưa qua kiểm tra post-turn.
+// Lấy task trực tiếp theo ID: ListRecoverableTasks giới hạn số dòng nên team
+// nhiều task pending có thể làm task vừa recover rơi khỏi danh sách.
 func (m *TeamToolManager) DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID) {
 	if len(taskIDs) == 0 {
 		return
 	}
-	only := make(map[uuid.UUID]bool, len(taskIDs))
-	for _, id := range taskIDs {
-		only[id] = true
+	fetched, err := m.teamStore.GetTasksByIDs(ctx, taskIDs)
+	if err != nil {
+		slog.Warn("DispatchRecoveredTasks: fetch tasks failed", "team_id", teamID, "error", err)
+		return
 	}
-	m.dispatchPendingTasks(ctx, teamID, only)
+	tasks := fetched[:0]
+	for _, t := range fetched {
+		if t.TeamID == teamID {
+			tasks = append(tasks, t)
+		}
+	}
+	// Cùng thứ tự với ListRecoverableTasks: priority DESC, created_at.
+	slices.SortStableFunc(tasks, func(a, b store.TeamTaskData) int {
+		if a.Priority != b.Priority {
+			return cmp.Compare(b.Priority, a.Priority)
+		}
+		return a.CreatedAt.Compare(b.CreatedAt)
+	})
+	m.dispatchPendingTasks(ctx, teamID, tasks)
 }
 
 // busyOwners trả về các owner đang giữ một task in_progress trong team, để
@@ -375,20 +399,14 @@ func (m *TeamToolManager) busyOwners(ctx context.Context, teamID uuid.UUID) (map
 	return busy, nil
 }
 
-// dispatchPendingTasks dispatch task pending có owner, tối đa một task mỗi owner
-// và bỏ qua owner đang có task in_progress. only khác nil thì chỉ xét các task đó.
-func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.UUID, only map[uuid.UUID]bool) {
+// dispatchPendingTasks dispatch task pending có owner trong danh sách đã sắp theo
+// ưu tiên, tối đa một task mỗi owner và bỏ qua owner đang có task in_progress.
+func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.UUID, tasks []store.TeamTaskData) {
 	team, err := m.teamStore.GetTeam(ctx, teamID)
 	if err != nil || team == nil {
 		return
 	}
-	tasks, err := m.teamStore.ListRecoverableTasks(ctx, teamID)
-	if err != nil {
-		return
-	}
 	// Owner đang chạy một task thì task pending của họ tiếp tục xếp hàng.
-	// ListRecoverableTasks orders by priority DESC, created_at — so the first
-	// pending task per owner is automatically the highest priority.
 	dispatched, err := m.busyOwners(ctx, teamID)
 	if err != nil {
 		slog.Warn("DispatchUnblockedTasks: cannot list active tasks", "team_id", teamID, "error", err)
@@ -397,9 +415,6 @@ func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.
 	for i := range tasks {
 		task := &tasks[i]
 		if task.Status != store.TeamTaskStatusPending || task.OwnerAgentID == nil {
-			continue
-		}
-		if only != nil && !only[task.ID] {
 			continue
 		}
 		ownerID := *task.OwnerAgentID
