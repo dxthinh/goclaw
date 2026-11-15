@@ -403,4 +403,16 @@ const (
 	MsgTaskContractInvalid  = "error.task_contract_invalid"  // "invalid task contract: %s"
 	MsgTaskContractRequired = "error.task_contract_required" // "this team requires a task contract before assigning"
 	MsgTaskTypeInvalid      = "error.task_type_invalid"      // "invalid task type %q: must be general, request, note, delegation or escalation"
+	// Feedback loop của task: clarify/answer, yêu cầu sửa, duyệt checkpoint của user.
+	MsgTaskNotAwaitingInput     = "error.task_not_awaiting_input"   // "task is not waiting for an answer"
+	MsgTaskNotInReview          = "error.task_not_in_review"        // "task is not waiting for review"
+	MsgTaskFeedbackInvalid      = "error.task_feedback_invalid"     // "cannot update task: %s"
+	MsgTaskApprovalPrompt       = "task_approval.prompt"            // "🔔 Task #%d \"%s\" is ready for your review. ..."
+	MsgTaskApprovalDisabled     = "task_approval.disabled"          // "Task approval by command is not enabled for this chat."
+	MsgTaskApprovalUsage        = "task_approval.usage"             // "Usage: /approve <task number> or /changes <task number> <reason>"
+	MsgTaskApprovalNotWaiting   = "task_approval.not_waiting"       // "Task #%d is not waiting for your approval in this chat."
+	MsgTaskApprovalSenderDenied = "task_approval.sender_denied"     // "Only the person who requested task #%d or a file writer of this group can approve it."
+	MsgTaskApprovalApproved     = "task_approval.approved"          // "✅ Task #%d \"%s\" approved."
+	MsgTaskApprovalChanges      = "task_approval.changes_requested" // "🔁 Changes requested on task #%d \"%s\". ..."
+	MsgTaskApprovalFailed       = "task_approval.failed"            // "Could not update task #%d: %s"
 )

@@ -159,10 +159,11 @@ func resolveTeamTaskOutcome(
 			))
 		}
 
-	case flags.Completed || flags.Escalated:
-		// Tool already completed/failed the task — skip auto-complete.
+	case flags.Completed || flags.Escalated || flags.AwaitingInput:
+		// Tool already completed/failed the task, or the member asked for
+		// clarification (task is awaiting_input) — skip auto-complete.
 		slog.Info("post-turn: tool handled task", "task_id", meta.TaskID,
-			"completed", flags.Completed, "escalated", flags.Escalated)
+			"completed", flags.Completed, "escalated", flags.Escalated, "awaiting_input", flags.AwaitingInput)
 
 	case flags.Reviewed:
 		// Task submitted for review — skip auto-complete, renew lock.

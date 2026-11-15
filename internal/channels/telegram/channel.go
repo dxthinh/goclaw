@@ -362,6 +362,15 @@ func (c *Channel) Start(ctx context.Context) error {
 // DM streaming: uses sendMessageDraft (stealth preview) by default, falls back to
 // sendMessage+editMessageText if draft API is unavailable. Controlled by draft_transport config.
 // Group streaming: sends a new message, edits progressively, hands off to Send().
+// TaskApprovalEnabled cài channels.TaskApprovalCapable: instance đã bật
+// task_approval thì user duyệt kết quả task bằng /approve, /changes.
+func (c *Channel) TaskApprovalEnabled() bool {
+	return c.config.TaskApproval != nil && c.config.TaskApproval.Enabled
+}
+
+// Compile-time check: Telegram cài lệnh duyệt task.
+var _ channels.TaskApprovalCapable = (*Channel)(nil)
+
 func (c *Channel) StreamEnabled(isGroup bool) bool {
 	if isGroup {
 		return c.config.GroupStream != nil && *c.config.GroupStream

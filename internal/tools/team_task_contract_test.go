@@ -181,7 +181,7 @@ func TestRenderTaskContract(t *testing.T) {
 		"Deliverables:\n- q3.md",
 		"Acceptance criteria (report each one when you call complete):\n1. All regions\n2. Sources",
 		"Out of scope:\n- No forecasts",
-		`team_tasks(action="comment", type="blocker"`,
+		`If unclear: ask via team_tasks(action="clarify"`,
 		"Amendments:\n- v2 (answer, user, 2026-11-14 13:20): Use EUR",
 	} {
 		if !strings.Contains(out, want) {

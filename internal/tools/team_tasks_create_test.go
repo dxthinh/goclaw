@@ -309,6 +309,8 @@ func TestCreate(t *testing.T) {
 		}
 	})
 
+	// require_approval không còn tạo task ở in_review (duyệt task chưa chạy):
+	// task chạy bình thường, cờ được ánh xạ thành checkpoint "result".
 	t.Run("RequireApproval", func(t *testing.T) {
 		mb, tool, _, _, ctx := newTestTeamSetup()
 		ptd := NewPendingTeamDispatch()
@@ -330,8 +332,11 @@ func TestCreate(t *testing.T) {
 			task = v
 		}
 		mb.taskStore.mu.Unlock()
-		if task.Status != store.TeamTaskStatusInReview {
-			t.Errorf("expected status in_review, got %s", task.Status)
+		if task.Status != store.TeamTaskStatusPending {
+			t.Errorf("expected status pending, got %s", task.Status)
+		}
+		if !strings.Contains(result.ForLLM, "require_approval was ignored") {
+			t.Errorf("expected note about ignored require_approval, got: %s", result.ForLLM)
 		}
 	})
 

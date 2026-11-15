@@ -29,7 +29,7 @@ import (
 // and routes them through the scheduler/agent loop, then publishes the response back.
 // Also handles subagent announcements: routes them through the parent agent's session
 // (matching TS subagent-announce.ts pattern) so the agent can reformulate for the user.
-func consumeInboundMessages(ctx context.Context, msgBus *bus.MessageBus, agents *agent.Router, cfg *config.Config, sched *scheduler.Scheduler, channelMgr *channels.Manager, teamStore store.TeamStore, agentLinkStore store.AgentLinkStore, quotaChecker *channels.QuotaChecker, sessStore store.SessionStore, agentStore store.AgentStore, contactCollector *store.ContactCollector, postTurn tools.PostTurnProcessor, subagentMgr *tools.SubagentManager, usageCapSvc *usagecaps.Service, providerReg *providers.Registry, teamWorkEmbedder memory.EmbeddingProvider) {
+func consumeInboundMessages(ctx context.Context, msgBus *bus.MessageBus, agents *agent.Router, cfg *config.Config, sched *scheduler.Scheduler, channelMgr *channels.Manager, teamStore store.TeamStore, agentLinkStore store.AgentLinkStore, quotaChecker *channels.QuotaChecker, sessStore store.SessionStore, agentStore store.AgentStore, contactCollector *store.ContactCollector, postTurn tools.PostTurnProcessor, subagentMgr *tools.SubagentManager, usageCapSvc *usagecaps.Service, providerReg *providers.Registry, teamWorkEmbedder memory.EmbeddingProvider, configPermStore store.ConfigPermissionStore) {
 	slog.Info("inbound message consumer started")
 
 	// Inbound message deduplication (matching TS src/infra/dedupe.ts + inbound-dedupe.ts).
@@ -66,6 +66,11 @@ func consumeInboundMessages(ctx context.Context, msgBus *bus.MessageBus, agents 
 		ProviderReg:      providerReg,
 		TeamWorkEmbedder: teamWorkEmbedder,
 		GetAnnounceMu:    getAnnounceMu,
+		ConfigPermStore:  configPermStore,
+	}
+	// postTurn là *tools.TeamToolManager khi team được bật; nó cài dịch vụ feedback.
+	if fb, ok := postTurn.(tools.TaskFeedbackService); ok {
+		deps.TaskFeedback = fb
 	}
 
 	// Track running teammate tasks so they can be cancelled when the task is
@@ -138,6 +143,10 @@ func consumeInboundMessages(ctx context.Context, msgBus *bus.MessageBus, agents 
 			continue
 		}
 		if handleStopCommand(msg, deps) {
+			continue
+		}
+		// Lệnh duyệt task trong chat: xử lý ở gateway, không tới agent.
+		if handleTaskApprovalCommand(ctx, msg, deps) {
 			continue
 		}
 

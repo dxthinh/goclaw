@@ -46,16 +46,18 @@ const (
 	TeamTaskStatusInReview   = "in_review"
 	TeamTaskStatusCancelled  = "cancelled"
 	TeamTaskStatusStale      = "stale"
+	// TeamTaskStatusAwaitingInput: member đã hỏi lại (clarify) và đang chờ câu
+	// trả lời; task không bị tính là thất bại và không bị ticker recover.
+	TeamTaskStatusAwaitingInput = "awaiting_input"
 )
 
 // Team task list filter constants (for ListTasks statusFilter parameter).
 const (
-	TeamTaskFilterActive    = "active" // pending + in_progress + blocked
+	TeamTaskFilterActive    = "active"    // pending + in_progress + blocked
 	TeamTaskFilterInReview  = "in_review" // only in_review tasks
 	TeamTaskFilterCompleted = "completed" // only completed tasks
 	TeamTaskFilterAll       = "all"       // all statuses (default when "" passed)
 )
-
 
 // TeamData represents an agent team.
 type TeamData struct {
@@ -256,6 +258,11 @@ type TaskStore interface {
 	UpdateTaskProgress(ctx context.Context, taskID, teamID uuid.UUID, percent int, step string) error
 	RenewTaskLock(ctx context.Context, taskID, teamID uuid.UUID) error
 	ResetTaskStatus(ctx context.Context, taskID, teamID uuid.UUID) error
+	// AwaitTaskInput chuyển task in_progress sang awaiting_input và nhả khóa.
+	AwaitTaskInput(ctx context.Context, taskID, teamID uuid.UUID) error
+	// SubmitTaskResultForReview chuyển task in_progress sang in_review, ghi
+	// result và nhả khóa (task chờ duyệt kết quả).
+	SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string) error
 	ListActiveTasksByChatID(ctx context.Context, chatID string) ([]TeamTaskData, error)
 }
 

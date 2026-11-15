@@ -122,7 +122,8 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	content.WriteString("\n\n[Instructions]\n" +
 		"- Use team_tasks(action=\"progress\", percent=N, text=\"...\") to report progress\n" +
 		"- Use team_tasks(action=\"comment\", text=\"...\") to share findings\n" +
-		"- Use team_tasks(action=\"comment\", type=\"blocker\", text=\"...\") when BLOCKED and need leader input — auto-fails task and notifies leader\n" +
+		"- Use team_tasks(action=\"clarify\", text=\"<question>\") when information is missing or unclear — the task waits for the lead's answer, then comes back to you\n" +
+		"- Use team_tasks(action=\"comment\", type=\"blocker\", text=\"...\") only when you cannot continue even with an answer — auto-fails task and notifies leader\n" +
 		"- When done: team_tasks(action=\"complete\", result=\"summary of your work\", deliverables=[\"exact path of each final file\"])\n" +
 		"- deliverables is how files reach the user: list every final file, including ones made by exec or post-processing, and leave out drafts. Unlisted files are not sent.\n" +
 		"- Write output files to team workspace so lead can review")
@@ -173,15 +174,15 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	}
 
 	meta := map[string]string{
-		MetaOriginChannel:   originChannel,
-		MetaOriginPeerKind:  originPeerKind,
-		MetaOriginChatID:    originChatID,
-		MetaOriginUserID:    originUserID,
-		MetaFromAgent:       fromAgent,
-		MetaToAgent:         ag.AgentKey,
-		MetaToAgentDisplay:  ag.DisplayName,
-		MetaTeamTaskID:      task.ID.String(),
-		MetaTeamID:          teamID.String(),
+		MetaOriginChannel:  originChannel,
+		MetaOriginPeerKind: originPeerKind,
+		MetaOriginChatID:   originChatID,
+		MetaOriginUserID:   originUserID,
+		MetaFromAgent:      fromAgent,
+		MetaToAgent:        ag.AgentKey,
+		MetaToAgentDisplay: ag.DisplayName,
+		MetaTeamTaskID:     task.ID.String(),
+		MetaTeamID:         teamID.String(),
 	}
 	if originSenderID != "" {
 		meta[MetaOriginSenderID] = originSenderID

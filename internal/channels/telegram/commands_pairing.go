@@ -170,6 +170,8 @@ func DefaultMenuCommands() []telego.BotCommand {
 		{Command: "reactions", Description: "Show reaction emoji legend"},
 		{Command: "tasks", Description: "List team tasks"},
 		{Command: "task_detail", Description: "View task detail by ID"},
+		{Command: "approve", Description: "Approve a task result waiting for you"},
+		{Command: "changes", Description: "Request changes to a task result"},
 		{Command: "subagents", Description: "List subagent tasks"},
 		{Command: "subagent", Description: "View subagent task detail by ID"},
 		{Command: "writers", Description: "List file writers for this group"},

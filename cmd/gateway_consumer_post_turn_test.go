@@ -152,7 +152,8 @@ func TestTeamTaskOutcome_StopReasonFailsTask(t *testing.T) {
 }
 
 func TestTeamTaskOutcome_ToolHandledSkips(t *testing.T) {
-	for _, flags := range []tools.TaskActionFlags{{Completed: true}, {Escalated: true}} {
+	// AwaitingInput: member đã clarify, task chờ câu trả lời — không tự hoàn thành.
+	for _, flags := range []tools.TaskActionFlags{{Completed: true}, {Escalated: true}, {AwaitingInput: true}} {
 		c := newOutcomeCase(store.TeamTaskStatusInProgress)
 		c.run(scheduler.RunOutcome{Result: &agent.RunResult{Content: "x"}}, flags)
 		c.assert(t, nil, "")

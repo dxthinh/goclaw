@@ -482,7 +482,7 @@ func (s *SQLiteTeamStore) ListActiveTasksByChatID(ctx context.Context, chatID st
 		`SELECT `+taskSelectCols+`
 		 `+taskJoinClause+`
 		 WHERE COALESCE(t.chat_id,'') = ?
-		   AND t.status IN ('pending','in_progress','blocked','in_review')`+tenantWhere+`
+		   AND t.status IN ('pending','in_progress','blocked','in_review','awaiting_input')`+tenantWhere+`
 		 ORDER BY t.task_number ASC
 		 LIMIT 50`, args...)
 	if err != nil {

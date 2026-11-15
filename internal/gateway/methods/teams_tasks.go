@@ -50,6 +50,8 @@ func (m *TeamsMethods) RegisterTasks(router *gateway.MethodRouter) {
 	router.Register(protocol.MethodTeamsTaskGetLight, m.handleTaskGetLight)
 	router.Register(protocol.MethodTeamsTaskApprove, m.handleTaskApprove)
 	router.Register(protocol.MethodTeamsTaskReject, m.handleTaskReject)
+	router.Register(protocol.MethodTeamsTaskAnswer, m.handleTaskAnswer)
+	router.Register(protocol.MethodTeamsTaskRequestChanges, m.handleTaskRequestChanges)
 	router.Register(protocol.MethodTeamsTaskComment, m.handleTaskComment)
 	router.Register(protocol.MethodTeamsTaskComments, m.handleTaskComments)
 	router.Register(protocol.MethodTeamsTaskEvents, m.handleTaskEvents)
@@ -194,11 +196,18 @@ func (m *TeamsMethods) handleTaskApprove(ctx context.Context, client *gateway.Cl
 		return
 	}
 
+	// Task chờ user duyệt (checkpoint "user"): hoàn thành qua đường dùng chung
+	// với lệnh /approve (dispatch task phụ thuộc, báo lead).
+	if m.approveUserCheckpoint(ctx, client, req, locale, teamID, taskID, params.Comment) {
+		return
+	}
+
 	if err := m.teamStore.ApproveTask(ctx, taskID, teamID, params.Comment); err != nil {
 		slog.Warn("teams.tasks.approve failed", "task_id", taskID, "error", err)
 		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInternal, i18n.T(locale, i18n.MsgInternalError, "")))
 		return
 	}
+	m.clearLeadCheckpoint(ctx, taskID)
 
 	// Add optional comment.
 	if params.Comment != "" {
@@ -462,4 +471,3 @@ type taskCreateParams struct {
 	// task_contract và task được giao ngay qua assignTo.
 	Contract map[string]any `json:"contract,omitempty"`
 }
-

@@ -384,6 +384,17 @@ func init() {
 		MsgSnapshotRepairRange:                     "Chỉ sửa các giờ UTC đầy đủ trong [%s, %s)",
 		MsgTaskContractInvalid:                     "Task contract không hợp lệ: %s",
 		MsgTaskContractRequired:                    "Team này yêu cầu task contract (objective, deliverables, acceptance) trước khi giao task",
+		MsgTaskNotAwaitingInput:                    "task không ở trạng thái chờ câu trả lời",
+		MsgTaskNotInReview:                         "task không ở trạng thái chờ duyệt",
+		MsgTaskFeedbackInvalid:                     "không cập nhật được task: %s",
+		MsgTaskApprovalPrompt:                      "🔔 Task #%d \"%s\" đã xong và chờ bạn duyệt.\nGõ /approve %d để nhận kết quả, hoặc /changes %d <lý do> để yêu cầu sửa.",
+		MsgTaskApprovalDisabled:                    "Chat này chưa bật duyệt task bằng lệnh.",
+		MsgTaskApprovalUsage:                       "Cú pháp: /approve <số task> hoặc /changes <số task> <lý do>",
+		MsgTaskApprovalNotWaiting:                  "Task #%d không chờ bạn duyệt trong chat này.",
+		MsgTaskApprovalSenderDenied:                "Chỉ người yêu cầu task #%d hoặc file writer của nhóm mới duyệt được.",
+		MsgTaskApprovalApproved:                    "✅ Đã duyệt task #%d \"%s\".",
+		MsgTaskApprovalChanges:                     "🔁 Đã yêu cầu sửa task #%d \"%s\". Task được giao lại cho người thực hiện.",
+		MsgTaskApprovalFailed:                      "Không cập nhật được task #%d: %s",
 		MsgTaskTypeInvalid:                         "Loại task %q không hợp lệ: chỉ nhận general, request, note, delegation hoặc escalation",
 	})
 }

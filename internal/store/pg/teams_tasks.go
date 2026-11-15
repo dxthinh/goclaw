@@ -219,7 +219,7 @@ func (s *PGTeamStore) ListTasks(ctx context.Context, teamID uuid.UUID, orderBy s
 		statusWhere = "AND t.status = 'in_review'"
 	case store.TeamTaskFilterCompleted:
 		statusWhere = "AND t.status IN ('completed','cancelled')"
-	// "", store.TeamTaskFilterAll ("all") → no filter (all statuses)
+		// "", store.TeamTaskFilterAll ("all") → no filter (all statuses)
 	}
 
 	if limit <= 0 {
@@ -537,7 +537,7 @@ func (s *PGTeamStore) ListActiveTasksByChatID(ctx context.Context, chatID string
 		`SELECT `+taskSelectCols+`
 		 `+taskJoinClause+`
 		 WHERE COALESCE(t.chat_id,'') = $1
-		   AND t.status IN ('pending','in_progress','blocked','in_review')`+tenantWhere+`
+		   AND t.status IN ('pending','in_progress','blocked','in_review','awaiting_input')`+tenantWhere+`
 		 ORDER BY t.task_number ASC
 		 LIMIT 50`, args...)
 	if err != nil {

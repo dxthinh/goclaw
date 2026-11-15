@@ -372,6 +372,8 @@ func isWriteMethod(method string) bool {
 		protocol.MethodTeamsTaskAssign,
 		protocol.MethodTeamsTaskCancel,
 		protocol.MethodTeamsTaskRetry,
+		protocol.MethodTeamsTaskAnswer,
+		protocol.MethodTeamsTaskRequestChanges,
 		protocol.MethodTeamsWorkspaceDelete,
 		protocol.MethodHooksTest,
 		protocol.MethodPairingRequest,

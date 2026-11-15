@@ -25,6 +25,11 @@ func resolveTaskCreateContract(locale string, team *store.TeamData, raw map[stri
 	if contract == nil && assigning && tools.TaskContractRequired(team, taskType) {
 		return nil, i18n.T(locale, i18n.MsgTaskContractRequired)
 	}
+	// Checkpoint chỉ giữ cho task xuất phát từ kênh chat đã bật duyệt qua lệnh;
+	// task tạo từ dashboard không có chat gốc nên checkpoint bị bỏ.
+	if contract != nil {
+		contract.Checkpoint = tools.TaskContractCheckpointNone
+	}
 	return contract, ""
 }
 

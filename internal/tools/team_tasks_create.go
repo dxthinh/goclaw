@@ -131,11 +131,13 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		return ErrorResult(errMsg)
 	}
 
+	// require_approval nghĩa là checkpoint "result": task chạy rồi user duyệt
+	// kết quả, không còn tạo task ở in_review (duyệt task chưa chạy).
 	requireApproval, _ := args["require_approval"].(bool)
+	checkpointNote := resolveCreateCheckpoint(contract, requireApproval,
+		t.manager.ChannelTaskApprovalEnabled(OriginChannelFromCtx(ctx)))
 	status := store.TeamTaskStatusPending
-	if requireApproval {
-		status = store.TeamTaskStatusInReview
-	} else if len(blockedBy) > 0 {
+	if len(blockedBy) > 0 {
 		status = store.TeamTaskStatusBlocked
 	}
 	// Assigned tasks without blockers stay pending — dispatched after the turn
@@ -335,6 +337,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		assigneeName = t.manager.AgentKeyFromID(ctx, assigneeID)
 	}
 	msg := fmt.Sprintf("Task created: %s (id=%s, task_number=%d, status=%s, assignee=%s)", subject, task.ID, task.TaskNumber, status, assigneeName)
+	if checkpointNote != "" {
+		msg += "\n\n" + checkpointNote
+	}
 
 	// Soft guardrail: warn if subject suggests multiple deliverables.
 	// Only checks subject (not description) — detailed descriptions are fine.
@@ -363,4 +368,25 @@ func resolveCreateContract(team *store.TeamData, taskType string, raw any) (*Tas
 		return nil, "This team requires a task contract for every task except task_type request and note. Add contract={objective, deliverables, acceptance}. " + taskContractExample
 	}
 	return contract, ""
+}
+
+// resolveCreateCheckpoint áp checkpoint của lệnh create: require_approval được
+// ánh xạ thành checkpoint "result"; checkpoint chỉ giữ lại khi task có contract
+// và kênh gốc hỗ trợ, đã bật duyệt qua lệnh chat. Trường hợp khác checkpoint bị
+// bỏ (không chặn việc tạo task) và trả ghi chú cho lead (tiếng Anh, cho LLM).
+func resolveCreateCheckpoint(contract *TaskContract, requireApproval, channelApproval bool) string {
+	if contract == nil {
+		if requireApproval {
+			return "Note: require_approval was ignored because this task has no contract. You (the lead) will review the result."
+		}
+		return ""
+	}
+	if requireApproval {
+		contract.Checkpoint = TaskContractCheckpointResult
+	}
+	if contract.Checkpoint == TaskContractCheckpointResult && !channelApproval {
+		contract.Checkpoint = TaskContractCheckpointNone
+		return "Note: checkpoint was dropped because this chat channel does not approve tasks by command. You (the lead) will review the result."
+	}
+	return ""
 }

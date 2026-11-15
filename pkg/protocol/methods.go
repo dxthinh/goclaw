@@ -148,6 +148,8 @@ const (
 	MethodTeamsTaskAssign          = "teams.tasks.assign"
 	MethodTeamsTaskCancel          = "teams.tasks.cancel"
 	MethodTeamsTaskRetry           = "teams.tasks.retry"
+	MethodTeamsTaskAnswer          = "teams.tasks.answer"
+	MethodTeamsTaskRequestChanges  = "teams.tasks.request-changes"
 	MethodTeamsTaskActiveBySession = "teams.tasks.active-by-session"
 	MethodTeamsMembersAdd          = "teams.members.add"
 	MethodTeamsMembersRemove       = "teams.members.remove"

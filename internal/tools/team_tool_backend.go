@@ -45,6 +45,9 @@ type TeamToolBackend interface {
 
 	// Data directory for workspace resolution
 	DataDir() string
+
+	// ChannelTaskApprovalEnabled: kênh gốc có duyệt task qua lệnh chat được không.
+	ChannelTaskApprovalEnabled(channelName string) bool
 }
 
 // Compile-time check: *TeamToolManager must satisfy TeamToolBackend.
