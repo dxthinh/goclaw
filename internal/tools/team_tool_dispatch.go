@@ -94,6 +94,16 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	if task.Description != "" {
 		content.WriteString("\n\n" + task.Description)
 	}
+	// Comment gần nhất (lý do reject, phản hồi khi retry, ghi chú tiến độ) đi
+	// kèm mọi lần dispatch, kể cả reject/retry gọi thẳng hàm này.
+	if commentCtx := m.buildRecentCommentsSummary(ctx, task.ID); commentCtx != "" {
+		content.WriteString("\n\n" + commentCtx)
+	}
+	// Contract nằm trong system prompt của lượt member (consumer chèn vào),
+	// tin dispatch chỉ trỏ tới nó.
+	if TaskContractFromTask(task) != nil {
+		content.WriteString(fmt.Sprintf("\n\n[This task has a Task Contract — see the \"Task Contract — task #%d\" block in your system prompt. It defines the objective, deliverables and acceptance criteria and takes precedence over this message.]", task.TaskNumber))
+	}
 	// Hint: tell the agent it's on a team task and where the shared workspace is.
 	if ws := taskTeamWorkspace(task); ws != "" {
 		content.WriteString(fmt.Sprintf("\n\n[Team workspace: %s — use read_file/write_file/list_files to access shared files. All files you write are visible to the team lead and other members.]", ws))
@@ -464,12 +474,6 @@ func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.
 		// Append completed blocker results so the member agent has context.
 		if summary := m.buildBlockerResultsSummary(ctx, task); summary != "" {
 			task.Description += "\n\n" + summary
-		}
-
-		// Append recent comments so re-dispatched tasks include rejection reasons,
-		// progress notes, or other context from previous runs.
-		if commentCtx := m.buildRecentCommentsSummary(ctx, task.ID); commentCtx != "" {
-			task.Description += "\n\n" + commentCtx
 		}
 
 		// Restore leader's trace context (stored in task metadata during creation)
