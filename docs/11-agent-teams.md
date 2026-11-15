@@ -128,9 +128,16 @@ flowchart TD
         PENDING["Pending<br/>(just created)"] -->|claim or assign| IN_PROGRESS["In Progress<br/>(agent working)"]
         PENDING -->|blocked_by set| BLOCKED["Blocked<br/>(waiting on dependencies)"]
         BLOCKED -->|all blockers complete| PENDING
-        IN_PROGRESS -->|review| IN_REVIEW["In Review<br/>(pending approval)"]
-        IN_REVIEW -->|approve| COMPLETED["Completed<br/>(with result)"]
-        IN_REVIEW -->|reject| CANCELLED["Cancelled<br/>(auto-unblocks dependents)"]
+        IN_PROGRESS -->|clarify| AWAITING["Awaiting Input<br/>(member asked the lead)"]
+        AWAITING -->|answer| PENDING
+        AWAITING -->|cancel| CANCELLED
+        IN_PROGRESS -->|complete, no contract| COMPLETED["Completed<br/>(with result)"]
+        IN_PROGRESS -->|complete, all criteria met| COMPLETED
+        IN_PROGRESS -->|"complete, checkpoint=result<br/>(checkpoint_pending=user)"| IN_REVIEW["In Review<br/>(waiting for approval)"]
+        IN_PROGRESS -->|"criteria missing/unmet, or run ends<br/>without complete (checkpoint_pending=lead)"| IN_REVIEW
+        IN_REVIEW -->|approve| COMPLETED
+        IN_REVIEW -->|request changes| PENDING
+        IN_REVIEW -->|"reject (dashboard)"| CANCELLED["Cancelled<br/>(auto-unblocks dependents)"]
         IN_PROGRESS -->|cancel| CANCELLED
         PENDING -->|cancel| CANCELLED
         PENDING -->|system failure| FAILED["Failed<br/>(stale/error)"]
@@ -142,11 +149,13 @@ flowchart TD
 
 | Action | Description | Who Uses It |
 |--------|-------------|-------------|
-| `create` | Create task with subject, description, priority, assignee, blocked_by | Lead/Admin |
+| `create` | Create task with subject, description, priority, assignee, blocked_by, optional `contract` (required when the team enables `task_contract`, see §5) and `require_approval` | Lead/Admin |
 | `claim` | Atomically claim a pending task | Members |
-| `complete` | Mark task done with result summary and optional `deliverables` (final file paths to send to the user) | Members/Agents |
-| `approve` | Approve completed task (human-in-the-loop) | Admin/Human |
-| `reject` | Reject task with reason, mark as cancelled, inject message to lead | Admin/Human |
+| `complete` | Mark task done with result summary, optional `deliverables` (final file paths to send to the user) and `criteria` (`[{index, met, evidence}]`, one per acceptance criterion of the contract) | Members/Agents |
+| `clarify` | Owner asks the lead a question (`text`, `kind`: `question` or `missing_tool`); task moves to `awaiting_input` instead of failing | Members (Standard only) |
+| `answer` | Lead answers a `clarify` question (`task_id`, `text`, optional `assignee` to hand the task to another member); task is dispatched again | Lead (Standard only) |
+| `approve` | Approve an `in_review` task. Refused for every agent when the task waits for the user (`checkpoint_pending=user`) | Lead |
+| `reject` | Send an `in_review` task back with a reason. With an owner the task is reset and re-dispatched (the reason becomes a `changes_requested` amendment when there is a contract). Refused when the task waits for the user | Lead |
 | `cancel` | Cancel task with reason | Lead |
 | `assign` | Admin-assign a pending task to an agent | Admin |
 | `review` | Submit task for review, transitions to in_review status | Members |
@@ -160,6 +169,8 @@ flowchart TD
 | `clear_ask_user` | Cancel a previously set ask_user reminder | Members |
 | `retry` | Re-dispatch stale or failed tasks back to pending | Admin |
 | `update` | Update task metadata (priority, description, etc.) | Lead |
+
+The Lite edition (`LiteTeamPolicy` in `internal/tools/team_action_policy.go`) blocks `comment`, `review`, `approve`, `reject`, `attach`, `ask_user`, `clear_ask_user`, `clarify` and `answer`.
 
 ### Atomic Claiming
 
@@ -206,7 +217,7 @@ Tasks can declare `blocked_by` — a list of prerequisite task IDs. When a task 
 - Cancelled tasks (via `cancel` or `reject`) also unblock their dependents
 - Failed tasks do **not** unblock their dependents: they stay `blocked` until the lead retries the failed task (and it completes) or cancels it. The failure notice to the lead lists the tasks still blocked
 
-The `blocked` status is one of 8 possible statuses: `pending`, `in_progress`, `in_review`, `completed`, `failed`, `cancelled`, `blocked`, `stale`.
+The `blocked` status is one of 9 possible statuses: `pending`, `in_progress`, `awaiting_input`, `in_review`, `completed`, `failed`, `cancelled`, `blocked`, `stale`.
 
 ### Task Data Model
 
@@ -214,15 +225,15 @@ The `blocked` status is one of 8 possible statuses: `pending`, `in_progress`, `i
 |-------|-------------|
 | `id`, `team_id` | Unique ID + team ownership |
 | `subject`, `description` | Task title and details |
-| `status` | pending, in_progress, in_review, completed, failed, cancelled, blocked, stale |
+| `status` | pending, in_progress, awaiting_input, in_review, completed, failed, cancelled, blocked, stale |
 | `priority` | Integer (higher = more important) |
 | `owner_agent_id` | Agent currently working on task |
 | `created_by_agent_id` | Agent that created the task (if auto-created by agent) |
 | `blocked_by` | List of task IDs this task depends on |
-| `task_type` | "general" or custom type label |
+| `task_type` | `general` (default), `request`, `note`, `delegation`, `escalation` |
 | `task_number` | Human-readable sequential number (team-local) |
 | `progress_percent`, `progress_step` | Current progress tracking |
-| `metadata` | Custom JSON for task snapshots, peer_kind, local_key, team_workspace |
+| `metadata` | Custom JSON for task snapshots, peer_kind, local_key, team_workspace, plus `contract`, `checkpoint`, `checkpoint_pending`, `acceptance_report`, `dispatch_count` (see [06-store-data-model.md](./06-store-data-model.md#task-status-and-metadata-keys)) |
 | `user_id`, `chat_id`, `channel` | Scope: which user/group triggered this task |
 | `result` | Result summary when completed |
 
@@ -338,39 +349,63 @@ tools happened to produce:
 
 ### Review Workflow
 
-Tasks can require human approval before final completion. When creating a task, pass `require_approval: true`:
+A task reaches `in_review` in three ways:
 
-```
-team_tasks(action="create", ..., require_approval=true)
-```
+- The member calls `review` (submit for review). The lead or a dashboard user approves or rejects it.
+- The task has a contract and the member's `complete` misses a criterion, reports one as not met, or the run ends without `complete`. The task waits for the lead with `checkpoint_pending=lead` (see §5).
+- The task carries the result checkpoint and every criterion is met. It waits for the user with `checkpoint_pending=user` (see §5, User Approval).
 
-**Flow:**
+`require_approval: true` on `create` no longer creates a task in `in_review` before it runs: it sets the result checkpoint, so the task runs first and the user approves the result.
 
-1. **Create with approval flag**: Task created with status `pending`, `require_approval` set
-2. **Member submits for review**: When done, member calls `team_tasks(action="review", task_id="...")`
-   - Task transitions to `in_review` status
-   - Emits `EventTeamTaskReviewed` event
-3. **Human approves**: Via dashboard, human clicks "Approve" → `teams.tasks.approve` RPC
-   - Task transitions to `completed`
-   - Emits `EventTeamTaskApproved` event
-4. **Human rejects**: Via dashboard, human clicks "Reject" with reason → `teams.tasks.reject` RPC
-   - Task transitions to `cancelled` with reason
-   - Emits `EventTeamTaskRejected` event
-   - Lead receives notification to retry or investigate
-
-Without `require_approval`, tasks move directly to `completed` after member calls `complete` (no in-review stage).
+From the dashboard, **Approve** calls `teams.tasks.approve`, **Request changes** calls `teams.tasks.request-changes` (the reason is required, becomes an amendment, and the task is redone), and **Cancel** / `teams.tasks.reject` drops the task (`cancelled`, dependents unblocked).
 
 ---
 
-## 5. Team Mailbox
+## 5. Task Contract and User Approval
 
-The mailbox enables peer-to-peer communication between team members via the `team_message` tool. Messages flow through the message bus with a `"teammate:"` prefix and are delivered as inbound messages to the target agent's session, routed through the team scheduler lane. The response is published back to the originating channel so the user (and lead) can see it.
+### Task Contract
 
-**Sending a direct message** targets a specific teammate by agent key. The lead uses this to assign tasks by reference, redirect work, or ask clarifying questions. Members use it to report partial progress, flag blockers, or request context from the lead. Cross-coordination between members working on related tasks is also common.
+A Task Contract is a structured definition of a task stored in `team_tasks.metadata.contract` (type `tools.TaskContract`, `internal/tools/team_task_contract.go`). It is enabled per team with the setting `task_contract: {enabled: true}` (default off, Standard edition only).
 
-**Broadcasting** delivers a message to all teammates except the sender. The lead uses broadcast to share context updates — new requirements, revised scope, or intermediate results — so all members can incorporate them without requiring the lead to message each one individually.
+| Field | Required | Notes |
+|-------|----------|-------|
+| `objective` | Yes | Why the work matters, tied to the user's request |
+| `deliverables` | Yes, at least 1 | What to produce, format, where to put it |
+| `acceptance` | Yes, at least 1 | Criteria anyone can check |
+| `scope_in`, `scope_out`, `inputs` | No | Lists |
+| `on_unclear` | No | `ask` (default) or `assume_and_note` |
+| `needs` | No | Tool groups or tool names; assigning to a member without all of them is rejected, listing the members that have them |
+| `checkpoint` | No | `""` or `result` (user approves the result, see below) |
+| `limits.max_iterations` | No | Lowered to the assignee's own `max_tool_iterations` |
+| `version`, `amendments` | System-written | Amendment kinds: `answer`, `changes_requested`, `reassigned` |
 
-**Reading** fetches unread messages and automatically marks them as read. Agents check their mailbox as part of their normal turn execution, processing queued messages from peers before continuing with assigned work.
+Limits: each string ≤ 2000 characters, each list ≤ 20 items, at most 20 amendments.
+
+When the team enables `task_contract`, every task type except `request` and `note` needs a valid contract before it is assigned or dispatched (`create` with an assignee, `assign`, `retry`). A task created without an assignee can still be created without one and is blocked at assignment. Teams without the setting behave as before.
+
+**At dispatch** the member's run gets a "Task Contract" block in its system prompt (`RunRequest.ExtraSystemPrompt`, rendered by `tools.RenderTaskContract`), with the task number, version, objective, deliverables, numbered acceptance criteria, scope and every amendment. The block is the authoritative task definition even after reject, retry or summarised history.
+
+**At completion** the member calls `complete` with `criteria=[{index, met, evidence}]`, one entry per criterion. The report is stored in `metadata.acceptance_report`. All met: the task completes (or waits for the user when it carries the result checkpoint). Missing, unmet, or a run that ends without `complete`: the task stays `in_review` with `checkpoint_pending=lead` for the lead to approve or send back.
+
+**Clarify and answer** (Standard): a member that lacks information calls `clarify`. The question is stored as a task comment (`Question: …` or `Missing tool: …`), the task moves to `awaiting_input`, the lead is notified and reminders go to the original chat. The lead answers with `answer` (or a dashboard user with `teams.tasks.answer`); the answer becomes an `answer` amendment and the task is dispatched again to the owner, or to `assignee` (a `reassigned` amendment).
+
+### User Approval
+
+For work the user must sign off, the lead marks the task with the result checkpoint (`contract.checkpoint: "result"` or `require_approval: true`). The checkpoint only takes effect when the task comes from a channel that approves by command and has it turned on:
+
+- Channel setting: `task_approval: {enabled: true}` in the Telegram channel instance config (default off). Only channels implementing `channels.TaskApprovalCapable` support it; currently Telegram only. In the Web UI it is the "Approve team tasks by command" switch on the Telegram channel form.
+- If the origin channel does not approve by command, the checkpoint is dropped at `create` and the lead is told it will review the result itself. Tasks created from the dashboard never keep the checkpoint.
+
+When the member completes with every criterion met, the task stays `in_review` with `checkpoint_pending=user` and a message asks the user in the original chat. The user answers there:
+
+| Command | Effect | Who may use it |
+|---------|--------|----------------|
+| `/approve <task number>` | Accept the result; task becomes `completed` | The user who made the request (`origin_sender_id`) or a file writer of the group |
+| `/changes <task number> <reason>` | Request changes; the reason becomes a `changes_requested` amendment and the task is redone | Same |
+
+Commands are handled by the gateway consumer before any agent, without the LLM, and only in the task's original chat. The same task can also be approved or sent back on the dashboard.
+
+**Why agents cannot approve for the user:** `approve` and `reject` in the `team_tasks` tool always refuse a task with `checkpoint_pending=user`, whichever agent calls them and on whichever channel, and the MCP bridge applies the same guard. The guard is written into the tool rather than a configurable hook, because hooks can be disabled or time out to "allow".
 
 ---
 
@@ -426,7 +461,7 @@ flowchart TD
     ASSIGN --> DISPATCH["4. dispatchTaskToAgent<br/>publishes to message bus<br/>(teammate:dashboard sender)"]
     DISPATCH --> CONSUMER["Gateway consumer<br/>routes to team lane"]
     CONSUMER --> MEMBER["Member agent executes<br/>in isolated session<br/>with workspace access"]
-    MEMBER --> COMPLETE["5. Member calls<br/>team_tasks(action='complete')"]
+    MEMBER --> COMPLETE["5. Member calls<br/>team_tasks(action='complete')<br/>(with criteria when the task has a contract)"]
     COMPLETE --> UNBLOCK["DispatchUnblockedTasks<br/>auto-dispatches<br/>dependent tasks"]
 
     subgraph "Parallel Dispatch"
@@ -456,17 +491,17 @@ The `spawn` tool no longer accepts an `agent` parameter. If an LLM attempts `spa
 - **Dispatch count tracking**: Each dispatch increments `metadata.dispatch_count`. An explicit `retry` or `reject` resets it to 0, so the breaker only counts re-dispatches caused by failures.
 - **Visible failures**: When agent-side dispatch (the `team_tasks` tool, post-turn dispatch and the task ticker) fails — lead guard, circuit breaker, unknown agent, full inbound queue — it marks the task `failed`, broadcasts `team.task.failed` and notifies the lead. If the inbound queue is full, the lead notice is retried in the background. Dispatch started from the dashboard (`teams.tasks.*` RPCs) uses a separate code path that does not yet do this.
 - **Recovery re-dispatch**: When the task ticker resets tasks with expired locks to `pending` (or unblocks orphaned tasks), it dispatches them again in the same tick. Pending tasks queued behind a busy owner are not marked `stale`.
-- **Owner check**: Only the task owner or the lead can `complete` a task. `approve` and `reject` through the tool always require the lead; dashboard users approve through the `teams.tasks.approve` / `teams.tasks.reject` RPCs.
+- **Owner check**: Only the task owner or the lead can `complete` a task. `approve` and `reject` through the tool always require the lead and are refused for tasks waiting for the user (`checkpoint_pending=user`); dashboard users use the `teams.tasks.approve`, `teams.tasks.request-changes` and `teams.tasks.reject` RPCs.
+- **Contract gate**: When the team enables `task_contract`, assigning or retrying a task of a type other than `request`/`note` without a valid contract is rejected, and a contract with `needs` is rejected for an assignee that lacks those tools.
 
-### Auto-Completion
+### Completion
 
 When a member calls `team_tasks(action="complete")`:
 
-1. Task marked as `completed` with result summary
-2. Files created during execution are auto-linked to the task
-3. Workspace events recorded (modified/created file events)
-4. `DispatchUnblockedTasks` runs — pending tasks with satisfied blockers are auto-dispatched
-5. Only one task per owner dispatched per round (priority-ordered) to prevent cancellation bugs
+1. **Task without a contract**: marked `completed` with the result summary. A run that ends without `complete` is completed automatically.
+2. **Task with a contract**: the `criteria` report is checked against `contract.acceptance`. All met → `completed`, or `in_review` with `checkpoint_pending=user` when the task carries the result checkpoint. Missing or unmet criteria, or a run that ends without `complete` → `in_review` with `checkpoint_pending=lead`; the task is never auto-completed.
+3. Files created during execution are auto-linked to the task, and workspace events are recorded.
+4. On `completed`, `DispatchUnblockedTasks` runs — pending tasks with satisfied blockers are auto-dispatched, one task per owner per round (priority-ordered).
 
 ### Unblocked Task Dispatch
 
@@ -488,6 +523,8 @@ Each dispatched task includes in its message to the member:
 - Instructions for available actions: progress, comment, blocker, complete (with `deliverables`)
 - Completed blocker results (for unblocked tasks)
 - Recent comments (for re-dispatched tasks after reject/retry)
+
+The Task Contract is **not** only in the dispatch message: it is injected into the member's system prompt for that run (see §5), because the member session is shared across tasks and long history is summarised. Its `limits.max_iterations` lowers the run's `RunRequest.MaxIterations`.
 
 ---
 
@@ -513,8 +550,11 @@ During agent resolution, if the agent belongs to a team:
 | Orchestration patterns | Yes | No |
 | Communication guidelines | Yes | No |
 | Task board actions (full) | Yes | Limited |
+| "Task Contract (required)" guide with example (team enables `task_contract`) | Yes | No |
+| "Member Questions": how to `answer` a `clarify`, never approve a task waiting for the user (Standard) | Yes | No |
 | "Just do the work" instructions | No | Yes |
 | Progress update guidance | No | Yes |
+| Contract rules: the contract block is authoritative; complete with `criteria` (team enables `task_contract`) | No | Yes |
 
 ### Orchestration Patterns (Lead Only)
 
@@ -526,9 +566,8 @@ The lead's TEAM.md describes three orchestration patterns:
 
 ### Negative Context Injection
 
-If an agent is NOT part of any team AND has no delegation targets, the system injects negative context:
-- "You are NOT part of any team. Do not use team_tasks or team_message tools."
-- "You have NO delegation targets. Do not use spawn with agent parameter."
+If an agent is NOT part of any team, the system injects negative context:
+- "You are NOT part of any team. Do not use team_tasks tool."
 
 This prevents wasted LLM iterations probing unavailable capabilities.
 
@@ -540,25 +579,19 @@ Team messages flow through the message bus with specific routing rules.
 
 ```mermaid
 flowchart TD
-    subgraph "Inbound (Team Member Execution)"
-        LEAD_SPAWN["Lead: spawn agent=member,<br/>team_task_id=X"] --> BUS_IN["Message Bus<br/>SenderID: 'delegate:{id}' (legacy format)"]
-        BUS_IN --> CONSUMER["Consumer routes to<br/>team lane"]
-        CONSUMER --> MEMBER["Member agent runs<br/>in isolated session"]
+    subgraph "Inbound (Task Dispatch)"
+        DISPATCH["dispatchTaskToAgent<br/>(tool, post-turn, ticker, dashboard)"] --> BUS_IN["Message Bus<br/>Channel: system<br/>SenderID: 'teammate:dashboard'"]
+        BUS_IN --> CONSUMER["handleTeammateMessage<br/>routes to team lane"]
+        CONSUMER --> MEMBER["Member agent runs<br/>with Task Contract in system prompt"]
     end
 
     subgraph "Outbound (Result Announcement)"
-        MEMBER --> RESULT["Delegation completes"]
-        RESULT --> CHECK{"Last sibling?"}
-        CHECK -->|"No"| ACCUMULATE["Accumulate artifacts"]
-        CHECK -->|"Yes"| COLLECT["Collect all artifacts"]
-        COLLECT --> ANNOUNCE["Publish to parent session<br/>SenderID: 'delegate:{id}' (legacy format)"]
-        ANNOUNCE --> LEAD_SESSION["Lead processes in<br/>original user session"]
+        MEMBER --> RESULT["Run ends"]
+        RESULT --> ANNOUNCE["Result announced to the lead<br/>in the original user session"]
     end
 
-    subgraph "Teammate Messages"
-        SEND["team_message send/broadcast"] --> BUS_TM["Message Bus<br/>SenderID: 'teammate:{key}'"]
-        BUS_TM --> ROUTE_TM["Consumer routes to<br/>target agent session"]
-        ROUTE_TM --> TARGET["Target agent processes"]
+    subgraph "Chat Commands (Telegram)"
+        CMD["/approve, /changes"] --> CONSUMER_CMD["Consumer handles before any agent<br/>(no LLM)"]
     end
 ```
 
@@ -566,12 +599,12 @@ flowchart TD
 
 | Prefix | Source | Destination | Scheduler Lane |
 |--------|--------|-------------|----------------|
-| `delegate:` | Delegation completion (legacy session key format) | Parent agent's original session | team |
-| `teammate:` | Team mailbox message | Target agent's session | team |
+| `teammate:` | Task dispatch (`SenderID: "teammate:dashboard"` on the `system` channel) | Assigned member's session | team |
+| `delegate:` | Legacy session key format kept for existing delegation sessions | Parent agent's original session | team |
 
 ### Session Context Preservation
 
-When a delegation or team message completes, the result is routed back to the **original user session** (not a new session). This is achieved through metadata propagation:
+When a delegation or team task completes, the result is routed back to the **original user session** (not a new session). This is achieved through metadata propagation:
 
 - `origin_channel`: The channel where the user sent the message (e.g., telegram)
 - `origin_peer_kind`: DM or group context
@@ -601,6 +634,10 @@ Teams support fine-grained access control through team settings.
 | `escalation_mode` | String | How to escalate stale tasks: "notify_lead", "fail_task" |
 | `escalation_actions` | String list | Actions to take on escalation |
 | `blocker_escalation` | Object | Blocker comment escalation settings: `{enabled: true}` (default enabled) |
+| `member_requests` | Object | `{enabled, auto_dispatch}`: members may create `request` tasks; `auto_dispatch` skips the lead's review |
+| `task_contract` | Object | `{enabled: false}` by default. When on, tasks of every type except `request` and `note` need a contract before assignment (see §5). Standard edition only; toggled in Team Settings → Task Contract |
+
+Channel-level: the Telegram channel instance setting `task_approval: {enabled}` (default off) lets users approve results with `/approve` and `/changes` (see §5, User Approval).
 
 System channels (`teammate`, `system`) always pass access checks. Empty settings mean open access.
 
@@ -704,7 +741,7 @@ Delegation context includes team workspace and task information so member agents
 
 Context keys injected:
 
-- `tool_team_id`: Team UUID for team_tasks/team_message tools
+- `tool_team_id`: Team UUID for the team_tasks tool
 - `tool_team_workspace`: Shared workspace directory path (or empty for isolated mode)
 - `tool_team_task_id`: Active task UUID for workspace file linking
 - `tool_workspace_channel`: Task's origin channel (for routing)
@@ -714,24 +751,29 @@ Context keys injected:
 
 ## 13. Events
 
-Teams emit events for real-time UI updates and observability.
+Teams emit events for real-time UI updates and observability (names from `pkg/protocol/events.go`).
 
 | Event | When |
 |-------|------|
-| `team_task.created` | New task added to board |
-| `team_task.assigned` | Task assigned to agent (admin or auto-assign) |
-| `team_task.completed` | Task marked as complete |
-| `team_task.approved` | Task approved by human (human-in-the-loop) |
-| `team_task.rejected` | Task rejected, returned to in_progress |
-| `team_task.commented` | Comment added by human |
-| `team_task.deleted` | Task hard-deleted (terminal status only) |
-| `team_updated` | Team settings updated |
-| `team_deleted` | Team deleted |
-| `delegation.started` | Async delegation begins |
-| `delegation.completed` | Delegation finishes successfully |
-| `delegation.failed` | Delegation fails |
-| `delegation.cancelled` | Delegation cancelled |
-| `team_message.sent` | Mailbox message delivered |
+| `team.task.created` | New task added to board |
+| `team.task.claimed` | Member claimed a pending task |
+| `team.task.assigned` | Task assigned to agent (admin or auto-assign) |
+| `team.task.dispatched` | Task dispatched to its owner, including after `answer` or a change request |
+| `team.task.progress` | Progress update |
+| `team.task.updated` | Task fields changed; also sent when `clarify` moves the task to `awaiting_input` |
+| `team.task.reviewed` | Task moved to `in_review` (submitted, or waiting for the lead or user) |
+| `team.task.approved` | Task approved (lead, dashboard or `/approve`) |
+| `team.task.rejected` | Task sent back or rejected |
+| `team.task.completed` | Task marked as complete |
+| `team.task.cancelled` | Task cancelled |
+| `team.task.failed` | Task failed (dispatch guard, circuit breaker, error) |
+| `team.task.stale` | Task marked stale by the ticker |
+| `team.task.commented` | Comment added |
+| `team.task.attachment_added` | File attached to a task |
+| `team.task.deleted` | Task hard-deleted (terminal status only) |
+| `team.created`, `team.updated`, `team.deleted` | Team CRUD |
+| `team.member.added`, `team.member.removed` | Membership changes |
+| `delegation.started`, `delegation.completed`, `delegation.failed`, `delegation.cancelled` | Agent Link delegation lifecycle |
 
 ---
 
@@ -740,7 +782,7 @@ Teams emit events for real-time UI updates and observability.
 | Module | Path | Purpose |
 |---|---|---|
 | Gateway RPC methods | `internal/gateway/methods/teams_*.go`, `internal/gateway/methods/agent_links.go` | Team CRUD, task board, workspace, agent links RPC handlers |
-| Team tools | `internal/tools/team_*.go`, `internal/tools/subagent_*.go`, `internal/tools/workspace_dir.go`, `internal/tools/context_keys.go` | Task board tool, mailbox, access policy, delegation execution, workspace helpers |
+| Team tools | `internal/tools/team_*.go`, `internal/tools/subagent_*.go`, `internal/tools/workspace_dir.go`, `internal/tools/context_keys.go` | Task board tool, Task Contract, clarify/answer, approval guard, access policy, delegation execution, workspace helpers |
 | Store layer | `internal/store/team_store.go`, `internal/store/pg/teams.go`, `internal/store/agent_link_store.go`, `internal/store/pg/agent_links.go` | Team/task/message persistence, agent link persistence |
 | Agent integration | `internal/agent/resolver.go`, `internal/agent/systemprompt_sections.go`, `cmd/gateway_managed.go`, `cmd/gateway_consumer.go` | TEAM.md generation, system prompt injection, message routing |
 

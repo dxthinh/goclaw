@@ -363,7 +363,7 @@ The team store manages collaborative multi-agent teams with a shared task board 
 |-------|---------|-------------|
 | `agent_teams` | Team definitions | `name`, `lead_agent_id` (FK → agents), `status`, `settings` (JSONB) |
 | `agent_team_members` | Team membership | PK `(team_id, agent_id)`, `role` (lead/member) |
-| `team_tasks` | Shared task board | `subject`, `status` (pending/in_progress/completed/blocked), `owner_agent_id`, `blocked_by` (UUID[]), `priority`, `result`, `tsv` (FTS) |
+| `team_tasks` | Shared task board | `subject`, `status` (pending/in_progress/awaiting_input/in_review/completed/failed/cancelled/blocked/stale), `owner_agent_id`, `blocked_by` (UUID[]), `priority`, `result`, `metadata` (JSONB), `tsv` (FTS) |
 | `team_messages` | Peer-to-peer mailbox | `from_agent_id`, `to_agent_id` (NULL = broadcast), `content`, `message_type` (chat/broadcast), `read` |
 
 ### TeamStore Interface (22 methods)
@@ -393,6 +393,22 @@ One row updated = claimed. Zero rows = someone else got it. Row-level locking, n
 ### Task Dependencies
 
 Tasks can declare `blocked_by` (UUID array) pointing to prerequisite tasks. When a task is completed via `CompleteTask`, all dependent tasks whose blockers are now all completed are automatically unblocked (status transitions from `blocked` to `pending`).
+
+### Task Status and Metadata Keys
+
+`team_tasks.status` is `VARCHAR(20)` without a CHECK constraint, so new statuses need no migration. `awaiting_input` means the owner asked the lead a question with `clarify` and the task waits for `answer` (tool) or `teams.tasks.answer` (RPC).
+
+Task Contract data lives in `team_tasks.metadata` (no extra table or column). Keys used by the team task flow:
+
+| Key | Value | Meaning |
+|-----|-------|---------|
+| `contract` | object (`tools.TaskContract`) | `objective`, `deliverables`, `acceptance` (required), optional `scope_in`, `scope_out`, `inputs`, `on_unclear`, `needs`, `checkpoint`, `limits.max_iterations`; system-written `version` and `amendments` (`{version, text, by, at, kind}`, kind `answer` / `changes_requested` / `reassigned`). Each string ≤ 2000 chars, each list ≤ 20 items, ≤ 20 amendments |
+| `checkpoint` | `"result"` | Result checkpoint for a task without a contract (`require_approval`); tasks with a contract use `contract.checkpoint` |
+| `checkpoint_pending` | `"user"` or `"lead"` | Who must approve an `in_review` task. `user`: only `/approve` in the original chat or the dashboard; agents are refused. `lead`: the lead (tool) or the dashboard. The ticker does not mark such tasks `stale` |
+| `acceptance_report` | `[{index, met, evidence}]` | Member's per-criterion report sent with `complete` (index counts from 1) |
+| `dispatch_count` | int | Re-dispatches caused by failures; reset to 0 before every intentional dispatch |
+
+Team settings (`agent_teams.settings`) gain `task_contract: {enabled}` (default `false`). Telegram channel instances (`channel_instances.config`) gain `task_approval: {enabled}` (default `false`).
 
 ---
 
