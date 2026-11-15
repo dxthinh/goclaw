@@ -2,7 +2,7 @@ import { memo } from "react";
 import { AnimatePresence, LayoutGroup } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { useTranslation } from "react-i18next";
-import { STATUS_COLORS } from "./board-utils";
+import { STATUS_COLORS, STATUS_LABEL_KEYS } from "./board-utils";
 import { KanbanCard } from "./kanban-card";
 import type { TeamTaskData } from "@/types/team";
 
@@ -25,7 +25,9 @@ export const KanbanColumn = memo(function KanbanColumn({ columnId, title, tasks,
     <div className="flex max-h-full w-[280px] shrink-0 flex-col rounded-xl border bg-card shadow-sm">
       <div className="flex items-center gap-2 px-3 py-2.5">
         <span className={`h-2.5 w-2.5 rounded-full ${STATUS_COLORS[columnId] ?? "bg-gray-400"}`} />
-        <span className="text-sm font-medium capitalize">{title.replace(/_/g, " ")}</span>
+        <span className="text-sm font-medium capitalize">
+          {STATUS_LABEL_KEYS[columnId] ? t(STATUS_LABEL_KEYS[columnId]) : title.replace(/_/g, " ")}
+        </span>
         <Badge variant="secondary" className="ml-auto text-2xs px-1.5 py-0">{tasks.length}</Badge>
       </div>
 
