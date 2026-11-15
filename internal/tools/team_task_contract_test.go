@@ -287,3 +287,11 @@ func TestRenderTaskContract_ItemsStayOnOneLine(t *testing.T) {
 		}
 	}
 }
+
+func TestContractLine_AllLineBreaks(t *testing.T) {
+	for _, sep := range []string{"\r\n", "\n", "\r", "\v", "\f", "\u0085", "\u2028", "\u2029"} {
+		if got := contractLine("a" + sep + "b"); got != "a b" {
+			t.Errorf("sep %q: got %q", sep, got)
+		}
+	}
+}

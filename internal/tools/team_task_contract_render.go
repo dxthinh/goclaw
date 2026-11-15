@@ -63,10 +63,17 @@ func writeContractBullets(sb *strings.Builder, title string, items []string) {
 // trong system prompt.
 var extraContextTag = regexp.MustCompile(`(?i)</?\s*extra_context`)
 
+// contractLineBreaks gồm mọi ký tự có thể bị hiểu là xuống dòng: CRLF, LF, CR,
+// \v, \f, NEL (U+0085), LINE SEPARATOR (U+2028), PARAGRAPH SEPARATOR (U+2029).
+var contractLineBreaks = strings.NewReplacer(
+	"\r\n", " ", "\n", " ", "\r", " ", "\v", " ", "\f", " ",
+	"\u0085", " ", "\u2028", " ", "\u2029", " ",
+)
+
 // contractLine đưa một phần tử contract về đúng một dòng: xuống dòng thành
 // khoảng trắng để nội dung không giả được tiêu đề hay mục mới, và vô hiệu
 // thẻ <extra_context> để không đóng sớm khối chứa contract.
 func contractLine(s string) string {
-	s = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\u2028", " ", "\u2029", " ").Replace(s)
+	s = contractLineBreaks.Replace(s)
 	return extraContextTag.ReplaceAllString(s, "[extra_context")
 }
