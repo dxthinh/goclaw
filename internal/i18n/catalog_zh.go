@@ -385,5 +385,7 @@ func init() {
 		MsgTaskContractInvalid:                     "任务契约无效：%s",
 		MsgTaskContractRequired:                    "该团队要求在分配任务前提供任务契约（objective、deliverables、acceptance）",
 		MsgTaskTypeInvalid:                         "任务类型 %q 无效：只能是 general、request、note、delegation 或 escalation",
+		MsgTaskNeedsMissing:                        "执行者 %s 缺少任务所需的工具：%s。具备这些工具的成员：%s",
+		MsgTaskNeedsNoMember:                       "执行者 %s 缺少任务所需的工具：%s。没有成员具备这些工具，请让管理员为某个成员授予这些工具",
 	})
 }

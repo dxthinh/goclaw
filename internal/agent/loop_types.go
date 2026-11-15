@@ -225,6 +225,8 @@ type Loop struct {
 	// isTeamLead indicates this agent is the lead of its primary team.
 	// Determines whether team context is injected for inbound (non-dispatch) sessions.
 	isTeamLead bool
+	// cacheDependsOn: xem LoopConfig.CacheDependsOn.
+	cacheDependsOn []string
 
 	// Config permission store for group file writer checks
 	configPermStore store.ConfigPermissionStore
@@ -373,6 +375,10 @@ type LoopConfig struct {
 	AgentType        string          // "open" or "predefined"
 	DisplayName      string          // human-readable agent display name (for runtime section)
 	IsTeamLead       bool            // agent leads a team (from resolver detection)
+	// CacheDependsOn: agent_key mà prompt của Loop này phụ thuộc (vd
+	// tóm tắt năng lực member trong TEAM.md của lead). Router xóa cache của
+	// Loop khi một trong các agent này bị invalidate.
+	CacheDependsOn []string
 
 	// Per-user profile + file seeding + dynamic context loading
 	EnsureUserProfile EnsureUserProfileFunc // preferred: separate profile + workspace
@@ -596,6 +602,7 @@ func NewLoop(cfg LoopConfig) *Loop {
 		skillEvolve:            cfg.SkillEvolve,
 		skillNudgeInterval:     cfg.SkillNudgeInterval,
 		isTeamLead:             cfg.IsTeamLead,
+		cacheDependsOn:         cfg.CacheDependsOn,
 		configPermStore:        cfg.ConfigPermStore,
 		teamStore:              cfg.TeamStore,
 		secureCLIStore:         cfg.SecureCLIStore,

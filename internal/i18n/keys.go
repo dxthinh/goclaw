@@ -403,4 +403,6 @@ const (
 	MsgTaskContractInvalid  = "error.task_contract_invalid"  // "invalid task contract: %s"
 	MsgTaskContractRequired = "error.task_contract_required" // "this team requires a task contract before assigning"
 	MsgTaskTypeInvalid      = "error.task_type_invalid"      // "invalid task type %q: must be general, request, note, delegation or escalation"
+	MsgTaskNeedsMissing     = "error.task_needs_missing"     // "assignee %s lacks the tools this task needs: %s. Members that have them: %s"
+	MsgTaskNeedsNoMember    = "error.task_needs_no_member"   // "assignee %s lacks the tools this task needs: %s. No team member has them"
 )

@@ -57,7 +57,9 @@ type CRUDDeps struct {
 	RunTimeline       store.RunTimelineStore
 
 	// Phase 2: subsystem-backed tool families.
-	Teams            store.TeamStore
+	Teams store.TeamStore
+	// TeamCapabilities kiểm tra contract.needs khi giao task (nil: bỏ qua).
+	TeamCapabilities *tools.TeamCapabilityChecker
 	ChannelInstances store.ChannelInstanceStore
 	ChannelManager   *channels.Manager
 	Hooks            hooks.HookStore
@@ -171,7 +173,7 @@ func NewCRUDServer(deps CRUDDeps, version string) *mcpserver.StreamableHTTPServe
 	if deps.Teams != nil {
 		registerTeamsCRUDTools(srv, deps.Teams, deps.Agents)
 		registered += 10
-		registerTeamsTasksCRUDTools(srv, deps.Teams, deps.Agents)
+		registerTeamsTasksCRUDTools(srv, deps.Teams, deps.Agents, deps.TeamCapabilities)
 		registered += 13
 		if deps.Config != nil {
 			registerTeamsWorkspaceCRUDTools(srv, deps.Teams, deps.Config)

@@ -52,7 +52,7 @@ func newContractMCPFixture(t *testing.T, enabled bool) (*contractTaskTeamStore, 
 	memberID := uuid.New()
 	agents.add(&store.AgentData{BaseModel: store.BaseModel{ID: memberID}, AgentKey: "member"})
 	srv := newTestMCPServer()
-	registerTeamsTasksCRUDTools(srv, ts, agents)
+	registerTeamsTasksCRUDTools(srv, ts, agents, nil)
 	call := func(name string, args map[string]any) (bool, string) {
 		res := callTool(t, srv, name, args)
 		return toolIsError(res), toolResultText(res)
@@ -138,7 +138,7 @@ func TestMCPTasks_NilTeamRejected(t *testing.T) {
 	memberID := uuid.New()
 	agents.add(&store.AgentData{BaseModel: store.BaseModel{ID: memberID}, AgentKey: "member"})
 	srv := newTestMCPServer()
-	registerTeamsTasksCRUDTools(srv, nilTeamStore{ts}, agents)
+	registerTeamsTasksCRUDTools(srv, nilTeamStore{ts}, agents, nil)
 	teamID := uuid.New()
 
 	res := callTool(t, srv, "goclaw_teams_tasks_create", map[string]any{

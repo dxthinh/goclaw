@@ -61,6 +61,9 @@ type Server struct {
 	msgBus         *bus.MessageBus     // for MCP bridge media delivery
 	toolPolicy     *tools.PolicyEngine // for per-agent tool policy enforcement in MCP bridge
 
+	// toolTenantCfgs: tool bị tắt theo tenant, cho kiểm tra contract.needs.
+	toolTenantCfgs store.BuiltinToolTenantConfigStore
+
 	// Additional CRUD MCP server (/api/mcp/) dependencies — all optional, same
 	// degrade-gracefully contract as skillStore/cronStore above.
 	agentLinkStore   store.AgentLinkStore
@@ -124,6 +127,21 @@ func (s *Server) SetPostTurnProcessor(pt tools.PostTurnProcessor) {
 // access on the MCP bridge server (see internal/mcp/bridge_server.go).
 func (s *Server) SetToolPolicy(pe *tools.PolicyEngine) {
 	s.toolPolicy = pe
+}
+
+// TeamCapabilities trả checker năng lực tool của member team, dựng từ tool
+// policy và registry chung; nil khi một trong hai chưa được nối.
+func (s *Server) TeamCapabilities() *tools.TeamCapabilityChecker {
+	if s.tools == nil {
+		return nil
+	}
+	return tools.NewTeamCapabilityChecker(s.toolPolicy, s.tools).WithTenantToolConfigs(s.toolTenantCfgs)
+}
+
+// SetBuiltinToolTenantConfigs nối nguồn tool bị tắt theo tenant cho kiểm tra
+// contract.needs ở RPC và MCP (cùng nguồn resolver dùng lúc chạy).
+func (s *Server) SetBuiltinToolTenantConfigs(cfgs store.BuiltinToolTenantConfigStore) {
+	s.toolTenantCfgs = cfgs
 }
 
 // NewServer creates a new gateway server.
@@ -308,6 +326,7 @@ func (s *Server) BuildMux() *http.ServeMux {
 			Bitrix:            s.bitrixStore,
 			RunTimeline:       s.runTimelineStore,
 			Teams:             s.teamStore,
+			TeamCapabilities:  s.TeamCapabilities(),
 			ChannelInstances:  s.channelInstStore,
 			ChannelManager:    s.channelMgr,
 			Hooks:             s.hookStore,

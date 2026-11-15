@@ -130,6 +130,16 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	if errMsg != "" {
 		return ErrorResult(errMsg)
 	}
+	// Team đã bật contract: assignee phải có đủ nhóm tool trong contract.needs,
+	// và lead được cảnh báo khi assignee không dùng được team_tasks.
+	var assigneeWarning string
+	if c, ok := t.manager.(teamTaskNeedsChecker); ok {
+		w, err := c.CheckAssignee(ctx, team, members, contract, assigneeID, taskChannelTypeFromCtx(ctx, OriginChannelFromCtx(ctx)), true)
+		if err != nil {
+			return ErrorResult("cannot assign: " + err.Error())
+		}
+		assigneeWarning = w
+	}
 
 	requireApproval, _ := args["require_approval"].(bool)
 	status := store.TeamTaskStatusPending
@@ -347,6 +357,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		if hasCompound {
 			msg += "\n\nWarning: This task subject suggests multiple deliverables. Consider splitting into separate tasks if they need different skills."
 		}
+	}
+	if assigneeWarning != "" {
+		msg += "\n\n" + assigneeWarning
 	}
 	return NewResult(msg)
 }

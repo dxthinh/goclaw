@@ -11,6 +11,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/gateway"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
+	"github.com/nextlevelbuilder/goclaw/internal/tools"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -201,6 +202,10 @@ func (m *TeamsMethods) handleTaskRetry(ctx context.Context, client *gateway.Clie
 	}
 	// Retry là dispatch có chủ ý: cùng cổng contract như teams.tasks.assign.
 	if msg := taskAssignContractError(locale, team, task); msg != "" {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
+		return
+	}
+	if msg := m.taskNeedsError(ctx, locale, team, tools.TaskContractFromTask(task), agentID); msg != "" {
 		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
 		return
 	}

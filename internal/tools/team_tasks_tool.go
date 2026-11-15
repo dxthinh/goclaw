@@ -96,7 +96,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"contract": map[string]any{
 				"type":        "object",
-				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note').",
+				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note'), needs (array of tool groups such as 'web', 'runtime', 'fs', or tool names the assignee must have; checked when the team enables task contracts).",
 				"properties": map[string]any{
 					"objective":    map[string]any{"type": "string"},
 					"deliverables": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -105,6 +105,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 					"scope_out":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"inputs":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"on_unclear":   map[string]any{"type": "string", "enum": []string{TaskContractOnUnclearAsk, TaskContractOnUnclearAssume}},
+					"needs":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				},
 			},
 			"assignee": map[string]any{
