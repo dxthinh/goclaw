@@ -32,6 +32,20 @@ func TestBuildTeamMD_TaskContractGuidance(t *testing.T) {
 	if strings.Contains(member, "## Task Contract (required)") {
 		t.Error("lead-only contract guidance leaked to member")
 	}
+	// Team bật contract: member phải gọi complete kèm criteria, không còn câu
+	// "hoàn thành là tự động" chung chung.
+	if !strings.Contains(member, "criteria=[") || !strings.Contains(member, "waits for the lead's review") {
+		t.Error("member TEAM.md must require complete with criteria")
+	}
+	if strings.Contains(member, "- Task completion is automatic when your run finishes") {
+		t.Error("member TEAM.md must not say completion is automatic for contract tasks")
+	}
+	if !strings.Contains(lead, "waits for your review in `in_review`") {
+		t.Error("lead TEAM.md must explain the review of unmet criteria")
+	}
+	if !strings.Contains(buildTeamMD(disabled, members, memberID, nil), "- Task completion is automatic when your run finishes") {
+		t.Error("disabled team keeps automatic completion guidance")
+	}
 
 	for _, md := range []string{buildTeamMD(disabled, members, leadID, nil), buildTeamMD(disabled, members, memberID, nil)} {
 		if strings.Contains(md, "Task Contract") {

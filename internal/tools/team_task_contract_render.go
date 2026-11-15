@@ -37,6 +37,9 @@ func RenderTaskContract(task *store.TeamTaskData, c *TaskContract, policy TeamAc
 	writeContractBullets(&sb, "In scope:", c.ScopeIn)
 	writeContractBullets(&sb, "Out of scope:", c.ScopeOut)
 	writeContractBullets(&sb, "Inputs:", c.Inputs)
+	if n := TaskContractMaxIterations(c); n > 0 {
+		fmt.Fprintf(&sb, "Iteration limit: at most %d tool iterations for this task — call complete before you run out.\n", n)
+	}
 	sb.WriteString(contractUnclearLine(c.OnUnclear, policy) + "\n")
 	if len(c.Amendments) > 0 {
 		sb.WriteString("Amendments:\n")

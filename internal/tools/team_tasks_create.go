@@ -168,6 +168,7 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		UserChatLayer(chatID, shared),
 	)
 	taskMeta[TaskMetaTeamWorkspace] = teamWsDir
+	limitNote := t.clampContractLimits(ctx, contract, assigneeID, assigneeKey)
 	if contract != nil {
 		taskMeta[TaskMetaContract] = contract.ToMetadata()
 	}
@@ -353,6 +354,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	if checkpointNote != "" {
 		msg += "\n\n" + checkpointNote
 	}
+	if limitNote != "" {
+		msg += "\n\n" + limitNote
+	}
 
 	// Soft guardrail: warn if subject suggests multiple deliverables.
 	// Only checks subject (not description) — detailed descriptions are fine.
@@ -413,4 +417,23 @@ func resolveCreateCheckpoint(contract *TaskContract, requireApproval, channelApp
 		return "", checkpointDroppedNote
 	}
 	return "", ""
+}
+
+// clampContractLimits hạ contract.limits.max_iterations xuống
+// max_tool_iterations của assignee (khi giá trị đó > 0) và trả ghi chú cho
+// lead. Không đọc được agent thì giữ nguyên: lượt chạy vẫn lấy giá trị nhỏ hơn
+// giữa contract và agent (RunRequest.MaxIterations chỉ được hạ, không được nâng).
+func (t *TeamTasksTool) clampContractLimits(ctx context.Context, contract *TaskContract, assigneeID uuid.UUID, assigneeKey string) string {
+	if TaskContractMaxIterations(contract) == 0 {
+		return ""
+	}
+	ag, err := t.manager.CachedGetAgentByID(ctx, assigneeID)
+	if err != nil || ag == nil {
+		return ""
+	}
+	from, clamped := ClampContractMaxIterations(contract, ag.MaxToolIterations)
+	if !clamped {
+		return ""
+	}
+	return fmt.Sprintf("Note: contract.limits.max_iterations was lowered from %d to %d, the tool iteration limit of %s.", from, ag.MaxToolIterations, assigneeKey)
 }

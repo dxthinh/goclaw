@@ -79,6 +79,24 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 			taskID, t.manager.AgentKeyFromID(ctx, *task.OwnerAgentID)))
 	}
 
+	// Team bật contract và task có contract: đọc báo cáo tiêu chí trước khi
+	// đổi trạng thái, để báo cáo sai vẫn sửa được bằng một lần gọi lại.
+	contract := GatedTaskContract(team, task)
+	var acceptance *AcceptanceCheck
+	var extraMeta map[string]any
+	if contract != nil {
+		criteria, err := ParseAcceptanceCriteria(args["criteria"], len(contract.Acceptance))
+		if err != nil {
+			return ErrorResult(err.Error() + ". " + acceptanceCriteriaExample)
+		}
+		chk := CheckAcceptance(contract, criteria)
+		acceptance = &chk
+		extraMeta = map[string]any{TaskMetaAcceptanceReport: acceptanceReportMetadata(criteria)}
+		if table := FormatAcceptanceReport(contract, criteria); table != "" {
+			result += "\n\n" + table
+		}
+	}
+
 	// Auto-claim if the task is still pending (saves an extra tool call).
 	// ClaimTask is atomic — only one agent can succeed, others get an error.
 	// Ignore claim error: task may already be in_progress (claimed by us or someone else).
@@ -93,14 +111,27 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	// Mọi lần hoàn thành đi qua cổng duyệt của user: task có checkpoint
 	// "result" được nộp chờ duyệt (in_review) thay vì completed.
 	actor := TaskActor{AgentID: &agentID, AgentKey: t.manager.AgentKeyFromID(ctx, agentID)}
-	submitted := false
+	submitted, leadReview := false, false
 	finish := func() error {
-		ok, err := SubmitResultForUserApproval(ctx, t.manager, team, task, result, actor)
+		// Thiếu hoặc có tiêu chí chưa đạt: chờ lead xem, kể cả khi task có
+		// checkpoint "result" (lead duyệt xong mới tới lượt user).
+		if acceptance != nil && acceptance.Verdict != AcceptanceAllMet {
+			if err := SubmitResultForLeadReview(ctx, t.manager.Store(), team, task, result, extraMeta); err != nil {
+				return err
+			}
+			leadReview = true
+			return nil
+		}
+		ok, err := submitResultForUserApproval(ctx, t.manager, team, task, result, actor, extraMeta)
 		if ok {
 			submitted = err == nil
 			return err
 		}
-		return t.manager.Store().CompleteTask(ctx, taskID, team.ID, result)
+		if err := t.manager.Store().CompleteTask(ctx, taskID, team.ID, result); err != nil {
+			return err
+		}
+		saveAcceptanceReport(ctx, t.manager.Store(), task, extraMeta)
+		return nil
 	}
 
 	if err := finish(); err != nil {
@@ -117,9 +148,13 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 			case store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled:
 				return NewResult(fmt.Sprintf("Task %s is %s — cannot complete.", taskID, current.Status))
 			case store.TeamTaskStatusInReview:
-				if TaskCheckpointPending(current) == CheckpointPendingUser {
+				switch TaskCheckpointPending(current) {
+				case CheckpointPendingUser:
 					recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
 					return NewResult(fmt.Sprintf("Task %s is already waiting for the user's approval.", taskID))
+				case CheckpointPendingLead:
+					recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
+					return NewResult(fmt.Sprintf("Task %s is already waiting for the lead's review.", taskID))
 				}
 			case store.TeamTaskStatusPending:
 				// Task was reset by stale recovery — re-assign and retry once.
@@ -139,6 +174,10 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	// bước sau lượt chạy không được tự hoàn thành task).
 	recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
 	registered := t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)
+	if leadReview {
+		t.broadcastLeadReview(ctx, team, task, agentID)
+		return NewResult(leadReviewCompleteMessage(task, *acceptance, agentID == team.LeadAgentID) + registered)
+	}
 	if submitted {
 		return NewResult(fmt.Sprintf("Task #%d result submitted for the user's approval.%s The task completes only when the user approves it; dependent tasks wait until then. Your work on it is done — end your turn.", task.TaskNumber, registered))
 	}
@@ -260,6 +299,11 @@ func (t *TeamTasksTool) executeApprove(ctx context.Context, args map[string]any)
 	// duyệt trên Web UI đi qua RPC teams.tasks.approve, không qua tool này.
 	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
 		return ErrorResult(err.Error())
+	}
+
+	// Task chờ lead xem mà cần user duyệt kết quả: chuyển tiếp cho user.
+	if TaskCheckpointPending(task) == CheckpointPendingLead && TaskCheckpoint(task) == TaskContractCheckpointResult {
+		return t.forwardLeadReviewToUser(ctx, team, task, agentID)
 	}
 
 	// Atomic transition: in_review -> completed

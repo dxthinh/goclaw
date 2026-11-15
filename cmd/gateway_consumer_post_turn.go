@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -68,20 +69,22 @@ type teammateTaskMeta struct {
 // Returns the resolved team (for announce routing) and dispatches unblocked tasks.
 // failNote is non-empty when this call failed the task and other tasks stay
 // blocked by it; the caller appends it to the announce for the lead.
+// leadNotice khác rỗng khi task có contract đang chờ lead xem (in_review,
+// checkpoint_pending = "lead"); người gọi đặt nó ở đầu tin báo lead.
 func resolveTeamTaskOutcome(
 	ctx context.Context,
 	deps *ConsumerDeps,
 	outcome scheduler.RunOutcome,
 	flags *tools.TaskActionFlags,
 	meta teammateTaskMeta,
-) (cachedTeam *store.TeamData, failNote string) {
+) (cachedTeam *store.TeamData, failNote, leadNotice string) {
 	if meta.TaskID == uuid.Nil || deps.TeamStore == nil {
-		return nil, ""
+		return nil, "", ""
 	}
 
 	cachedTeam, _ = deps.TeamStore.GetTeam(ctx, meta.TeamID)
 	if cachedTeam == nil {
-		return nil, ""
+		return nil, "", ""
 	}
 
 	// Check current task status — agent may have already updated it via tool.
@@ -96,7 +99,7 @@ func resolveTeamTaskOutcome(
 		if deps.PostTurn != nil {
 			deps.PostTurn.DispatchUnblockedTasks(ctx, meta.TeamID)
 		}
-		return cachedTeam, ""
+		return cachedTeam, "", ""
 	}
 
 	toAgent := meta.ToAgent
@@ -164,6 +167,11 @@ func resolveTeamTaskOutcome(
 		// clarification (task is awaiting_input) — skip auto-complete.
 		slog.Info("post-turn: tool handled task", "task_id", meta.TaskID,
 			"completed", flags.Completed, "escalated", flags.Escalated, "awaiting_input", flags.AwaitingInput)
+		// complete có tiêu chí thiếu/chưa đạt đã đưa task về chờ lead xem.
+		if flags.Completed && currentTask != nil && currentTask.Status == store.TeamTaskStatusInReview &&
+			tools.TaskCheckpointPending(currentTask) == tools.CheckpointPendingLead {
+			leadNotice = tools.LeadReviewNotice(currentTask, false)
+		}
 
 	case flags.Reviewed:
 		// Task submitted for review — skip auto-complete, renew lock.
@@ -211,8 +219,28 @@ func resolveTeamTaskOutcome(
 		if result == "" {
 			result = "Agent run ended without explicit result"
 		}
-		if len(result) > 100_000 {
-			result = result[:100_000] + "\n[truncated]"
+		result = truncateTaskResult(result)
+		// Task có contract (team đã bật) mà lượt chạy không gọi complete: không
+		// tự hoàn thành, chuyển sang chờ lead xem.
+		if contract := tools.GatedTaskContract(cachedTeam, currentTask); contract != nil {
+			if err := tools.SubmitResultForLeadReview(ctx, deps.TeamStore, cachedTeam, currentTask, result, nil); err != nil {
+				slog.Warn("post-turn: submit for lead review failed", "task_id", meta.TaskID, "error", err)
+				break
+			}
+			leadNotice = tools.LeadReviewNotice(currentTask, true)
+			bus.BroadcastForTenant(deps.MsgBus, protocol.EventTeamTaskReviewed, store.TenantIDFromContext(ctx), tools.BuildTaskEventPayload(
+				meta.TeamID.String(), meta.TaskID.String(),
+				store.TeamTaskStatusInReview,
+				"agent", toAgent,
+				tools.WithTaskInfo(taskNumber, taskSubject),
+				tools.WithOwnerAgentKey(toAgent),
+				tools.WithChannel(taskChannel),
+				tools.WithChatID(taskChatID),
+				tools.WithPeerKind(taskPeerKind),
+				tools.WithLocalKey(taskLocalKey),
+				tools.WithTimestamp(now),
+			))
+			break
 		}
 		// Cổng duyệt dùng chung với tool complete: task có checkpoint "result"
 		// được nộp chờ user duyệt thay vì completed.
@@ -250,5 +278,17 @@ func resolveTeamTaskOutcome(
 		deps.PostTurn.DispatchUnblockedTasks(ctx, meta.TeamID)
 	}
 
-	return cachedTeam, failNote
+	return cachedTeam, failNote, leadNotice
+}
+
+// taskResultMaxRunes là độ dài tối đa (ký tự) của result tự ghi sau lượt chạy.
+const taskResultMaxRunes = 100_000
+
+// truncateTaskResult cắt result theo ký tự (rune), không theo byte, để không
+// cắt đôi ký tự nhiều byte (tiếng Việt, CJK) và result luôn là UTF-8 hợp lệ.
+func truncateTaskResult(result string) string {
+	if utf8.RuneCountInString(result) <= taskResultMaxRunes {
+		return result
+	}
+	return string([]rune(result)[:taskResultMaxRunes]) + "\n[truncated]"
 }
