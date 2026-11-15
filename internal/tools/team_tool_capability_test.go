@@ -95,11 +95,11 @@ func capTeam(settings string) (*store.TeamData, []store.TeamMemberData, *capAgen
 func TestCapabilityEffectiveTools(t *testing.T) {
 	c := newCapabilityChecker(t)
 	_, _, agents := capTeam("")
-	coder := c.EffectiveTools(&agents.agents[2], nil)
+	coder := c.EffectiveTools(&agents.agents[2], nil, "")
 	if coder["web_search"] || !coder["exec"] || !coder["read_file"] {
 		t.Errorf("coder tools = %v", coder)
 	}
-	writer := c.EffectiveTools(&agents.agents[3], nil)
+	writer := c.EffectiveTools(&agents.agents[3], nil, "")
 	for _, n := range TeamWorkspaceTools {
 		if !writer[n] {
 			t.Errorf("writer must get workspace tool %s, got %v", n, writer)
@@ -493,5 +493,89 @@ func TestCreateTaskNeeds_ChannelAware(t *testing.T) {
 	}
 	if r := run(t, "tg-main", "telegram"); r.IsError {
 		t.Fatalf("telegram task must pass, got %q", r.ForLLM)
+	}
+}
+
+// countingTaskStore đếm GetTask để kiểm claim không truy vấn thừa.
+type countingTaskStore struct {
+	*mockTaskStore
+	gets int
+}
+
+func (s *countingTaskStore) GetTask(ctx context.Context, id uuid.UUID) (*store.TeamTaskData, error) {
+	s.gets++
+	return s.mockTaskStore.GetTask(ctx, id)
+}
+
+type claimCapabilityBackend struct {
+	*capabilityBackend
+	ts *countingTaskStore
+}
+
+func (b *claimCapabilityBackend) Store() store.TeamStore { return b.ts }
+
+func TestClaimTaskNeeds(t *testing.T) {
+	run := func(t *testing.T, settings string, needs []string, claimant uuid.UUID) (*Result, *store.TeamTaskData, int) {
+		t.Helper()
+		mb, _, _, _, ctx := newTestTeamSetup()
+		mb.team.Settings = json.RawMessage(settings)
+		mb.taskStore.team = mb.team
+		agents := &capAgentStore{agents: []store.AgentData{
+			capAgent(testLeadID, "lead-agent", ""),
+			capAgent(testMemberID, "member-agent", `{"deny":["group:web"]}`),
+			capAgent(testMember2ID, "member2-agent", ""),
+		}}
+		taskID := uuid.New()
+		task := &store.TeamTaskData{BaseModel: store.BaseModel{ID: taskID}, TeamID: testTeamID, Subject: "backlog", Status: store.TeamTaskStatusPending}
+		if needs != nil {
+			contract, _ := NewTaskContractFromInput(validContractArgs())
+			contract.Needs = needs
+			task.Metadata = map[string]any{TaskMetaContract: contract.ToMetadata()}
+		}
+		preloadTask(mb, task)
+		ts := &countingTaskStore{mockTaskStore: mb.taskStore}
+		backend := &claimCapabilityBackend{capabilityBackend: &capabilityBackend{mockBackend: mb, checker: newCapabilityChecker(t), agents: agents}, ts: ts}
+		tool := NewTeamTasksTool(backend, FullTeamPolicy{})
+		ctx = WithTaskActionFlags(store.WithAgentID(ctx, claimant), &TaskActionFlags{})
+		result := tool.Execute(ctx, map[string]any{"action": "claim", "task_id": taskID.String()})
+		return result, readTask(mb, taskID), ts.gets
+	}
+
+	r, task, _ := run(t, contractEnabledSettings, []string{"web"}, testMemberID)
+	if !r.IsError || !strings.Contains(r.ForLLM, "member2-agent") || task.Status != store.TeamTaskStatusPending {
+		t.Fatalf("claimant without web must be rejected and the task stay pending, got %q (status %s)", r.ForLLM, task.Status)
+	}
+	if r, task, _ := run(t, contractEnabledSettings, []string{"web"}, testMember2ID); r.IsError || task.Status != store.TeamTaskStatusInProgress {
+		t.Fatalf("claimant with web must claim, got %q", r.ForLLM)
+	}
+	if r, _, _ := run(t, contractEnabledSettings, nil, testMemberID); r.IsError {
+		t.Fatalf("task without contract keeps old behavior, got %q", r.ForLLM)
+	}
+	if r, _, gets := run(t, "", []string{"web"}, testMemberID); r.IsError || gets != 0 {
+		t.Fatalf("disabled team must not query or block, got %q (GetTask calls %d)", r.ForLLM, gets)
+	}
+}
+
+// TestCapabilitySkillEvolveHidesSkillManage: lúc chạy skill_manage bị ẩn khi
+// agent không bật skill_evolve (mặc định, hoặc agent open).
+func TestCapabilitySkillEvolveHidesSkillManage(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(capStubTool{name: "skill_manage"})
+	c := NewTeamCapabilityChecker(NewPolicyEngine(&config.ToolsConfig{}), reg)
+	needs := []string{"skill_manage"}
+	off := capAgent(uuid.New(), "off", "")
+	off.AgentType = store.AgentTypePredefined
+	on := off
+	on.SkillEvolve = true
+	open := on
+	open.AgentType = store.AgentTypeOpen
+	if got := c.MissingNeeds(&off, needs, nil, ""); !slices.Equal(got, needs) {
+		t.Errorf("skill_evolve=false must lack skill_manage, got %v", got)
+	}
+	if got := c.MissingNeeds(&on, needs, nil, ""); len(got) != 0 {
+		t.Errorf("predefined with skill_evolve must have skill_manage, got %v", got)
+	}
+	if got := c.MissingNeeds(&open, needs, nil, ""); !slices.Equal(got, needs) {
+		t.Errorf("open agent never gets skill_manage, got %v", got)
 	}
 }

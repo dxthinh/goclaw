@@ -543,7 +543,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			SelfEvolve:             ag.ParseSelfEvolve(),
 			AllowImageGeneration:   ag.ParseAllowImageGeneration(),
 			TTSAutoMode:            deps.TTSAutoMode,
-			SkillEvolve:            ag.AgentType == store.AgentTypePredefined && ag.ParseSkillEvolve(),
+			SkillEvolve:            tools.AgentSkillEvolveEnabled(ag),
 			SkillNudgeInterval:     ag.ParseSkillNudgeInterval(),
 			WorkspaceSharing:       ag.ParseWorkspaceSharing(),
 			ShellDenyGroups:        ag.ParseShellDenyGroups(),

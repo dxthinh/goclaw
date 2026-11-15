@@ -62,7 +62,7 @@ func TestCapabilityParityWithResolverPolicy(t *testing.T) {
 			for _, d := range pe.FilterTools(reg, ag.AgentKey, ag.Provider, policy, nil, false, false) {
 				want[d.Function.Name] = true
 			}
-			got := checker.EffectiveTools(ag, nil)
+			got := checker.EffectiveTools(ag, nil, "")
 			if !maps.Equal(got, want) {
 				t.Errorf("EffectiveTools = %v, resolver policy = %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
 			}
@@ -176,7 +176,7 @@ func TestCapabilityParityWithTenantExclusions(t *testing.T) {
 			want[d.Function.Name] = true
 		}
 	}
-	if got := checker.EffectiveTools(ag, disabled); !maps.Equal(got, want) || got["web_fetch"] || got["exec"] {
+	if got := checker.EffectiveTools(ag, disabled, ""); !maps.Equal(got, want) || got["web_fetch"] || got["exec"] {
 		t.Errorf("EffectiveTools = %v, runtime = %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
 	}
 
@@ -184,5 +184,74 @@ func TestCapabilityParityWithTenantExclusions(t *testing.T) {
 	caps, _ := teamMemberCapabilities(context.Background(), pe, reg, agents, team, members, team.LeadAgentID, map[string]bool{"web_fetch": true})
 	if caps != nil {
 		t.Errorf("no member has web once web_fetch is disabled, so nothing differs; got %v", caps)
+	}
+}
+
+type capabilityChannelTool struct {
+	mockTool
+	channels []string
+}
+
+func (t *capabilityChannelTool) RequiredChannelTypes() []string { return t.channels }
+
+// TestCapabilityParityWithRunFilter: cùng agent, cùng tool bị tắt theo tenant
+// và cùng kênh thì EffectiveTools (kiểm needs lúc giao) và buildFilteredTools
+// (lượt chạy thật) cho ra cùng tập tool, kể cả skill_evolve và lọc kênh.
+func TestCapabilityParityWithRunFilter(t *testing.T) {
+	reg, pe := newCapabilityRegistry()
+	reg.Register(&mockTool{name: "skill_manage", desc: "skill_manage"})
+	reg.Register(&capabilityChannelTool{mockTool{name: "create_forum_topic", desc: "x"}, []string{"telegram"}})
+	reg.Register(&capabilityChannelTool{mockTool{name: "list_group_members", desc: "x"}, []string{"feishu"}})
+	reg.Register(tools.NewTelegramManagerTool())
+	checker := tools.NewTeamCapabilityChecker(pe, reg)
+
+	cases := []struct {
+		name      string
+		agentType string
+		evolve    bool
+		config    string
+		disabled  map[string]bool
+		channel   string
+	}{
+		{"predefined skill_evolve=false telegram", store.AgentTypePredefined, false, "", nil, "telegram"},
+		{"predefined skill_evolve=true telegram", store.AgentTypePredefined, true, "", nil, "telegram"},
+		{"open skill_evolve=true feishu", store.AgentTypeOpen, true, "", nil, "feishu"},
+		{"deny and tenant exclusions feishu", store.AgentTypePredefined, true, `{"deny":["exec"]}`, map[string]bool{"web_fetch": true, "team_tasks": true}, "feishu"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ag := &store.AgentData{AgentKey: "member", Provider: "stub", AgentType: tc.agentType, SkillEvolve: tc.evolve}
+			if tc.config != "" {
+				ag.ToolsConfig = json.RawMessage(tc.config)
+			}
+			l := &Loop{
+				id:              ag.AgentKey,
+				provider:        &stubProvider{},
+				tools:           reg,
+				toolPolicy:      pe,
+				agentToolPolicy: agentToolPolicyForTeam(agentToolPolicyWithWorkspace(agentToolPolicyWithMCP(ag.ParseToolsConfig(), false), true), false),
+				disabledTools:   tc.disabled,
+				skillEvolve:     tools.AgentSkillEvolveEnabled(ag),
+				agentType:       ag.AgentType,
+				orchMode:        ModeTeam,
+			}
+			// Lúc giao chưa biết quyền telegram_manager nên phép kiểm chỉ xét
+			// loại kênh; cấp quyền cho lượt chạy để hai bên cùng điều kiện.
+			req := &RunRequest{ChannelType: tc.channel, TelegramManagerPermissions: []string{"topic"}}
+			defs, _, _ := l.buildFilteredTools(req, false, 1, 10, nil, nil)
+			want := map[string]bool{}
+			for _, d := range defs {
+				if d.Function != nil {
+					want[d.Function.Name] = true
+				}
+			}
+			got := checker.EffectiveTools(ag, tc.disabled, tc.channel)
+			if !maps.Equal(got, want) {
+				t.Errorf("EffectiveTools = %v\nrun filter    = %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+			}
+			if got["skill_manage"] != (tc.agentType == store.AgentTypePredefined && tc.evolve) {
+				t.Errorf("skill_manage visibility wrong: %v", got["skill_manage"])
+			}
+		})
 	}
 }

@@ -87,7 +87,7 @@ func (c *TeamCapabilityChecker) checkTaskNeeds(ctx context.Context, agents store
 // agent, sau khi bỏ tool tenant đã tắt, ẩn team_tasks: member đó không báo
 // tiến độ hay bình luận được trên task. Rỗng khi team_tasks vẫn dùng được.
 func (c *TeamCapabilityChecker) HiddenTeamTasksWarning(agent *store.AgentData, disabled map[string]bool) string {
-	if c == nil || agent == nil || c.EffectiveTools(agent, disabled)["team_tasks"] {
+	if c == nil || agent == nil || c.EffectiveTools(agent, disabled, "")["team_tasks"] {
 		return ""
 	}
 	return "Warning: the assignee's tool policy hides team_tasks, so it cannot report progress or comment on this task. Ask an admin to allow team_tasks for " + agent.AgentKey + "."
@@ -122,7 +122,7 @@ func (c *TeamCapabilityChecker) MemberToolGroupDiff(agents []store.AgentData, di
 	has := make([]map[string]bool, len(agents))
 	count := make(map[string]int, len(groups))
 	for i := range agents {
-		eff := c.EffectiveTools(&agents[i], disabled)
+		eff := c.EffectiveTools(&agents[i], disabled, "")
 		has[i] = make(map[string]bool, len(groups))
 		for _, g := range groups {
 			if len(c.missingFrom(eff, []string{g}, registered, "")) == 0 {

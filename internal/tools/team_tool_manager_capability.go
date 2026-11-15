@@ -71,3 +71,29 @@ func taskChannelTypeFromCtx(ctx context.Context, taskChannel string) string {
 	}
 	return ToolChannelTypeFromCtx(ctx)
 }
+
+// checkClaimNeeds áp cổng needs khi member claim task backlog, với claimant là
+// assignee. Team chưa bật task_contract hoặc backend không hỗ trợ thì không
+// truy vấn gì; team đã bật thì đọc task một lần để lấy contract, và task không
+// có needs thì dừng ở đó. Trả thông báo lỗi cho LLM, rỗng khi được claim.
+func (t *TeamTasksTool) checkClaimNeeds(ctx context.Context, team *store.TeamData, claimantID, taskID uuid.UUID) string {
+	if _, ok := t.manager.(teamTaskNeedsChecker); !ok || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
+		return ""
+	}
+	task, err := t.manager.Store().GetTask(ctx, taskID)
+	if err != nil || task == nil || task.TeamID != team.ID {
+		return "" // ClaimTask tự báo task không tồn tại hoặc sai team
+	}
+	contract := TaskContractFromTask(task)
+	if contract == nil || len(contract.Needs) == 0 {
+		return ""
+	}
+	members, err := t.manager.CachedListMembers(ctx, team.ID, claimantID)
+	if err != nil {
+		return "failed to load team members: " + err.Error()
+	}
+	if err := checkTaskNeedsFromBackend(ctx, t.manager, team, members, contract, claimantID, taskChannelTypeFromCtx(ctx, task.Channel)); err != nil {
+		return "cannot claim: " + err.Error()
+	}
+	return ""
+}

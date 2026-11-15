@@ -2,9 +2,7 @@ package tools
 
 import (
 	"context"
-	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -88,124 +86,42 @@ func teamMemberToolPolicy(policy *config.ToolPolicySpec) *config.ToolPolicySpec 
 }
 
 // EffectiveTools trả tập tên tool (kể cả alias) mà agent được dùng khi chạy
-// trong team: FilterTools với policy của agent, không có groupToolAllow theo
-// request, không phải subagent, rồi bỏ các tên trong disabled (tool tenant đã
-// tắt) như buildFilteredTools làm lúc chạy. Tool MCP cấp riêng theo agent hoặc
-// user không nằm trong registry chung nên không có ở đây.
-func (c *TeamCapabilityChecker) EffectiveTools(agent *store.AgentData, disabled map[string]bool) map[string]bool {
+// một task của team trên loại kênh channelType. Chạy đúng chuỗi lọc của lượt
+// chạy: FilterTools với policy agent dựng như resolver, rồi RunToolFilter như
+// Loop.buildFilteredTools. Các bước phụ thuộc dữ liệu mà lúc giao chưa có
+// được xử lý như sau:
+//   - groupToolAllow theo request (RunRequest.ToolAllow): không có, truyền nil.
+//   - chế độ điều phối: member của team luôn ở ModeTeam nên không ẩn gì.
+//   - bootstrap: chỉ áp cho lượt đầu của agent open còn BOOTSTRAP.md, không
+//     biết trước được nên bỏ qua (không ẩn).
+//   - kênh: channelType rỗng là không biết kênh (task từ dashboard RPC, MCP,
+//     lượt được ủy quyền) nên bỏ qua bước lọc kênh; quyền theo kênh của
+//     telegram_manager cũng chưa biết nên chỉ xét loại kênh.
+//
+// Bỏ qua theo hướng không chặn: lúc chạy member vẫn báo lại được qua clarify.
+// Tool MCP cấp riêng theo agent hoặc user không nằm trong registry chung nên
+// không có ở đây.
+func (c *TeamCapabilityChecker) EffectiveTools(agent *store.AgentData, disabled map[string]bool, channelType string) map[string]bool {
 	if c == nil || agent == nil {
 		return nil
 	}
 	policy := teamMemberToolPolicy(agent.ParseToolsConfig())
 	defs := c.pe.FilterTools(c.reg, agent.AgentKey, agent.Provider, policy, nil, false, false)
+	filter := RunToolFilter{
+		Disabled:        disabled,
+		HideSkillManage: !AgentSkillEvolveEnabled(agent),
+	}
+	if channelType != "" {
+		filter.Channel = &ChannelToolFilter{Registry: c.reg, Type: channelType, IgnoreTelegramManagerPermissions: true}
+	}
+	defs = filter.Apply(defs, nil)
 	set := make(map[string]bool, len(defs))
 	for _, d := range defs {
-		if d.Function != nil && !disabled[d.Function.Name] {
+		if d.Function != nil {
 			set[d.Function.Name] = true
 		}
 	}
 	return set
-}
-
-// visibleOn áp phần lọc ChannelAware của lúc chạy (ToolVisibleOnChannel) cho
-// loại kênh của task. channelType rỗng nghĩa là không biết kênh (task tạo từ
-// dashboard RPC hoặc MCP, lượt chạy được ủy quyền): khi đó không lọc theo
-// kênh, vì không đoán được kênh mà member sẽ chạy.
-func (c *TeamCapabilityChecker) visibleOn(name, channelType string) bool {
-	if channelType == "" {
-		return true
-	}
-	tool, ok := c.reg.Get(name)
-	if !ok {
-		return true
-	}
-	return ToolVisibleOnChannel(tool, channelType)
-}
-
-// needTools đổi một tên trong needs thành danh sách tool phải có. Tên nhóm
-// (có hoặc không có tiền tố "group:") thành các tool của nhóm đang có trong
-// registry và hiện được trên kênh của task (nhóm messaging gồm tool của nhiều
-// kênh khác nhau, chỉ phần của kênh này là bắt buộc); tên khác được coi là
-// tên tool và luôn bắt buộc. known=false khi tên không phải nhóm và không
-// phải tool đã đăng ký.
-func (c *TeamCapabilityChecker) needTools(need string, registered map[string]bool, channelType string) (toolNames []string, known bool) {
-	name := strings.TrimPrefix(need, "group:")
-	if members, ok := c.reg.GetToolGroup(name); ok {
-		for _, m := range members {
-			if registered[m] && c.visibleOn(m, channelType) {
-				toolNames = append(toolNames, m)
-			}
-		}
-		return toolNames, true
-	}
-	if _, ok := c.reg.Get(need); ok {
-		return []string{need}, true
-	}
-	return nil, false
-}
-
-func (c *TeamCapabilityChecker) registeredSet() map[string]bool {
-	list := c.reg.List()
-	set := make(map[string]bool, len(list))
-	for _, n := range list {
-		set[n] = true
-	}
-	return set
-}
-
-// ValidateNeeds báo lỗi khi needs có tên không phải nhóm tool và không phải
-// tool đã đăng ký, kèm danh sách nhóm hợp lệ.
-func (c *TeamCapabilityChecker) ValidateNeeds(needs []string) error {
-	if c == nil || len(needs) == 0 {
-		return nil
-	}
-	registered := c.registeredSet()
-	var unknown []string
-	for _, n := range needs {
-		if _, ok := c.needTools(n, registered, ""); !ok {
-			unknown = append(unknown, n)
-		}
-	}
-	if len(unknown) == 0 {
-		return nil
-	}
-	return fmt.Errorf("needs has unknown names: %s. Use a tool group (%s) or a registered tool name",
-		strings.Join(unknown, ", "), strings.Join(TeamCapabilityGroups(), ", "))
-}
-
-// TeamCapabilityGroups là các nhóm tool dùng được trong needs và trong tóm tắt
-// năng lực của TEAM.md, theo thứ tự cố định.
-func TeamCapabilityGroups() []string {
-	groups := make([]string, 0, len(builtinToolGroups))
-	for g := range builtinToolGroups {
-		if !teamCapabilityGroupSkip[g] {
-			groups = append(groups, g)
-		}
-	}
-	slices.Sort(groups)
-	return groups
-}
-
-// missingFrom trả các tên trong needs mà tập tool effective chưa đủ trên kênh
-// channelType (rỗng: không lọc theo kênh). Một nhóm đủ khi mọi tool của nhóm
-// có trong registry và hiện trên kênh đều được phép; nhóm không còn tool nào
-// thì không ai có. Tool nêu đích danh mà bị ẩn trên kênh thì coi như thiếu.
-func (c *TeamCapabilityChecker) missingFrom(effective map[string]bool, needs []string, registered map[string]bool, channelType string) []string {
-	var missing []string
-	for _, n := range needs {
-		toolNames, known := c.needTools(n, registered, channelType)
-		ok := known && len(toolNames) > 0
-		for _, t := range toolNames {
-			if !effective[t] || !c.visibleOn(t, channelType) {
-				ok = false
-				break
-			}
-		}
-		if !ok {
-			missing = append(missing, n)
-		}
-	}
-	return missing
 }
 
 // MissingNeeds trả các tên trong needs mà agent chưa có đủ tool, sau khi bỏ
@@ -215,7 +131,7 @@ func (c *TeamCapabilityChecker) MissingNeeds(agent *store.AgentData, needs []str
 	if c == nil || len(needs) == 0 {
 		return nil
 	}
-	return c.missingFrom(c.EffectiveTools(agent, disabled), needs, c.registeredSet(), channelType)
+	return c.missingFrom(c.EffectiveTools(agent, disabled, channelType), needs, c.registeredSet(), channelType)
 }
 
 // MembersSatisfying trả agent_key của các agent có đủ mọi tên trong needs, bỏ
@@ -230,7 +146,7 @@ func (c *TeamCapabilityChecker) MembersSatisfying(agents []store.AgentData, need
 		if slices.Contains(exclude, agents[i].ID) {
 			continue
 		}
-		if len(c.missingFrom(c.EffectiveTools(&agents[i], disabled), needs, registered, channelType)) == 0 {
+		if len(c.missingFrom(c.EffectiveTools(&agents[i], disabled, channelType), needs, registered, channelType)) == 0 {
 			keys = append(keys, agents[i].AgentKey)
 		}
 	}
