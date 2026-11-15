@@ -62,7 +62,7 @@ func TestCapabilityParityWithResolverPolicy(t *testing.T) {
 			for _, d := range pe.FilterTools(reg, ag.AgentKey, ag.Provider, policy, nil, false, false) {
 				want[d.Function.Name] = true
 			}
-			got := checker.EffectiveTools(ag)
+			got := checker.EffectiveTools(ag, nil)
 			if !maps.Equal(got, want) {
 				t.Errorf("EffectiveTools = %v, resolver policy = %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
 			}
@@ -93,7 +93,7 @@ func TestTeamMDCapabilities(t *testing.T) {
 
 	t.Run("lead of enabled team sees one line per member", func(t *testing.T) {
 		team, members, agents := capabilityTeamFixture(enabled)
-		caps, deps := teamMemberCapabilities(ctx, pe, reg, agents, team, members, team.LeadAgentID)
+		caps, deps := teamMemberCapabilities(ctx, pe, reg, agents, team, members, team.LeadAgentID, nil)
 		if !slices.Equal(deps, []string{"researcher", "coder"}) {
 			t.Errorf("cache deps = %v", deps)
 		}
@@ -111,7 +111,7 @@ func TestTeamMDCapabilities(t *testing.T) {
 	t.Run("member never sees the section", func(t *testing.T) {
 		team, members, agents := capabilityTeamFixture(enabled)
 		memberID := members[1].AgentID
-		caps, deps := teamMemberCapabilities(ctx, pe, reg, agents, team, members, memberID)
+		caps, deps := teamMemberCapabilities(ctx, pe, reg, agents, team, members, memberID, nil)
 		if caps != nil || deps != nil {
 			t.Errorf("member must not get capabilities, got %v %v", caps, deps)
 		}
@@ -121,19 +121,19 @@ func TestTeamMDCapabilities(t *testing.T) {
 	})
 	t.Run("disabled team or identical members print nothing", func(t *testing.T) {
 		team, members, agents := capabilityTeamFixture(`{}`)
-		if caps, _ := teamMemberCapabilities(ctx, pe, reg, agents, team, members, team.LeadAgentID); caps != nil {
+		if caps, _ := teamMemberCapabilities(ctx, pe, reg, agents, team, members, team.LeadAgentID, nil); caps != nil {
 			t.Errorf("disabled team must not compute capabilities, got %v", caps)
 		}
 		team, members, agents = capabilityTeamFixture(enabled)
 		agents.agents[2].ToolsConfig = nil
-		caps, _ := teamMemberCapabilities(ctx, pe, reg, agents, team, members, team.LeadAgentID)
+		caps, _ := teamMemberCapabilities(ctx, pe, reg, agents, team, members, team.LeadAgentID, nil)
 		if caps != nil || strings.Contains(buildTeamMD(team, members, team.LeadAgentID, caps), "Member Tool Groups") {
 			t.Errorf("identical members must print nothing, got %v", caps)
 		}
 	})
 	t.Run("no policy engine skips", func(t *testing.T) {
 		team, members, agents := capabilityTeamFixture(enabled)
-		if caps, _ := teamMemberCapabilities(ctx, nil, reg, agents, team, members, team.LeadAgentID); caps != nil {
+		if caps, _ := teamMemberCapabilities(ctx, nil, reg, agents, team, members, team.LeadAgentID, nil); caps != nil {
 			t.Errorf("nil policy engine must skip, got %v", caps)
 		}
 	})
@@ -158,5 +158,31 @@ func TestRouterInvalidatesDependentLead(t *testing.T) {
 	}
 	if _, ok := r.agents["tenant:other"]; !ok {
 		t.Error("unrelated agent must stay cached")
+	}
+}
+
+// TestCapabilityParityWithTenantExclusions: tool tenant đã tắt bị
+// buildFilteredTools bỏ khi chạy; EffectiveTools với cùng tập phải khớp.
+func TestCapabilityParityWithTenantExclusions(t *testing.T) {
+	reg, pe := newCapabilityRegistry()
+	checker := tools.NewTeamCapabilityChecker(pe, reg)
+	disabled := map[string]bool{"web_fetch": true, "exec": true}
+	l := &Loop{id: "member", disabledTools: disabled}
+	ag := &store.AgentData{AgentKey: "member", Provider: "openai"}
+	policy := agentToolPolicyForTeam(agentToolPolicyWithWorkspace(agentToolPolicyWithMCP(ag.ParseToolsConfig(), false), true), false)
+	want := map[string]bool{}
+	for _, d := range pe.FilterTools(reg, ag.AgentKey, ag.Provider, policy, nil, false, false) {
+		if !l.disabledTools[d.Function.Name] {
+			want[d.Function.Name] = true
+		}
+	}
+	if got := checker.EffectiveTools(ag, disabled); !maps.Equal(got, want) || got["web_fetch"] || got["exec"] {
+		t.Errorf("EffectiveTools = %v, runtime = %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+	}
+
+	team, members, agents := capabilityTeamFixture(`{"task_contract":{"enabled":true}}`)
+	caps, _ := teamMemberCapabilities(context.Background(), pe, reg, agents, team, members, team.LeadAgentID, map[string]bool{"web_fetch": true})
+	if caps != nil {
+		t.Errorf("no member has web once web_fetch is disabled, so nothing differs; got %v", caps)
 	}
 }

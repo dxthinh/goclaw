@@ -343,7 +343,7 @@ func BuildPreviewPrompt(ctx context.Context, ag *store.AgentData, mode PromptMod
 				if r, ok := deps.ToolLister.(*tools.Registry); ok {
 					previewReg = r
 				}
-				caps, _ := teamMemberCapabilities(ctx, deps.ToolPolicy, previewReg, deps.AgentStore, team, members, ag.ID)
+				caps, _ := teamMemberCapabilities(ctx, deps.ToolPolicy, previewReg, deps.AgentStore, team, members, ag.ID, deps.DisabledTools)
 				contextFiles = append(contextFiles, bootstrap.ContextFile{
 					Path:    bootstrap.TeamFile,
 					Content: buildTeamMD(team, members, ag.ID, caps),

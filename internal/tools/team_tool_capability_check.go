@@ -57,14 +57,17 @@ func (c *TeamCapabilityChecker) CheckTaskNeeds(ctx context.Context, agents store
 	if idx < 0 {
 		return nil // assignee không tồn tại: các kiểm tra khác đã/ sẽ báo lỗi
 	}
-	missing := c.MissingNeeds(&data[idx], contract.Needs)
+	// Tool bị tắt ở tenant bị bỏ lúc chạy, nên cũng bị bỏ ở đây. Mọi member
+	// cùng tenant với assignee; chỉ đọc khi đã chắc phải kiểm needs.
+	disabled := c.TenantDisabledTools(ctx, data[idx].TenantID)
+	missing := c.MissingNeeds(&data[idx], contract.Needs, disabled)
 	if len(missing) == 0 {
 		return nil
 	}
 	return &TaskNeedsError{
 		Assignee:   data[idx].AgentKey,
 		Missing:    missing,
-		Satisfying: c.MembersSatisfying(data, contract.Needs, assigneeID, team.LeadAgentID),
+		Satisfying: c.MembersSatisfying(data, contract.Needs, disabled, assigneeID, team.LeadAgentID),
 	}
 }
 
@@ -84,8 +87,9 @@ func (c *TeamCapabilityChecker) CheckTaskNeedsInTeam(ctx context.Context, teams 
 
 // MemberToolGroupDiff trả, cho từng agent, các nhóm tool nó có trong số những
 // nhóm mà chỉ một phần agent có (nhóm ai cũng có hoặc không ai có bị bỏ).
-// Trả nil khi mọi agent giống nhau. Mọi agent đều có khóa trong map kết quả.
-func (c *TeamCapabilityChecker) MemberToolGroupDiff(agents []store.AgentData) map[uuid.UUID][]string {
+// disabled là tool tenant đã tắt. Trả nil khi mọi agent giống nhau. Mọi
+// agent đều có khóa trong map kết quả.
+func (c *TeamCapabilityChecker) MemberToolGroupDiff(agents []store.AgentData, disabled map[string]bool) map[uuid.UUID][]string {
 	if c == nil || len(agents) < 2 {
 		return nil
 	}
@@ -94,7 +98,7 @@ func (c *TeamCapabilityChecker) MemberToolGroupDiff(agents []store.AgentData) ma
 	has := make([]map[string]bool, len(agents))
 	count := make(map[string]int, len(groups))
 	for i := range agents {
-		eff := c.EffectiveTools(&agents[i])
+		eff := c.EffectiveTools(&agents[i], disabled)
 		has[i] = make(map[string]bool, len(groups))
 		for _, g := range groups {
 			if len(c.missingFrom(eff, []string{g}, registered)) == 0 {

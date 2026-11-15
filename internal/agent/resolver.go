@@ -203,6 +203,20 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 
 		// Inject TEAM.md for all team members (lead + members) so every agent
 		// knows the team workflow: create/claim/complete tasks via team_tasks tool.
+		// Load per-tenant tool exclusions (disabled tools for this agent's tenant).
+		// Loaded before TEAM.md so the lead's member capability summary drops the
+		// same tools the Loop drops at run time (members share the lead's tenant).
+		var disabledTools map[string]bool
+		if deps.BuiltinToolTenantCfgs != nil && ag.TenantID != uuid.Nil {
+			if disabled, err := deps.BuiltinToolTenantCfgs.ListDisabled(ctx, ag.TenantID); err == nil && len(disabled) > 0 {
+				disabledTools = make(map[string]bool, len(disabled))
+				for _, name := range disabled {
+					disabledTools[name] = true
+				}
+				slog.Debug("tenant tool exclusions", "agent", agentKey, "tenant", ag.TenantID, "disabled", len(disabled))
+			}
+		}
+
 		hasTeam := false
 		isTeamLead := false
 		var cacheDependsOn []string // agent_key mà TEAM.md của lead phụ thuộc
@@ -219,7 +233,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 					if members, err := deps.TeamStore.ListMembers(ctx, team.ID); err == nil {
 						hasTeam = true
 						var caps map[uuid.UUID][]string
-						caps, cacheDependsOn = teamMemberCapabilities(ctx, deps.ToolPolicy, deps.Tools, deps.AgentStore, team, members, ag.ID)
+						caps, cacheDependsOn = teamMemberCapabilities(ctx, deps.ToolPolicy, deps.Tools, deps.AgentStore, team, members, ag.ID, disabledTools)
 						contextFiles = append(contextFiles, bootstrap.ContextFile{
 							Path:    bootstrap.TeamFile,
 							Content: buildTeamMD(team, members, ag.ID, caps),
@@ -384,20 +398,10 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			}
 		}
 
-		// Load per-tenant tool exclusions (disabled tools for this agent's tenant)
-		// AND per-tenant tool settings overlay (tier 2 in the 4-tier cascade).
-		var (
-			disabledTools      map[string]bool
-			tenantToolSettings tools.BuiltinToolSettings
-		)
+		// Per-tenant tool settings overlay (tier 2 in the 4-tier cascade).
+		// Tool exclusions (disabledTools) are loaded earlier, before TEAM.md.
+		var tenantToolSettings tools.BuiltinToolSettings
 		if deps.BuiltinToolTenantCfgs != nil && ag.TenantID != uuid.Nil {
-			if disabled, err := deps.BuiltinToolTenantCfgs.ListDisabled(ctx, ag.TenantID); err == nil && len(disabled) > 0 {
-				disabledTools = make(map[string]bool, len(disabled))
-				for _, name := range disabled {
-					disabledTools[name] = true
-				}
-				slog.Debug("tenant tool exclusions", "agent", agentKey, "tenant", ag.TenantID, "disabled", len(disabled))
-			}
 			if settings, err := deps.BuiltinToolTenantCfgs.ListAllSettings(ctx, ag.TenantID); err != nil {
 				// Log but don't fail agent creation — fall back to global/hardcoded defaults.
 				slog.Warn("failed to load tenant tool settings", "agent", agentKey, "tenant", ag.TenantID, "error", err)

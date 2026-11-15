@@ -15,9 +15,10 @@ import (
 // teamMemberCapabilities tính nhóm tool khác biệt giữa các member (bỏ lead)
 // cho TEAM.md của lead. Chỉ làm khi selfID là lead của team đã bật
 // task_contract. Trả thêm agent_key của các member để router xóa cache của
-// lead khi tool của member đổi. caps nil khi mọi member giống nhau.
+// lead khi tool của member đổi. disabled là tool tenant đã tắt (cùng tập
+// resolver đưa vào Loop). caps nil khi mọi member giống nhau.
 func teamMemberCapabilities(ctx context.Context, pe *tools.PolicyEngine, reg tools.ToolExecutor, agents store.AgentStore,
-	team *store.TeamData, members []store.TeamMemberData, selfID uuid.UUID) (caps map[uuid.UUID][]string, dependsOn []string) {
+	team *store.TeamData, members []store.TeamMemberData, selfID uuid.UUID, disabled map[string]bool) (caps map[uuid.UUID][]string, dependsOn []string) {
 	if team == nil || team.LeadAgentID != selfID || agents == nil || !tools.ParseTaskContractConfig(team.Settings).Enabled {
 		return nil, nil
 	}
@@ -39,7 +40,7 @@ func teamMemberCapabilities(ctx context.Context, pe *tools.PolicyEngine, reg too
 	if err != nil {
 		return nil, dependsOn
 	}
-	return checker.MemberToolGroupDiff(data), dependsOn
+	return checker.MemberToolGroupDiff(data, disabled), dependsOn
 }
 
 // buildTeamCapabilitiesMD viết mỗi member một dòng: nhóm tool có và thiếu,

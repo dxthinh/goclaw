@@ -649,7 +649,7 @@ func wireExtras(
 	var postTurn tools.PostTurnProcessor
 	if stores.Teams != nil && stores.Agents != nil {
 		teamMgr := tools.NewTeamToolManager(stores.Teams, stores.Agents, msgBus, workspace)
-		teamMgr.SetToolPolicy(toolPE, toolsReg) // kiểm tra contract.needs khi giao task
+		teamMgr.SetToolPolicy(toolPE, toolsReg, stores.BuiltinToolTenantCfgs) // kiểm tra contract.needs khi giao task
 		postTurn = teamMgr
 		// Async delegations run detached from the caller's turn, so they need their
 		// own post-turn dispatch. The delegate tool is registered above, before the

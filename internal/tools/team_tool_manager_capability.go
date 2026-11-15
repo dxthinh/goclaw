@@ -8,10 +8,11 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
-// SetToolPolicy nối PolicyEngine và registry chung để kiểm tra needs của
-// contract khi giao task. Chưa gọi thì mọi kiểm tra needs được bỏ qua.
-func (m *TeamToolManager) SetToolPolicy(pe *PolicyEngine, reg ToolExecutor) {
-	m.capabilities = NewTeamCapabilityChecker(pe, reg)
+// SetToolPolicy nối PolicyEngine, registry chung và nguồn tool bị tắt theo
+// tenant để kiểm tra needs của contract khi giao task. Chưa gọi thì mọi kiểm
+// tra needs được bỏ qua.
+func (m *TeamToolManager) SetToolPolicy(pe *PolicyEngine, reg ToolExecutor, tenantCfgs store.BuiltinToolTenantConfigStore) {
+	m.capabilities = NewTeamCapabilityChecker(pe, reg).WithTenantToolConfigs(tenantCfgs)
 }
 
 // ToolCapabilities trả checker đã nối, nil khi chưa nối.
@@ -43,7 +44,7 @@ func (m *TeamToolManager) AssigneeToolWarning(ctx context.Context, team *store.T
 	if err != nil || ag == nil {
 		return ""
 	}
-	if m.capabilities.EffectiveTools(ag)["team_tasks"] {
+	if m.capabilities.EffectiveTools(ag, m.capabilities.TenantDisabledTools(ctx, ag.TenantID))["team_tasks"] {
 		return ""
 	}
 	return "Warning: the assignee's tool policy hides team_tasks, so it cannot report progress or comment on this task. Ask an admin to allow team_tasks for " + ag.AgentKey + "."

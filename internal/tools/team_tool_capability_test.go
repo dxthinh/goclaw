@@ -95,11 +95,11 @@ func capTeam(settings string) (*store.TeamData, []store.TeamMemberData, *capAgen
 func TestCapabilityEffectiveTools(t *testing.T) {
 	c := newCapabilityChecker(t)
 	_, _, agents := capTeam("")
-	coder := c.EffectiveTools(&agents.agents[2])
+	coder := c.EffectiveTools(&agents.agents[2], nil)
 	if coder["web_search"] || !coder["exec"] || !coder["read_file"] {
 		t.Errorf("coder tools = %v", coder)
 	}
-	writer := c.EffectiveTools(&agents.agents[3])
+	writer := c.EffectiveTools(&agents.agents[3], nil)
 	for _, n := range TeamWorkspaceTools {
 		if !writer[n] {
 			t.Errorf("writer must get workspace tool %s, got %v", n, writer)
@@ -114,21 +114,21 @@ func TestCapabilityMissingNeeds(t *testing.T) {
 	c := newCapabilityChecker(t)
 	_, _, agents := capTeam("")
 	coder, writer := &agents.agents[2], &agents.agents[3]
-	if got := c.MissingNeeds(coder, []string{"web", "runtime"}); !slices.Equal(got, []string{"web"}) {
+	if got := c.MissingNeeds(coder, []string{"web", "runtime"}, nil); !slices.Equal(got, []string{"web"}) {
 		t.Errorf("coder missing = %v, want [web]", got)
 	}
-	if got := c.MissingNeeds(coder, []string{"group:runtime", "exec"}); len(got) != 0 {
+	if got := c.MissingNeeds(coder, []string{"group:runtime", "exec"}, nil); len(got) != 0 {
 		t.Errorf("group: prefix and tool names must resolve, got %v", got)
 	}
 	// Nhóm fs gồm cả edit: writer chỉ có ba tool file nên chưa đủ nhóm.
-	if got := c.MissingNeeds(writer, []string{"fs", "read_file"}); !slices.Equal(got, []string{"fs"}) {
+	if got := c.MissingNeeds(writer, []string{"fs", "read_file"}, nil); !slices.Equal(got, []string{"fs"}) {
 		t.Errorf("writer missing = %v, want [fs]", got)
 	}
 	// Nhóm không có tool nào trong registry thì không ai có.
-	if got := c.MissingNeeds(&agents.agents[1], []string{"ui"}); !slices.Equal(got, []string{"ui"}) {
+	if got := c.MissingNeeds(&agents.agents[1], []string{"ui"}, nil); !slices.Equal(got, []string{"ui"}) {
 		t.Errorf("empty group must be missing, got %v", got)
 	}
-	if got := c.MembersSatisfying(agents.agents, []string{"web"}, capLeadID); !slices.Equal(got, []string{"researcher"}) {
+	if got := c.MembersSatisfying(agents.agents, []string{"web"}, nil, capLeadID); !slices.Equal(got, []string{"researcher"}) {
 		t.Errorf("satisfying = %v, want [researcher]", got)
 	}
 }
@@ -222,7 +222,7 @@ func TestCapabilityCheckTaskNeeds(t *testing.T) {
 func TestCapabilityMemberToolGroupDiff(t *testing.T) {
 	c := newCapabilityChecker(t)
 	_, _, agents := capTeam("")
-	diff := c.MemberToolGroupDiff(agents.agents[1:])
+	diff := c.MemberToolGroupDiff(agents.agents[1:], nil)
 	if !slices.Equal(diff[capWebID], []string{"fs", "runtime", "team", "web"}) {
 		t.Errorf("researcher = %v", diff[capWebID])
 	}
@@ -234,7 +234,7 @@ func TestCapabilityMemberToolGroupDiff(t *testing.T) {
 	}
 	// Mọi member giống nhau thì không có gì để in.
 	same := []store.AgentData{agents.agents[1], capAgent(uuid.New(), "twin", "")}
-	if diff := c.MemberToolGroupDiff(same); diff != nil {
+	if diff := c.MemberToolGroupDiff(same, nil); diff != nil {
 		t.Errorf("identical members must give nil, got %v", diff)
 	}
 }
@@ -321,5 +321,51 @@ func TestRetryTaskNeeds(t *testing.T) {
 	defer mb.mu.Unlock()
 	if len(mb.dispatches) != 0 {
 		t.Error("rejected retry must not dispatch")
+	}
+}
+
+// capTenantCfgs trả danh sách tool tenant đã tắt cho ListDisabled.
+type capTenantCfgs struct {
+	store.BuiltinToolTenantConfigStore
+	disabled []string
+	calls    int
+}
+
+func (s *capTenantCfgs) ListDisabled(context.Context, uuid.UUID) ([]string, error) {
+	s.calls++
+	return s.disabled, nil
+}
+
+// TestCapabilityTenantDisabledTools: tool tenant đã tắt bị bỏ lúc chạy
+// (buildFilteredTools) nên cũng phải bị bỏ khi kiểm needs.
+func TestCapabilityTenantDisabledTools(t *testing.T) {
+	ctx := context.Background()
+	cfgs := &capTenantCfgs{disabled: []string{"web_fetch"}}
+	c := newCapabilityChecker(t).WithTenantToolConfigs(cfgs)
+	team, members, agents := capTeam(contractEnabledSettings)
+	for i := range agents.agents {
+		agents.agents[i].TenantID = testTenantID
+	}
+	needsWeb := &TaskContract{Needs: []string{"web"}}
+
+	err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capWebID)
+	var ne *TaskNeedsError
+	if !errors.As(err, &ne) || !slices.Equal(ne.Missing, []string{"web"}) || len(ne.Satisfying) != 0 {
+		t.Fatalf("researcher must lack web when the tenant disables web_fetch, got %v", err)
+	}
+	if cfgs.calls != 1 {
+		t.Errorf("tenant exclusions must be read once per check, got %d", cfgs.calls)
+	}
+	// Tool khác của nhóm khác không bị ảnh hưởng.
+	if err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{Needs: []string{"web_search", "runtime"}}, capWebID); err != nil {
+		t.Errorf("web_search and runtime stay available, got %v", err)
+	}
+	// Không có needs thì không đọc cấu hình tenant.
+	cfgs.calls = 0
+	if err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{}, capWebID); err != nil || cfgs.calls != 0 {
+		t.Errorf("no needs must not read tenant config, err=%v calls=%d", err, cfgs.calls)
+	}
+	if diff := c.MemberToolGroupDiff(agents.agents[1:], map[string]bool{"web_fetch": true}); slices.Contains(diff[capWebID], "web") {
+		t.Errorf("web must not be listed for anyone once web_fetch is disabled, got %v", diff)
 	}
 }
