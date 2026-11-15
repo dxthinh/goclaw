@@ -134,7 +134,7 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	// require_approval nghĩa là checkpoint "result": task chạy rồi user duyệt
 	// kết quả, không còn tạo task ở in_review (duyệt task chưa chạy).
 	requireApproval, _ := args["require_approval"].(bool)
-	checkpointNote := resolveCreateCheckpoint(contract, requireApproval,
+	metaCheckpoint, checkpointNote := resolveCreateCheckpoint(contract, requireApproval,
 		t.manager.ChannelTaskApprovalEnabled(OriginChannelFromCtx(ctx)))
 	status := store.TeamTaskStatusPending
 	if len(blockedBy) > 0 {
@@ -160,6 +160,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	taskMeta[TaskMetaTeamWorkspace] = teamWsDir
 	if contract != nil {
 		taskMeta[TaskMetaContract] = contract.ToMetadata()
+	}
+	if metaCheckpoint != "" {
+		taskMeta[TaskMetaCheckpoint] = metaCheckpoint
 	}
 	// Auto-collect media files from current run to team workspace.
 	// When leader received files from user and creates a task, copy those
@@ -370,23 +373,31 @@ func resolveCreateContract(team *store.TeamData, taskType string, raw any) (*Tas
 	return contract, ""
 }
 
+// checkpointDroppedNote là ghi chú trả lead khi checkpoint bị bỏ (tiếng Anh, cho LLM).
+const checkpointDroppedNote = "Note: the result checkpoint (require_approval) was dropped because this chat channel does not approve tasks by command. You (the lead) will review the result."
+
 // resolveCreateCheckpoint áp checkpoint của lệnh create: require_approval được
-// ánh xạ thành checkpoint "result"; checkpoint chỉ giữ lại khi task có contract
-// và kênh gốc hỗ trợ, đã bật duyệt qua lệnh chat. Trường hợp khác checkpoint bị
-// bỏ (không chặn việc tạo task) và trả ghi chú cho lead (tiếng Anh, cho LLM).
-func resolveCreateCheckpoint(contract *TaskContract, requireApproval, channelApproval bool) string {
+// ánh xạ thành checkpoint "result". Task có contract lưu checkpoint trong
+// contract (sửa trực tiếp contract); task không có contract nhận giá trị trả
+// về để lưu vào metadata.checkpoint. Checkpoint chỉ giữ lại khi kênh gốc hỗ
+// trợ và đã bật duyệt qua lệnh chat; nếu không thì bị bỏ (không chặn việc tạo
+// task) và trả ghi chú cho lead.
+func resolveCreateCheckpoint(contract *TaskContract, requireApproval, channelApproval bool) (metaCheckpoint, note string) {
 	if contract == nil {
-		if requireApproval {
-			return "Note: require_approval was ignored because this task has no contract. You (the lead) will review the result."
+		if !requireApproval {
+			return "", ""
 		}
-		return ""
+		if !channelApproval {
+			return "", checkpointDroppedNote
+		}
+		return TaskContractCheckpointResult, ""
 	}
 	if requireApproval {
 		contract.Checkpoint = TaskContractCheckpointResult
 	}
 	if contract.Checkpoint == TaskContractCheckpointResult && !channelApproval {
 		contract.Checkpoint = TaskContractCheckpointNone
-		return "Note: checkpoint was dropped because this chat channel does not approve tasks by command. You (the lead) will review the result."
+		return "", checkpointDroppedNote
 	}
-	return ""
+	return "", ""
 }

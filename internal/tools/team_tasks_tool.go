@@ -85,7 +85,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"require_approval": map[string]any{
 				"type":        "boolean",
-				"description": "Same as contract.checkpoint='result': the user approves the result in the original chat before the task completes (for create, default false). Only applies to tasks with a contract whose origin channel has task approval enabled; otherwise it is dropped and you review the result.",
+				"description": "Same as contract.checkpoint='result': the user approves the result in the original chat before the task completes (for create, default false). Only applies when the origin chat channel has task approval enabled; otherwise it is dropped and you review the result.",
 			},
 			"percent": map[string]any{
 				"type":        "integer",

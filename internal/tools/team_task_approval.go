@@ -26,6 +26,30 @@ const (
 // Có tiền tố "system:" nên là sender nội bộ và đi thẳng, không qua debounce.
 const SenderTaskFeedback = "system:task_feedback"
 
+// TaskMetaCheckpoint lưu checkpoint của task KHÔNG có contract (require_approval
+// trên task không contract). Task có contract dùng contract.checkpoint. Luôn đọc
+// qua TaskCheckpoint, không đọc trực tiếp.
+const TaskMetaCheckpoint = "checkpoint"
+
+// TaskCheckpoint trả checkpoint hiện hành của task ("" hoặc "result"): ưu tiên
+// contract.checkpoint, nếu task không có contract thì đọc metadata.checkpoint.
+// Mọi chỗ kiểm tra cổng duyệt kết quả của user phải gọi hàm này.
+func TaskCheckpoint(task *store.TeamTaskData) string {
+	if task == nil {
+		return ""
+	}
+	if c := TaskContractFromTask(task); c != nil {
+		return c.Checkpoint
+	}
+	if task.Metadata == nil {
+		return ""
+	}
+	if v, _ := task.Metadata[TaskMetaCheckpoint].(string); v == TaskContractCheckpointResult {
+		return v
+	}
+	return ""
+}
+
 // TaskCheckpointPending đọc metadata.checkpoint_pending của task ("" khi không có).
 func TaskCheckpointPending(task *store.TeamTaskData) string {
 	if task == nil || task.Metadata == nil {

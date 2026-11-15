@@ -335,10 +335,60 @@ func TestCreate(t *testing.T) {
 		if task.Status != store.TeamTaskStatusPending {
 			t.Errorf("expected status pending, got %s", task.Status)
 		}
-		if !strings.Contains(result.ForLLM, "require_approval was ignored") {
-			t.Errorf("expected note about ignored require_approval, got: %s", result.ForLLM)
+		// Kênh dashboard không duyệt qua lệnh chat: checkpoint bị bỏ, lead được báo.
+		if !strings.Contains(result.ForLLM, "checkpoint (require_approval) was dropped") {
+			t.Errorf("expected note about dropped checkpoint, got: %s", result.ForLLM)
+		}
+		if TaskCheckpoint(task) != "" {
+			t.Errorf("checkpoint = %q, want dropped", TaskCheckpoint(task))
 		}
 	})
+
+	// Kênh đã bật task_approval: require_approval được giữ thành checkpoint
+	// "result" — trong metadata khi không có contract, trong contract khi có.
+	for _, withContract := range []bool{false, true} {
+		name := "RequireApprovalOnApprovalChannel/NoContract"
+		if withContract {
+			name = "RequireApprovalOnApprovalChannel/Contract"
+		}
+		t.Run(name, func(t *testing.T) {
+			mb, tool, _, _, ctx := newTestTeamSetup()
+			mb.approvalChannels = map[string]bool{"telegram": true}
+			ptd := NewPendingTeamDispatch()
+			ptd.MarkListed()
+			ctx = WithPendingTeamDispatch(WithToolChannel(ctx, "telegram"), ptd)
+
+			args := map[string]any{
+				"action": "create", "subject": "Approval task", "assignee": "member-agent", "require_approval": true,
+			}
+			if withContract {
+				args["contract"] = validContractArgs()
+			}
+			result := tool.Execute(ctx, args)
+			if result.IsError {
+				t.Fatalf("unexpected error: %s", result.ForLLM)
+			}
+			mb.taskStore.mu.Lock()
+			var task *store.TeamTaskData
+			for _, v := range mb.taskStore.tasks {
+				task = v
+			}
+			mb.taskStore.mu.Unlock()
+			if task.Status != store.TeamTaskStatusPending {
+				t.Errorf("status = %s, want pending", task.Status)
+			}
+			if TaskCheckpoint(task) != TaskContractCheckpointResult {
+				t.Errorf("TaskCheckpoint = %q, want result", TaskCheckpoint(task))
+			}
+			_, inMeta := task.Metadata[TaskMetaCheckpoint]
+			if inMeta == withContract {
+				t.Errorf("metadata.checkpoint present = %v, want %v (contract tasks keep it in the contract)", inMeta, !withContract)
+			}
+			if strings.Contains(result.ForLLM, "dropped") {
+				t.Errorf("checkpoint must not be dropped on an approval channel: %s", result.ForLLM)
+			}
+		})
+	}
 
 	t.Run("WithBlockers", func(t *testing.T) {
 		mb, tool, _, _, ctx := newTestTeamSetup()

@@ -285,19 +285,46 @@ func TestResolveCreateCheckpoint(t *testing.T) {
 	newC := func() *TaskContract { c, _ := NewTaskContractFromInput(validContractArgs()); return c }
 
 	c := newC()
-	if note := resolveCreateCheckpoint(c, true, true); note != "" || c.Checkpoint != TaskContractCheckpointResult {
-		t.Errorf("require_approval on enabled channel: checkpoint=%q note=%q", c.Checkpoint, note)
+	if meta, note := resolveCreateCheckpoint(c, true, true); meta != "" || note != "" || c.Checkpoint != TaskContractCheckpointResult {
+		t.Errorf("contract, enabled channel: checkpoint=%q meta=%q note=%q", c.Checkpoint, meta, note)
 	}
 	c = newC()
 	c.Checkpoint = TaskContractCheckpointResult
-	if note := resolveCreateCheckpoint(c, false, false); note == "" || c.Checkpoint != "" {
-		t.Errorf("unsupported channel must drop checkpoint: checkpoint=%q note=%q", c.Checkpoint, note)
+	if meta, note := resolveCreateCheckpoint(c, false, false); meta != "" || note == "" || c.Checkpoint != "" {
+		t.Errorf("contract, unsupported channel must drop: checkpoint=%q meta=%q note=%q", c.Checkpoint, meta, note)
 	}
-	if note := resolveCreateCheckpoint(nil, true, true); note == "" {
-		t.Error("require_approval without contract must return a note")
+	if meta, note := resolveCreateCheckpoint(nil, true, true); meta != TaskContractCheckpointResult || note != "" {
+		t.Errorf("no contract, enabled channel: meta=%q note=%q, want result", meta, note)
 	}
-	if note := resolveCreateCheckpoint(nil, false, false); note != "" {
-		t.Errorf("no flag, no contract: note = %q", note)
+	if meta, note := resolveCreateCheckpoint(nil, true, false); meta != "" || note == "" {
+		t.Errorf("no contract, unsupported channel must drop: meta=%q note=%q", meta, note)
+	}
+	if meta, note := resolveCreateCheckpoint(nil, false, true); meta != "" || note != "" {
+		t.Errorf("no flag, no contract: meta=%q note=%q", meta, note)
+	}
+}
+
+// TaskCheckpoint ưu tiên contract.checkpoint, rồi tới metadata.checkpoint.
+func TestTaskCheckpoint_ContractThenMetadata(t *testing.T) {
+	withC, _ := NewTaskContractFromInput(validContractArgs())
+	withC.Checkpoint = TaskContractCheckpointResult
+	noCheckpoint, _ := NewTaskContractFromInput(validContractArgs())
+	cases := []struct {
+		name string
+		meta map[string]any
+		want string
+	}{
+		{"none", nil, ""},
+		{"metadata only", map[string]any{TaskMetaCheckpoint: "result"}, TaskContractCheckpointResult},
+		{"metadata unknown value", map[string]any{TaskMetaCheckpoint: "before_start"}, ""},
+		{"contract result", map[string]any{TaskMetaContract: withC.ToMetadata()}, TaskContractCheckpointResult},
+		// Task có contract: contract quyết định, metadata.checkpoint bị bỏ qua.
+		{"contract wins over metadata", map[string]any{TaskMetaContract: noCheckpoint.ToMetadata(), TaskMetaCheckpoint: "result"}, ""},
+	}
+	for _, tc := range cases {
+		if got := TaskCheckpoint(&store.TeamTaskData{Metadata: tc.meta}); got != tc.want {
+			t.Errorf("%s: TaskCheckpoint = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
