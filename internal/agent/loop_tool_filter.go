@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"slices"
-
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
@@ -30,14 +28,7 @@ func (l *Loop) toolVisibleForChannel(name, channelType string, telegramManagerPe
 	if !ok {
 		return true
 	}
-	ca, ok := tool.(tools.ChannelAware)
-	if !ok {
-		return true
-	}
-	if channelType == "" {
-		return false
-	}
-	return slices.Contains(ca.RequiredChannelTypes(), channelType)
+	return tools.ToolVisibleOnChannel(tool, channelType)
 }
 
 // buildFilteredTools resolves the per-iteration tool definitions based on policy,

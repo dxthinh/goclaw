@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -161,6 +162,21 @@ type MCPServerStoreAware interface {
 // Tools implementing this are filtered out when the current channel type doesn't match.
 type ChannelAware interface {
 	RequiredChannelTypes() []string
+}
+
+// ToolVisibleOnChannel là phần lọc ChannelAware dùng chung cho lúc chạy
+// (Loop.toolVisibleForChannel) và kiểm tra needs khi giao task: tool cài
+// ChannelAware chỉ hiện trên các loại kênh nó khai báo, và bị ẩn khi không
+// có loại kênh; tool khác luôn hiện.
+func ToolVisibleOnChannel(tool Tool, channelType string) bool {
+	ca, ok := tool.(ChannelAware)
+	if !ok {
+		return true
+	}
+	if channelType == "" {
+		return false
+	}
+	return slices.Contains(ca.RequiredChannelTypes(), channelType)
 }
 
 // ToProviderDef converts a Tool to a providers.ToolDefinition for LLM APIs.

@@ -24,7 +24,8 @@ type teamTaskNeedsChecker interface {
 	// CheckAssignee áp cổng needs; warnHidden=true thì còn trả cảnh báo khi
 	// assignee không dùng được team_tasks. Hai việc dùng chung một lần đọc
 	// assignee và tool bị tắt theo tenant.
-	CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, warnHidden bool) (string, error)
+	// channelType là loại kênh task sẽ chạy, rỗng khi không biết (không lọc theo kênh).
+	CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, channelType string, warnHidden bool) (string, error)
 }
 
 var _ teamTaskNeedsChecker = (*TeamToolManager)(nil)
@@ -33,8 +34,8 @@ var _ teamTaskNeedsChecker = (*TeamToolManager)(nil)
 // agent store của manager, và khi warnHidden thì trả thêm cảnh báo team_tasks
 // bị ẩn. Chỉ làm ở team đã bật task_contract. Danh sách tool bị tắt theo
 // tenant được đọc tối đa một lần cho cả hai việc.
-func (m *TeamToolManager) CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, warnHidden bool) (string, error) {
-	assignee, disabled, err := m.capabilities.checkTaskNeeds(ctx, m.agentStore, team, members, contract, assigneeID)
+func (m *TeamToolManager) CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, channelType string, warnHidden bool) (string, error) {
+	assignee, disabled, err := m.capabilities.checkTaskNeeds(ctx, m.agentStore, team, members, contract, assigneeID, channelType)
 	if err != nil || !warnHidden || m.capabilities == nil || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
 		return "", err
 	}
@@ -50,11 +51,23 @@ func (m *TeamToolManager) CheckAssignee(ctx context.Context, team *store.TeamDat
 }
 
 // checkTaskNeedsFromBackend gọi cổng needs khi backend hỗ trợ.
-func checkTaskNeedsFromBackend(ctx context.Context, backend TeamToolBackend, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) error {
+func checkTaskNeedsFromBackend(ctx context.Context, backend TeamToolBackend, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, channelType string) error {
 	c, ok := backend.(teamTaskNeedsChecker)
 	if !ok {
 		return nil
 	}
-	_, err := c.CheckAssignee(ctx, team, members, contract, assigneeID, false)
+	_, err := c.CheckAssignee(ctx, team, members, contract, assigneeID, channelType, false)
 	return err
+}
+
+// taskChannelTypeFromCtx trả loại kênh mà member sẽ chạy task có kênh gốc
+// taskChannel. Lúc chạy, loại kênh lấy từ kênh gốc của task; lượt của lead
+// chỉ biết loại của kênh hiện tại, nên chỉ dùng được khi task giữ đúng kênh
+// đó và lượt không được ủy quyền (kênh workspace khác kênh giao). Ngoài ra trả
+// rỗng: không lọc tool theo kênh.
+func taskChannelTypeFromCtx(ctx context.Context, taskChannel string) string {
+	if taskChannel == "" || WorkspaceChannelFromCtx(ctx) != "" || taskChannel != ToolChannelFromCtx(ctx) {
+		return ""
+	}
+	return ToolChannelTypeFromCtx(ctx)
 }

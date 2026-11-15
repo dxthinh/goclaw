@@ -30,10 +30,12 @@ func (e *TaskNeedsError) Error() string {
 
 // CheckTaskNeeds là cổng dùng chung cho tool, RPC và MCP khi giao task (tạo
 // kèm giao, assign, retry). Chỉ kiểm khi team đã bật task_contract và contract
-// có needs; ngoài ra trả nil, không truy vấn gì. Trả lỗi của ValidateNeeds khi
-// needs có tên lạ, *TaskNeedsError khi assignee thiếu tool.
-func (c *TeamCapabilityChecker) CheckTaskNeeds(ctx context.Context, agents store.AgentStore, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) error {
-	_, _, err := c.checkTaskNeeds(ctx, agents, team, members, contract, assigneeID)
+// có needs; ngoài ra trả nil, không truy vấn gì. channelType là loại kênh mà
+// task sẽ chạy trên đó; rỗng khi không biết thì không lọc tool theo kênh.
+// Trả lỗi của ValidateNeeds khi needs có tên lạ, *TaskNeedsError khi assignee
+// thiếu tool.
+func (c *TeamCapabilityChecker) CheckTaskNeeds(ctx context.Context, agents store.AgentStore, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, channelType string) error {
+	_, _, err := c.checkTaskNeeds(ctx, agents, team, members, contract, assigneeID, channelType)
 	return err
 }
 
@@ -41,7 +43,7 @@ func (c *TeamCapabilityChecker) CheckTaskNeeds(ctx context.Context, agents store
 // needs, assignee tồn tại), trả thêm dữ liệu assignee và tập tool tenant đã
 // tắt vừa đọc, để người gọi dùng lại thay vì query lần nữa; ngoài ra assignee
 // là nil.
-func (c *TeamCapabilityChecker) checkTaskNeeds(ctx context.Context, agents store.AgentStore, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) (*store.AgentData, map[string]bool, error) {
+func (c *TeamCapabilityChecker) checkTaskNeeds(ctx context.Context, agents store.AgentStore, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, channelType string) (*store.AgentData, map[string]bool, error) {
 	if contract == nil || len(contract.Needs) == 0 || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
 		return nil, nil, nil
 	}
@@ -70,14 +72,14 @@ func (c *TeamCapabilityChecker) checkTaskNeeds(ctx context.Context, agents store
 	// cùng tenant với assignee; chỉ đọc khi đã chắc phải kiểm needs.
 	assignee := &data[idx]
 	disabled := c.TenantDisabledTools(ctx, assignee.TenantID)
-	missing := c.MissingNeeds(assignee, contract.Needs, disabled)
+	missing := c.MissingNeeds(assignee, contract.Needs, disabled, channelType)
 	if len(missing) == 0 {
 		return assignee, disabled, nil
 	}
 	return assignee, disabled, &TaskNeedsError{
 		Assignee:   assignee.AgentKey,
 		Missing:    missing,
-		Satisfying: c.MembersSatisfying(data, contract.Needs, disabled, assigneeID, team.LeadAgentID),
+		Satisfying: c.MembersSatisfying(data, contract.Needs, disabled, channelType, assigneeID, team.LeadAgentID),
 	}
 }
 
@@ -93,7 +95,9 @@ func (c *TeamCapabilityChecker) HiddenTeamTasksWarning(agent *store.AgentData, d
 
 // CheckTaskNeedsInTeam giống CheckTaskNeeds nhưng tự đọc danh sách member từ
 // teams, và chỉ đọc khi thật sự cần kiểm (team bật contract, contract có
-// needs). Dùng cho RPC và MCP, nơi chưa có sẵn danh sách member.
+// needs). Dùng cho RPC và MCP, nơi chưa có sẵn danh sách member. Hai đường này
+// không biết loại kênh mà task sẽ chạy (dashboard, MCP không có kênh gốc) nên
+// không lọc tool theo kênh.
 func (c *TeamCapabilityChecker) CheckTaskNeedsInTeam(ctx context.Context, teams store.TeamStore, agents store.AgentStore, team *store.TeamData, contract *TaskContract, assigneeID uuid.UUID) error {
 	if contract == nil || len(contract.Needs) == 0 || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
 		return nil
@@ -102,7 +106,7 @@ func (c *TeamCapabilityChecker) CheckTaskNeedsInTeam(ctx context.Context, teams 
 	if err != nil {
 		return fmt.Errorf("failed to load team members: %w", err)
 	}
-	return c.CheckTaskNeeds(ctx, agents, team, members, contract, assigneeID)
+	return c.CheckTaskNeeds(ctx, agents, team, members, contract, assigneeID, "")
 }
 
 // MemberToolGroupDiff trả, cho từng agent, các nhóm tool nó có trong số những
@@ -121,7 +125,7 @@ func (c *TeamCapabilityChecker) MemberToolGroupDiff(agents []store.AgentData, di
 		eff := c.EffectiveTools(&agents[i], disabled)
 		has[i] = make(map[string]bool, len(groups))
 		for _, g := range groups {
-			if len(c.missingFrom(eff, []string{g}, registered)) == 0 {
+			if len(c.missingFrom(eff, []string{g}, registered, "")) == 0 {
 				has[i][g] = true
 				count[g]++
 			}

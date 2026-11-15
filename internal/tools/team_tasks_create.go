@@ -134,7 +134,7 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	// và lead được cảnh báo khi assignee không dùng được team_tasks.
 	var assigneeWarning string
 	if c, ok := t.manager.(teamTaskNeedsChecker); ok {
-		w, err := c.CheckAssignee(ctx, team, members, contract, assigneeID, true)
+		w, err := c.CheckAssignee(ctx, team, members, contract, assigneeID, taskChannelTypeFromCtx(ctx, OriginChannelFromCtx(ctx)), true)
 		if err != nil {
 			return ErrorResult("cannot assign: " + err.Error())
 		}

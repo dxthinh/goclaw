@@ -114,21 +114,21 @@ func TestCapabilityMissingNeeds(t *testing.T) {
 	c := newCapabilityChecker(t)
 	_, _, agents := capTeam("")
 	coder, writer := &agents.agents[2], &agents.agents[3]
-	if got := c.MissingNeeds(coder, []string{"web", "runtime"}, nil); !slices.Equal(got, []string{"web"}) {
+	if got := c.MissingNeeds(coder, []string{"web", "runtime"}, nil, ""); !slices.Equal(got, []string{"web"}) {
 		t.Errorf("coder missing = %v, want [web]", got)
 	}
-	if got := c.MissingNeeds(coder, []string{"group:runtime", "exec"}, nil); len(got) != 0 {
+	if got := c.MissingNeeds(coder, []string{"group:runtime", "exec"}, nil, ""); len(got) != 0 {
 		t.Errorf("group: prefix and tool names must resolve, got %v", got)
 	}
 	// Nhóm fs gồm cả edit: writer chỉ có ba tool file nên chưa đủ nhóm.
-	if got := c.MissingNeeds(writer, []string{"fs", "read_file"}, nil); !slices.Equal(got, []string{"fs"}) {
+	if got := c.MissingNeeds(writer, []string{"fs", "read_file"}, nil, ""); !slices.Equal(got, []string{"fs"}) {
 		t.Errorf("writer missing = %v, want [fs]", got)
 	}
 	// Nhóm không có tool nào trong registry thì không ai có.
-	if got := c.MissingNeeds(&agents.agents[1], []string{"ui"}, nil); !slices.Equal(got, []string{"ui"}) {
+	if got := c.MissingNeeds(&agents.agents[1], []string{"ui"}, nil, ""); !slices.Equal(got, []string{"ui"}) {
 		t.Errorf("empty group must be missing, got %v", got)
 	}
-	if got := c.MembersSatisfying(agents.agents, []string{"web"}, nil, capLeadID); !slices.Equal(got, []string{"researcher"}) {
+	if got := c.MembersSatisfying(agents.agents, []string{"web"}, nil, "", capLeadID); !slices.Equal(got, []string{"researcher"}) {
 		t.Errorf("satisfying = %v, want [researcher]", got)
 	}
 }
@@ -155,7 +155,7 @@ func TestCapabilityCheckTaskNeeds(t *testing.T) {
 
 	t.Run("assignee lacking web is rejected with members that have it", func(t *testing.T) {
 		team, members, agents := capTeam(contractEnabledSettings)
-		err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capNoWebID)
+		err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capNoWebID, "")
 		var ne *TaskNeedsError
 		if !errors.As(err, &ne) {
 			t.Fatalf("want TaskNeedsError, got %v", err)
@@ -169,14 +169,14 @@ func TestCapabilityCheckTaskNeeds(t *testing.T) {
 	})
 	t.Run("assignee with web passes", func(t *testing.T) {
 		team, members, agents := capTeam(contractEnabledSettings)
-		if err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capWebID); err != nil {
+		if err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capWebID, ""); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("nobody has the group", func(t *testing.T) {
 		team, members, agents := capTeam(contractEnabledSettings)
 		needsUI := &TaskContract{Needs: []string{"ui"}}
-		err := c.CheckTaskNeeds(ctx, agents, team, members, needsUI, capWebID)
+		err := c.CheckTaskNeeds(ctx, agents, team, members, needsUI, capWebID, "")
 		var ne *TaskNeedsError
 		if !errors.As(err, &ne) || len(ne.Satisfying) != 0 || !strings.Contains(err.Error(), "admin") {
 			t.Fatalf("want no-member error asking for an admin, got %v", err)
@@ -184,7 +184,7 @@ func TestCapabilityCheckTaskNeeds(t *testing.T) {
 	})
 	t.Run("unknown need name", func(t *testing.T) {
 		team, members, agents := capTeam(contractEnabledSettings)
-		err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{Needs: []string{"internet"}}, capWebID)
+		err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{Needs: []string{"internet"}}, capWebID, "")
 		var ne *TaskNeedsError
 		if err == nil || errors.As(err, &ne) || agents.calls != 0 {
 			t.Fatalf("unknown name must fail validation before loading agents, got %v (calls=%d)", err, agents.calls)
@@ -202,7 +202,7 @@ func TestCapabilityCheckTaskNeeds(t *testing.T) {
 			{disabled, needsWeb},
 		}
 		for i, tc := range cases {
-			if err := c.CheckTaskNeeds(ctx, agents, tc.team, members, tc.contract, capNoWebID); err != nil {
+			if err := c.CheckTaskNeeds(ctx, agents, tc.team, members, tc.contract, capNoWebID, ""); err != nil {
 				t.Errorf("case %d: %v", i, err)
 			}
 		}
@@ -213,7 +213,7 @@ func TestCapabilityCheckTaskNeeds(t *testing.T) {
 	t.Run("nil checker skips", func(t *testing.T) {
 		team, members, agents := capTeam(contractEnabledSettings)
 		var nilChecker *TeamCapabilityChecker
-		if err := nilChecker.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capNoWebID); err != nil {
+		if err := nilChecker.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capNoWebID, ""); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -246,8 +246,8 @@ type capabilityBackend struct {
 	agents  store.AgentStore
 }
 
-func (b *capabilityBackend) CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, _ bool) (string, error) {
-	return "", b.checker.CheckTaskNeeds(ctx, b.agents, team, members, contract, assigneeID)
+func (b *capabilityBackend) CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, channelType string, _ bool) (string, error) {
+	return "", b.checker.CheckTaskNeeds(ctx, b.agents, team, members, contract, assigneeID, channelType)
 }
 
 func TestCreateTaskNeeds(t *testing.T) {
@@ -344,7 +344,7 @@ func TestCapabilityTenantDisabledTools(t *testing.T) {
 	}
 	needsWeb := &TaskContract{Needs: []string{"web"}}
 
-	err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capWebID)
+	err := c.CheckTaskNeeds(ctx, agents, team, members, needsWeb, capWebID, "")
 	var ne *TaskNeedsError
 	if !errors.As(err, &ne) || !slices.Equal(ne.Missing, []string{"web"}) || len(ne.Satisfying) != 0 {
 		t.Fatalf("researcher must lack web when the tenant disables web_fetch, got %v", err)
@@ -353,12 +353,12 @@ func TestCapabilityTenantDisabledTools(t *testing.T) {
 		t.Errorf("tenant exclusions must be read once per check, got %d", cfgs.calls)
 	}
 	// Tool khác của nhóm khác không bị ảnh hưởng.
-	if err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{Needs: []string{"web_search", "runtime"}}, capWebID); err != nil {
+	if err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{Needs: []string{"web_search", "runtime"}}, capWebID, ""); err != nil {
 		t.Errorf("web_search and runtime stay available, got %v", err)
 	}
 	// Không có needs thì không đọc cấu hình tenant.
 	cfgs.calls = 0
-	if err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{}, capWebID); err != nil || cfgs.calls != 0 {
+	if err := c.CheckTaskNeeds(ctx, agents, team, members, &TaskContract{}, capWebID, ""); err != nil || cfgs.calls != 0 {
 		t.Errorf("no needs must not read tenant config, err=%v calls=%d", err, cfgs.calls)
 	}
 	if diff := c.MemberToolGroupDiff(agents.agents[1:], map[string]bool{"web_fetch": true}); slices.Contains(diff[capWebID], "web") {
@@ -390,28 +390,108 @@ func TestManagerCheckAssigneeReadsTenantConfigOnce(t *testing.T) {
 	m.SetToolPolicy(c.pe, c.reg, cfgs)
 
 	// Có needs: writer đủ read_file nhưng không có team_tasks nên bị cảnh báo.
-	w, err := m.CheckAssignee(ctx, team, members, &TaskContract{Needs: []string{"read_file"}}, capNarrowID, true)
+	w, err := m.CheckAssignee(ctx, team, members, &TaskContract{Needs: []string{"read_file"}}, capNarrowID, "", true)
 	if err != nil || !strings.Contains(w, "hides team_tasks") || cfgs.calls != 1 {
 		t.Fatalf("with needs: warning=%q err=%v calls=%d, want warning and 1 read", w, err, cfgs.calls)
 	}
 	// Không có needs: vẫn cảnh báo, vẫn chỉ một lần đọc.
 	cfgs.calls = 0
-	w, err = m.CheckAssignee(ctx, team, members, nil, capNarrowID, true)
+	w, err = m.CheckAssignee(ctx, team, members, nil, capNarrowID, "", true)
 	if err != nil || w == "" || cfgs.calls != 1 {
 		t.Fatalf("without needs: warning=%q err=%v calls=%d", w, err, cfgs.calls)
 	}
 	// Tenant tắt team_tasks: researcher cũng bị cảnh báo.
 	cfgs.calls, cfgs.disabled = 0, []string{"team_tasks"}
-	if w, _ := m.CheckAssignee(ctx, team, members, &TaskContract{Needs: []string{"web"}}, capWebID, true); w == "" || cfgs.calls != 1 {
+	if w, _ := m.CheckAssignee(ctx, team, members, &TaskContract{Needs: []string{"web"}}, capWebID, "", true); w == "" || cfgs.calls != 1 {
 		t.Errorf("tenant-disabled team_tasks must warn with one read, warning=%q calls=%d", w, cfgs.calls)
 	}
 	// Retry (không cảnh báo) và team chưa bật: không đọc thừa.
 	cfgs.calls = 0
-	if _, err := m.CheckAssignee(ctx, team, members, nil, capWebID, false); err != nil || cfgs.calls != 0 {
+	if _, err := m.CheckAssignee(ctx, team, members, nil, capWebID, "", false); err != nil || cfgs.calls != 0 {
 		t.Errorf("no needs and no warning must not read tenant config, calls=%d", cfgs.calls)
 	}
 	disabledTeam, _, _ := capTeam("")
-	if w, err := m.CheckAssignee(ctx, disabledTeam, members, &TaskContract{Needs: []string{"web"}}, capNoWebID, true); w != "" || err != nil || cfgs.calls != 0 {
+	if w, err := m.CheckAssignee(ctx, disabledTeam, members, &TaskContract{Needs: []string{"web"}}, capNoWebID, "", true); w != "" || err != nil || cfgs.calls != 0 {
 		t.Errorf("disabled team must be untouched, w=%q err=%v calls=%d", w, err, cfgs.calls)
+	}
+}
+
+// capChannelTool là tool chỉ dùng được trên một số loại kênh (ChannelAware).
+type capChannelTool struct {
+	capStubTool
+	channels []string
+}
+
+func (t capChannelTool) RequiredChannelTypes() []string { return t.channels }
+
+// newChannelCapabilityChecker có nhóm messaging gồm tool của nhiều kênh:
+// message (mọi kênh), create_forum_topic (telegram), list_group_members (feishu).
+func newChannelCapabilityChecker(t *testing.T) *TeamCapabilityChecker {
+	t.Helper()
+	reg := NewRegistry()
+	reg.Register(capStubTool{name: "message"})
+	reg.Register(capStubTool{name: "web_search"})
+	reg.Register(capChannelTool{capStubTool{name: "create_forum_topic"}, []string{"telegram"}})
+	reg.Register(capChannelTool{capStubTool{name: "list_group_members"}, []string{"feishu"}})
+	return NewTeamCapabilityChecker(NewPolicyEngine(&config.ToolsConfig{}), reg)
+}
+
+// TestCapabilityChannelAwareNeeds: tool ChannelAware bị ẩn lúc chạy khi kênh
+// của task không khớp, nên needs nêu tool đó phải bị chặn trên kênh khác.
+func TestCapabilityChannelAwareNeeds(t *testing.T) {
+	c := newChannelCapabilityChecker(t)
+	ag := capAgent(uuid.New(), "member", "")
+	forum := []string{"create_forum_topic"}
+	if got := c.MissingNeeds(&ag, forum, nil, "feishu"); !slices.Equal(got, forum) {
+		t.Errorf("telegram-only tool on a feishu task must be missing, got %v", got)
+	}
+	if got := c.MissingNeeds(&ag, forum, nil, "telegram"); len(got) != 0 {
+		t.Errorf("telegram-only tool on a telegram task must pass, got %v", got)
+	}
+	if got := c.MissingNeeds(&ag, forum, nil, ""); len(got) != 0 {
+		t.Errorf("unknown channel must not filter, got %v", got)
+	}
+	// Nhóm messaging chỉ bắt buộc phần tool của kênh task.
+	for _, ch := range []string{"telegram", "feishu", ""} {
+		if got := c.MissingNeeds(&ag, []string{"messaging"}, nil, ch); len(got) != 0 {
+			t.Errorf("messaging on %q must pass for a full agent, got %v", ch, got)
+		}
+	}
+	// Bị deny phần của kênh thì thiếu nhóm trên kênh đó, không thiếu trên kênh khác.
+	denyForum := capAgent(uuid.New(), "no-forum", `{"deny":["create_forum_topic"]}`)
+	if got := c.MissingNeeds(&denyForum, []string{"messaging"}, nil, "telegram"); !slices.Equal(got, []string{"messaging"}) {
+		t.Errorf("telegram messaging without create_forum_topic must be missing, got %v", got)
+	}
+	if got := c.MissingNeeds(&denyForum, []string{"messaging"}, nil, "feishu"); len(got) != 0 {
+		t.Errorf("feishu messaging does not need create_forum_topic, got %v", got)
+	}
+}
+
+func TestCreateTaskNeeds_ChannelAware(t *testing.T) {
+	run := func(t *testing.T, channel, channelType string) *Result {
+		t.Helper()
+		mb, _, _, _, ctx := newTestTeamSetup()
+		mb.team.Settings = json.RawMessage(contractEnabledSettings)
+		mb.taskStore.team = mb.team
+		agents := &capAgentStore{agents: []store.AgentData{
+			capAgent(testLeadID, "lead-agent", ""),
+			capAgent(testMemberID, "member-agent", ""),
+			capAgent(testMember2ID, "member2-agent", ""),
+		}}
+		tool := NewTeamTasksTool(&capabilityBackend{mockBackend: mb, checker: newChannelCapabilityChecker(t), agents: agents}, FullTeamPolicy{})
+		ptd := NewPendingTeamDispatch()
+		ptd.MarkListed()
+		ctx = WithToolChannelType(WithToolChannel(WithPendingTeamDispatch(ctx, ptd), channel), channelType)
+		contract := validContractArgs()
+		contract["needs"] = []any{"create_forum_topic"}
+		return tool.Execute(ctx, map[string]any{
+			"action": "create", "subject": "Open a topic", "assignee": "member-agent", "contract": contract,
+		})
+	}
+	if r := run(t, "feishu-main", "feishu"); !r.IsError || !strings.Contains(r.ForLLM, "create_forum_topic") {
+		t.Fatalf("feishu task needing a telegram-only tool must be rejected, got %q", r.ForLLM)
+	}
+	if r := run(t, "tg-main", "telegram"); r.IsError {
+		t.Fatalf("telegram task must pass, got %q", r.ForLLM)
 	}
 }

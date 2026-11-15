@@ -124,7 +124,7 @@ func (t *TeamTasksTool) executeRetry(ctx context.Context, args map[string]any) *
 		if err != nil {
 			return ErrorResult("failed to load team members: " + err.Error())
 		}
-		if err := checkTaskNeedsFromBackend(ctx, t.manager, team, members, contract, *task.OwnerAgentID); err != nil {
+		if err := checkTaskNeedsFromBackend(ctx, t.manager, team, members, contract, *task.OwnerAgentID, taskChannelTypeFromCtx(ctx, task.Channel)); err != nil {
 			return ErrorResult("cannot retry: " + err.Error())
 		}
 	}
