@@ -126,3 +126,34 @@ func TestMCPTasksAssign_DisabledTeamUnchanged(t *testing.T) {
 	require.False(t, isErr, text)
 	assert.Len(t, ts.assigned, 1)
 }
+
+// nilTeamStore mô phỏng store trả team nil mà không kèm lỗi.
+type nilTeamStore struct{ *contractTaskTeamStore }
+
+func (s nilTeamStore) GetTeam(context.Context, uuid.UUID) (*store.TeamData, error) { return nil, nil }
+
+func TestMCPTasks_NilTeamRejected(t *testing.T) {
+	ts := &contractTaskTeamStore{fakeTeamStore: newFakeTeamStore(), tasks: map[uuid.UUID]*store.TeamTaskData{}}
+	agents := newFakeAgentStore()
+	memberID := uuid.New()
+	agents.add(&store.AgentData{BaseModel: store.BaseModel{ID: memberID}, AgentKey: "member"})
+	srv := newTestMCPServer()
+	registerTeamsTasksCRUDTools(srv, nilTeamStore{ts}, agents)
+	teamID := uuid.New()
+
+	res := callTool(t, srv, "goclaw_teams_tasks_create", map[string]any{
+		"team_id": teamID.String(), "subject": "Q3", "assign_to": memberID.String(),
+	})
+	assert.True(t, toolIsError(res), toolResultText(res))
+	assert.Contains(t, toolResultText(res), "team not found")
+	assert.Empty(t, ts.tasks)
+
+	taskID := uuid.New()
+	ts.tasks[taskID] = &store.TeamTaskData{BaseModel: store.BaseModel{ID: taskID}, TeamID: teamID, TaskType: "general"}
+	res = callTool(t, srv, "goclaw_teams_tasks_assign", map[string]any{
+		"team_id": teamID.String(), "task_id": taskID.String(), "agent_id": memberID.String(),
+	})
+	assert.True(t, toolIsError(res), toolResultText(res))
+	assert.Contains(t, toolResultText(res), "team not found")
+	assert.Empty(t, ts.assigned)
+}

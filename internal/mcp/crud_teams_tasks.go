@@ -231,7 +231,7 @@ func handleTeamsTasksCreate(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		}
 		// Cùng cổng với teams.tasks.create của dashboard: chỉ bắt buộc khi giao ngay.
 		if contract == nil && assignTo != "" {
-			team, err := teams.GetTeam(ctx, teamID)
+			team, err := getTeamForContract(ctx, teams, teamID)
 			if err != nil {
 				return toolError("teams.tasks.create", err)
 			}
@@ -330,7 +330,7 @@ func handleTeamsTasksAssign(teams store.TeamStore, agents store.AgentStore) mcps
 		if err != nil {
 			return toolError("teams.tasks.assign", err)
 		}
-		team, err := teams.GetTeam(ctx, teamID)
+		team, err := getTeamForContract(ctx, teams, teamID)
 		if err != nil {
 			return toolError("teams.tasks.assign", err)
 		}
@@ -456,4 +456,17 @@ func handleTeamsTasksComments(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		}
 		return jsonToolResult(map[string]any{"comments": comments})
 	}
+}
+
+// getTeamForContract đọc team để áp cổng contract. Store trả nil không kèm lỗi
+// thì coi là team không tồn tại, để không tạo hay giao task mà bỏ qua kiểm tra.
+func getTeamForContract(ctx context.Context, teams store.TeamStore, teamID uuid.UUID) (*store.TeamData, error) {
+	team, err := teams.GetTeam(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	if team == nil {
+		return nil, fmt.Errorf("team not found")
+	}
+	return team, nil
 }
