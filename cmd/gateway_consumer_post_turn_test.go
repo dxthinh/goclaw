@@ -402,3 +402,17 @@ func TestTeamTaskOutcome_TaskLookupErrorDoesNotComplete(t *testing.T) {
 	c.run(scheduler.RunOutcome{Result: &agent.RunResult{Content: "draft"}}, tools.TaskActionFlags{})
 	c.assert(t, nil, "")
 }
+
+// complete đưa task về chờ lead rồi vòng sau của lượt chạy lỗi: không FailTask,
+// lead vẫn nhận dòng báo chờ xem.
+func TestTeamTaskOutcome_LeadReviewSurvivesLaterRunFailure(t *testing.T) {
+	c := newOutcomeCase(store.TeamTaskStatusInReview)
+	c.ts.settings = json.RawMessage(`{"task_contract":{"enabled":true}}`)
+	c.ts.task.Metadata = contractTaskMeta(t)
+	c.ts.task.Metadata[tools.TaskMetaCheckpointPending] = tools.CheckpointPendingLead
+	c.run(scheduler.RunOutcome{Err: errors.New("provider timeout")}, tools.TaskActionFlags{Completed: true})
+	c.assert(t, nil, "")
+	if !strings.Contains(c.leadNotice, "waits for your review") {
+		t.Errorf("leadNotice = %q, want the review notice", c.leadNotice)
+	}
+}

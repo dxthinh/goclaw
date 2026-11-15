@@ -142,6 +142,14 @@ func resolveTeamTaskOutcome(
 	// Only error, completed/escalated, and reviewed block auto-complete.
 	runFailure := outcome.Failure()
 	switch {
+	case currentTask != nil && currentTask.Status == store.TeamTaskStatusInReview &&
+		tools.TaskCheckpointPending(currentTask) == tools.CheckpointPendingLead:
+		// complete có tiêu chí thiếu/chưa đạt đã đưa task về chờ lead xem. Xét
+		// trước nhánh lỗi: lượt chạy có thể lỗi ở vòng sau lần complete đó, khi
+		// ấy FailTask không chuyển được task in_review mà lead vẫn phải được báo.
+		leadNotice = tools.LeadReviewNotice(currentTask, false)
+		slog.Info("post-turn: task waits for lead review", "task_id", meta.TaskID, "run_failed", runFailure != nil)
+
 	case runFailure != nil:
 		// Agent errored or the pipeline stopped the run → auto-fail.
 		if err := deps.TeamStore.FailTask(ctx, meta.TaskID, meta.TeamID, runFailure.Error()); err != nil {
@@ -167,11 +175,6 @@ func resolveTeamTaskOutcome(
 		// clarification (task is awaiting_input) — skip auto-complete.
 		slog.Info("post-turn: tool handled task", "task_id", meta.TaskID,
 			"completed", flags.Completed, "escalated", flags.Escalated, "awaiting_input", flags.AwaitingInput)
-		// complete có tiêu chí thiếu/chưa đạt đã đưa task về chờ lead xem.
-		if flags.Completed && currentTask != nil && currentTask.Status == store.TeamTaskStatusInReview &&
-			tools.TaskCheckpointPending(currentTask) == tools.CheckpointPendingLead {
-			leadNotice = tools.LeadReviewNotice(currentTask, false)
-		}
 
 	case flags.Reviewed:
 		// Task submitted for review — skip auto-complete, renew lock.
