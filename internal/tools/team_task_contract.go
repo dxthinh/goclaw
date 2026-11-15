@@ -16,6 +16,9 @@ const (
 	taskContractMaxString     = 2000
 	taskContractMaxItems      = 20
 	taskContractMaxAmendments = 20
+	// Tổng số ký tự của mọi chuỗi trong contract, bằng giới hạn description
+	// của teams.tasks.create, để contract không phình system prompt của member.
+	taskContractMaxTotal = 10000
 )
 
 // Giá trị hợp lệ của on_unclear và checkpoint.
@@ -183,6 +186,9 @@ func (c *TaskContract) Validate() error {
 	if len(c.Amendments) > taskContractMaxAmendments {
 		problems = append(problems, fmt.Sprintf("more than %d amendments", taskContractMaxAmendments))
 	}
+	if total := c.totalRunes(); total > taskContractMaxTotal {
+		problems = append(problems, fmt.Sprintf("contract text totals %d characters, more than the %d allowed", total, taskContractMaxTotal))
+	}
 	if len(missing) == 0 && len(problems) == 0 {
 		return nil
 	}
@@ -192,6 +198,39 @@ func (c *TaskContract) Validate() error {
 	}
 	parts = append(parts, problems...)
 	return errors.New(strings.Join(parts, "; ") + ". " + taskContractExample)
+}
+
+// totalRunes đếm ký tự của mọi chuỗi nội dung trong contract.
+func (c *TaskContract) totalRunes() int {
+	n := utf8.RuneCountInString(c.Objective)
+	for _, list := range [][]string{c.Deliverables, c.Acceptance, c.ScopeIn, c.ScopeOut, c.Inputs, c.Needs} {
+		for _, s := range list {
+			n += utf8.RuneCountInString(s)
+		}
+	}
+	for _, a := range c.Amendments {
+		n += utf8.RuneCountInString(a.Text)
+	}
+	return n
+}
+
+// NewTaskContractFromInput đọc contract do người tạo task gửi (tham số tool,
+// RPC, MCP): bỏ amendment và version do người gọi gửi, đặt version 1 và kiểm
+// tra hợp lệ. Trả nil, nil khi không có contract.
+func NewTaskContractFromInput(raw any) (*TaskContract, error) {
+	c, err := ParseTaskContract(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w. %s", err, taskContractExample)
+	}
+	if c == nil {
+		return nil, nil
+	}
+	c.Amendments = nil
+	c.Version = 1
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // TaskContractFromTask đọc contract trong metadata của task. Trả nil khi task

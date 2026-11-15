@@ -355,22 +355,12 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 // lead vẫn gửi contract thì contract vẫn được kiểm tra và lưu. Task request và
 // note không bắt buộc. Trả thông báo lỗi cho LLM (tiếng Anh) khi không hợp lệ.
 func resolveCreateContract(team *store.TeamData, taskType string, raw any) (*TaskContract, string) {
-	contract, err := ParseTaskContract(raw)
+	contract, err := NewTaskContractFromInput(raw)
 	if err != nil {
-		return nil, "invalid contract: " + err.Error() + ". " + taskContractExample
-	}
-	required := TaskContractRequired(team, taskType)
-	if contract == nil {
-		if required {
-			return nil, "This team requires a task contract for every general task. Add contract={objective, deliverables, acceptance}. " + taskContractExample
-		}
-		return nil, ""
-	}
-	// Amendment và version do hệ thống ghi, không nhận từ tham số tool.
-	contract.Amendments = nil
-	contract.Version = 1
-	if err := contract.Validate(); err != nil {
 		return nil, "invalid contract: " + err.Error()
+	}
+	if contract == nil && TaskContractRequired(team, taskType) {
+		return nil, "This team requires a task contract for every general task. Add contract={objective, deliverables, acceptance}. " + taskContractExample
 	}
 	return contract, ""
 }

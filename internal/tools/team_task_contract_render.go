@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -22,13 +23,13 @@ func RenderTaskContract(task *store.TeamTaskData, c *TaskContract) string {
 	fmt.Fprintf(&sb, "## Task Contract — task #%d (v%d)\n", task.TaskNumber, version)
 	sb.WriteString("This contract is the authoritative definition of your current task. If the task message or older conversation history disagrees with it, follow the contract.\n")
 	if c.Objective != "" {
-		sb.WriteString("Objective: " + c.Objective + "\n")
+		sb.WriteString("Objective: " + contractLine(c.Objective) + "\n")
 	}
 	writeContractBullets(&sb, "Deliverables:", c.Deliverables)
 	if len(c.Acceptance) > 0 {
 		sb.WriteString("Acceptance criteria (report each one when you call complete):\n")
 		for i, a := range c.Acceptance {
-			fmt.Fprintf(&sb, "%d. %s\n", i+1, a)
+			fmt.Fprintf(&sb, "%d. %s\n", i+1, contractLine(a))
 		}
 	}
 	writeContractBullets(&sb, "In scope:", c.ScopeIn)
@@ -42,7 +43,7 @@ func RenderTaskContract(task *store.TeamTaskData, c *TaskContract) string {
 	if len(c.Amendments) > 0 {
 		sb.WriteString("Amendments:\n")
 		for _, a := range c.Amendments {
-			fmt.Fprintf(&sb, "- v%d (%s, %s, %s): %s\n", a.Version, a.Kind, a.By, a.At.UTC().Format("2006-01-02 15:04"), a.Text)
+			fmt.Fprintf(&sb, "- v%d (%s, %s, %s): %s\n", a.Version, contractLine(a.Kind), contractLine(a.By), a.At.UTC().Format("2006-01-02 15:04"), contractLine(a.Text))
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
@@ -54,6 +55,18 @@ func writeContractBullets(sb *strings.Builder, title string, items []string) {
 	}
 	sb.WriteString(title + "\n")
 	for _, it := range items {
-		sb.WriteString("- " + it + "\n")
+		sb.WriteString("- " + contractLine(it) + "\n")
 	}
+}
+
+// extraContextTag khớp thẻ mở/đóng <extra_context> bao quanh khối contract
+// trong system prompt.
+var extraContextTag = regexp.MustCompile(`(?i)</?\s*extra_context`)
+
+// contractLine đưa một phần tử contract về đúng một dòng: xuống dòng thành
+// khoảng trắng để nội dung không giả được tiêu đề hay mục mới, và vô hiệu
+// thẻ <extra_context> để không đóng sớm khối chứa contract.
+func contractLine(s string) string {
+	s = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\u2028", " ", "\u2029", " ").Replace(s)
+	return extraContextTag.ReplaceAllString(s, "[extra_context")
 }
