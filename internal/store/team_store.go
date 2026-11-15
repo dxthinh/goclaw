@@ -254,6 +254,7 @@ type TaskStore interface {
 	FailPendingTask(ctx context.Context, taskID, teamID uuid.UUID, errMsg string) error
 	ReviewTask(ctx context.Context, taskID, teamID uuid.UUID) error
 	ApproveTask(ctx context.Context, taskID, teamID uuid.UUID, comment string) error
+	// RejectTask huỷ task in_review và xoá metadata.checkpoint_pending cùng lúc.
 	RejectTask(ctx context.Context, taskID, teamID uuid.UUID, reason string) error
 	UpdateTaskProgress(ctx context.Context, taskID, teamID uuid.UUID, percent int, step string) error
 	RenewTaskLock(ctx context.Context, taskID, teamID uuid.UUID) error

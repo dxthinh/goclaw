@@ -163,6 +163,36 @@ func TestTeamTask_SubmitForReviewWritesMetadataAtomically(t *testing.T) {
 	}
 }
 
+// RejectTask (dashboard huỷ task) xoá checkpoint_pending trong cùng câu UPDATE
+// huỷ task; metadata khác giữ nguyên.
+func TestTeamTask_RejectClearsCheckpointPending(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, memberID := seedTeam(t, db, tenantID, agentID)
+
+	task := makeTask(teamID, "waiting for user", store.TeamTaskStatusPending)
+	task.Metadata = map[string]any{"source": "test"}
+	if err := ts.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := ts.ClaimTask(ctx, task.ID, memberID, teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := ts.SubmitTaskResultForReview(ctx, task.ID, teamID, "draft", map[string]any{"checkpoint_pending": "user"}); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+	if err := ts.RejectTask(ctx, task.ID, teamID, "not needed"); err != nil {
+		t.Fatalf("RejectTask: %v", err)
+	}
+	got, _ := ts.GetTask(ctx, task.ID)
+	if _, has := got.Metadata["checkpoint_pending"]; got.Status != store.TeamTaskStatusCancelled || has || got.Metadata["source"] != "test" {
+		t.Fatalf("after reject: status=%q meta=%v, want cancelled without checkpoint_pending", got.Status, got.Metadata)
+	}
+}
+
 // GetTaskByNumberInChat chỉ trả task đúng số và đúng chat gốc, kể cả khi
 // team có nhiều task hơn một trang danh sách.
 func TestTeamTask_GetTaskByNumberInChat(t *testing.T) {

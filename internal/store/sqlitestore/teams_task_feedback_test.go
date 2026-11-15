@@ -132,6 +132,26 @@ func TestTeamTaskSQLite_SubmitForReviewWritesMetadataAtomically(t *testing.T) {
 	}
 }
 
+// RejectTask huỷ task đang chờ user duyệt và xoá checkpoint_pending trong cùng
+// thao tác; metadata khác giữ nguyên.
+func TestTeamTaskSQLite_RejectClearsCheckpointPending(t *testing.T) {
+	f := newDepFixture(t)
+	task := f.create(t, "waiting for user")
+	if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft", map[string]any{"checkpoint_pending": "user"}); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+	if err := f.teams.RejectTask(f.ctx, task.ID, f.teamID, "not needed"); err != nil {
+		t.Fatalf("RejectTask: %v", err)
+	}
+	got, _ := f.teams.GetTask(f.ctx, task.ID)
+	if _, has := got.Metadata["checkpoint_pending"]; got.Status != store.TeamTaskStatusCancelled || has || got.Metadata["source"] != "test" {
+		t.Fatalf("after reject: status=%q meta=%v, want cancelled without checkpoint_pending", got.Status, got.Metadata)
+	}
+}
+
 // GetTaskByNumberInChat chỉ trả task đúng số và đúng chat gốc.
 func TestTeamTaskSQLite_GetTaskByNumberInChat(t *testing.T) {
 	f := newDepFixture(t)

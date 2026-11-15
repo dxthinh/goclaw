@@ -470,6 +470,11 @@ func (s *mockTaskStore) CancelTask(_ context.Context, taskID, _ uuid.UUID, reaso
 	t.Status = store.TeamTaskStatusCancelled
 	t.Result = &reason
 	t.UpdatedAt = time.Now()
+	if _, ok := t.Metadata[TaskMetaCheckpointPending]; ok {
+		meta := maps.Clone(t.Metadata)
+		delete(meta, TaskMetaCheckpointPending)
+		t.Metadata = meta
+	}
 	return nil
 }
 
