@@ -292,6 +292,9 @@ type TaskRecoveryStore interface {
 	RecoverAllStaleTasks(ctx context.Context) ([]RecoveredTaskInfo, error)
 	ForceRecoverAllTasks(ctx context.Context) ([]RecoveredTaskInfo, error)
 	ListRecoverableTasks(ctx context.Context, teamID uuid.UUID) ([]TeamTaskData, error)
+	// ListBusyTaskOwners trả về mọi owner đang giữ task in_progress trong team
+	// (không giới hạn số dòng), để dispatch giữ một task chạy mỗi owner.
+	ListBusyTaskOwners(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error)
 	MarkAllStaleTasks(ctx context.Context, olderThan time.Time) ([]RecoveredTaskInfo, error)
 	MarkInReviewStaleTasks(ctx context.Context, olderThan time.Time) ([]RecoveredTaskInfo, error)
 	FixOrphanedBlockedTasks(ctx context.Context) ([]RecoveredTaskInfo, error)

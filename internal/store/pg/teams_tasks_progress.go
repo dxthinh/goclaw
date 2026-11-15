@@ -121,6 +121,28 @@ func (s *PGTeamStore) ForceRecoverAllTasks(ctx context.Context) ([]store.Recover
 	return scanRecoveredTaskInfoRows(rows)
 }
 
+// ListBusyTaskOwners trả về các owner đang giữ task in_progress trong team.
+// Dùng index idx_tt_owner_status (team_id, owner_agent_id, status).
+func (s *PGTeamStore) ListBusyTaskOwners(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT owner_agent_id FROM team_tasks
+		 WHERE team_id = $1 AND tenant_id = $2 AND status = $3 AND owner_agent_id IS NOT NULL`,
+		teamID, tenantIDForInsert(ctx), store.TeamTaskStatusInProgress)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // ListRecoverableTasks returns pending + stale-locked tasks for a single team.
 // Used by DispatchUnblockedTasks after task completion.
 func (s *PGTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID) ([]store.TeamTaskData, error) {
@@ -146,6 +168,8 @@ func (s *PGTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID
 }
 
 // MarkAllStaleTasks marks pending tasks older than olderThan as stale across all active teams.
+// Bỏ qua task pending mà owner đang giữ một task in_progress khác trong cùng team:
+// dispatch chạy một task mỗi owner, nên task đó đang xếp hàng chứ không bị bỏ quên.
 func (s *PGTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	rows, err := s.db.QueryContext(ctx,
@@ -154,8 +178,14 @@ func (s *PGTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time
 		 FROM agent_teams tm
 		 WHERE t.team_id = tm.id AND tm.status = 'active'
 		   AND t.status = $3 AND t.updated_at < $4
+		   AND NOT EXISTS (
+		     SELECT 1 FROM team_tasks busy
+		     WHERE busy.team_id = t.team_id AND busy.tenant_id = t.tenant_id
+		       AND busy.owner_agent_id = t.owner_agent_id
+		       AND busy.status = $5 AND busy.id <> t.id
+		   )
 		 RETURNING t.id, t.team_id, t.tenant_id, t.task_number, t.subject, COALESCE(t.channel, ''), COALESCE(t.chat_id, '')`,
-		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan,
+		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan, store.TeamTaskStatusInProgress,
 	)
 	if err != nil {
 		return nil, err
@@ -183,8 +213,9 @@ func (s *PGTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan time
 	return scanRecoveredTaskInfoRows(rows)
 }
 
-// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers have reached terminal status.
+// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers are completed or cancelled.
 // Safety net for cases where unblockDependentTasks() transaction rolled back.
+// Blocker failed không tính là đã giải quyết: task phụ thuộc chờ lead retry hoặc cancel.
 func (s *PGTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	rows, err := s.db.QueryContext(ctx,
@@ -197,11 +228,11 @@ func (s *PGTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.Reco
 		   AND NOT EXISTS (
 		     SELECT 1 FROM unnest(t.blocked_by) AS bid(id)
 		     JOIN team_tasks bt ON bt.id = bid.id AND bt.tenant_id = t.tenant_id
-		     WHERE bt.status NOT IN ($3, $4, $5)
+		     WHERE bt.status NOT IN ($3, $4)
 		   )
 		 RETURNING t.id, t.team_id, t.tenant_id, t.task_number, t.subject, COALESCE(t.channel, ''), COALESCE(t.chat_id, '')`,
 		store.TeamTaskStatusPending, now,
-		store.TeamTaskStatusCompleted, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
+		store.TeamTaskStatusCompleted, store.TeamTaskStatusCancelled,
 	)
 	if err != nil {
 		return nil, err

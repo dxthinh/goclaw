@@ -468,7 +468,9 @@ func TestApprove(t *testing.T) {
 		}
 	})
 
-	t.Run("DashboardBypass", func(t *testing.T) {
+	t.Run("MemberOnDashboardChannelBlocked", func(t *testing.T) {
+		// Task tạo từ dashboard mang kênh "dashboard", nên lượt chạy của member
+		// cũng ở kênh đó. Tên kênh không được thay cho kiểm tra lead.
 		mb, tool, _, memberID, ctx := newTestTeamSetup()
 		taskID := uuid.New()
 		preloadTask(mb, &store.TeamTaskData{
@@ -487,8 +489,11 @@ func TestApprove(t *testing.T) {
 			"task_id": taskID.String(),
 		})
 
-		if result.IsError {
-			t.Fatalf("expected success via dashboard bypass, got error: %v", result.ForLLM)
+		if !result.IsError {
+			t.Fatal("expected error: member must not approve its own task on the dashboard channel")
+		}
+		if got := readTask(mb, taskID).Status; got != store.TeamTaskStatusInReview {
+			t.Errorf("status = %q, want in_review", got)
 		}
 	})
 
@@ -607,30 +612,6 @@ func TestReject(t *testing.T) {
 		task := readTask(mb, taskID)
 		if task.Status != store.TeamTaskStatusCancelled {
 			t.Errorf("expected cancelled, got %q", task.Status)
-		}
-	})
-
-	t.Run("DashboardBypass", func(t *testing.T) {
-		mb, tool, _, memberID, ctx := newTestTeamSetup()
-		taskID := uuid.New()
-		preloadTask(mb, &store.TeamTaskData{
-			BaseModel: store.BaseModel{ID: taskID},
-			TeamID:    testTeamID,
-			Subject:   "dashboard reject",
-			Status:    store.TeamTaskStatusInReview,
-		})
-
-		mCtx := store.WithAgentID(ctx, memberID)
-		mCtx = WithToolChannel(mCtx, ChannelDashboard)
-		mCtx = WithTaskActionFlags(mCtx, &TaskActionFlags{})
-		result := tool.Execute(mCtx, map[string]any{
-			"action":  "reject",
-			"task_id": taskID.String(),
-			"text":    "dashboard user rejects",
-		})
-
-		if result.IsError {
-			t.Fatalf("expected success via dashboard bypass, got error: %v", result.ForLLM)
 		}
 	})
 

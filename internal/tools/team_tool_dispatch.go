@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -56,10 +59,7 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	if agentID == team.LeadAgentID {
 		slog.Warn("team_tasks.dispatch: blocked dispatch to lead agent",
 			"task_id", task.ID, "agent_id", agentID, "team_id", teamID)
-		_ = m.teamStore.UpdateTask(ctx, task.ID, map[string]any{
-			"status": store.TeamTaskStatusFailed,
-			"result": "Cannot dispatch task to the team lead — reassign to a team member",
-		})
+		m.failDispatch(ctx, task, team, "Cannot dispatch task to the team lead — reassign to a team member")
 		return
 	}
 
@@ -71,11 +71,7 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	if dispatchCount >= maxTaskDispatches {
 		slog.Warn("team_tasks.dispatch: max dispatch count reached, auto-failing task",
 			"task_id", task.ID, "dispatch_count", dispatchCount)
-		failReason := fmt.Sprintf("Task auto-failed after %d dispatch attempts", dispatchCount)
-		_ = m.teamStore.UpdateTask(ctx, task.ID, map[string]any{
-			"status": store.TeamTaskStatusFailed,
-			"result": failReason,
-		})
+		m.failDispatch(ctx, task, team, fmt.Sprintf("Task auto-failed after %d dispatch attempts", dispatchCount))
 		return
 	}
 
@@ -89,6 +85,7 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	ag, err := m.cachedGetAgentByID(ctx, agentID)
 	if err != nil {
 		slog.Warn("team_tasks.dispatch: cannot resolve agent", "agent_id", agentID, "error", err)
+		m.failDispatch(ctx, task, team, "Cannot resolve the assigned agent: "+err.Error())
 		return
 	}
 
@@ -235,8 +232,9 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 		AgentID:  ag.AgentKey,
 		Metadata: meta,
 	}) {
-		slog.Warn("team_tasks.dispatch: inbound buffer full, task dispatch dropped — ticker will retry",
+		slog.Warn("team_tasks.dispatch: inbound buffer full, task dispatch dropped — task marked failed",
 			"task_id", task.ID, "agent_key", ag.AgentKey)
+		m.failDispatch(ctx, task, team, "Dispatch dropped: inbound queue is full")
 		return
 	}
 	slog.Info("team_tasks.dispatch: sent task to agent",
@@ -347,18 +345,79 @@ func (m *TeamToolManager) restoreTraceContext(ctx context.Context, task *store.T
 // Called after task completion/cancellation to start newly-unblocked work
 // instead of waiting for the ticker (up to 5 min delay).
 func (m *TeamToolManager) DispatchUnblockedTasks(ctx context.Context, teamID uuid.UUID) {
-	team, err := m.teamStore.GetTeam(ctx, teamID)
-	if err != nil || team == nil {
-		return
-	}
+	// ListRecoverableTasks orders by priority DESC, created_at — so the first
+	// pending task per owner is automatically the highest priority.
 	tasks, err := m.teamStore.ListRecoverableTasks(ctx, teamID)
 	if err != nil {
 		return
 	}
-	// Track which owners already have a task dispatched this round.
-	// ListRecoverableTasks orders by priority DESC, created_at — so the first
-	// pending task per owner is automatically the highest priority.
-	dispatched := make(map[uuid.UUID]bool)
+	m.dispatchPendingTasks(ctx, teamID, tasks)
+}
+
+// DispatchRecoveredTasks dispatch lại đúng các task ticker vừa đưa về pending
+// (khóa hết hạn hoặc vừa mở khóa). Không đụng task pending khác trong team, vì
+// task lead vừa tạo trong lượt đang chạy chưa qua kiểm tra post-turn.
+// Lấy task trực tiếp theo ID: ListRecoverableTasks giới hạn số dòng nên team
+// nhiều task pending có thể làm task vừa recover rơi khỏi danh sách.
+func (m *TeamToolManager) DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID) {
+	if len(taskIDs) == 0 {
+		return
+	}
+	fetched, err := m.teamStore.GetTasksByIDs(ctx, taskIDs)
+	if err != nil {
+		slog.Warn("DispatchRecoveredTasks: fetch tasks failed", "team_id", teamID, "error", err)
+		return
+	}
+	tasks := fetched[:0]
+	for _, t := range fetched {
+		if t.TeamID == teamID {
+			tasks = append(tasks, t)
+		}
+	}
+	// Cùng thứ tự với ListRecoverableTasks: priority DESC, created_at.
+	slices.SortStableFunc(tasks, func(a, b store.TeamTaskData) int {
+		if a.Priority != b.Priority {
+			return cmp.Compare(b.Priority, a.Priority)
+		}
+		return a.CreatedAt.Compare(b.CreatedAt)
+	})
+	m.dispatchPendingTasks(ctx, teamID, tasks)
+}
+
+// busyOwners trả về các owner đang giữ một task in_progress trong team, để
+// dispatch giữ đúng một task chạy mỗi owner.
+func (m *TeamToolManager) busyOwners(ctx context.Context, teamID uuid.UUID) (map[uuid.UUID]bool, error) {
+	owners, err := m.teamStore.ListBusyTaskOwners(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	busy := make(map[uuid.UUID]bool, len(owners))
+	for _, id := range owners {
+		busy[id] = true
+	}
+	return busy, nil
+}
+
+// dispatchPendingTasks dispatch task pending có owner trong danh sách đã sắp theo
+// ưu tiên, tối đa một task mỗi owner và bỏ qua owner đang có task in_progress.
+func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.UUID, tasks []store.TeamTaskData) {
+	// Ticker và post-turn có thể dispatch cùng team cùng lúc. Nếu cả hai đọc
+	// danh sách owner bận trước khi bên kia assign, một owner sẽ nhận hai task.
+	// Khóa theo team giữ bước đọc owner bận và assign liền nhau (một tiến trình).
+	lock, _ := m.dispatchLocks.LoadOrStore(teamID, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
+
+	team, err := m.teamStore.GetTeam(ctx, teamID)
+	if err != nil || team == nil {
+		return
+	}
+	// Owner đang chạy một task thì task pending của họ tiếp tục xếp hàng.
+	dispatched, err := m.busyOwners(ctx, teamID)
+	if err != nil {
+		slog.Warn("DispatchUnblockedTasks: cannot list active tasks", "team_id", teamID, "error", err)
+		return
+	}
 	for i := range tasks {
 		task := &tasks[i]
 		if task.Status != store.TeamTaskStatusPending || task.OwnerAgentID == nil {
@@ -370,10 +429,7 @@ func (m *TeamToolManager) DispatchUnblockedTasks(ctx context.Context, teamID uui
 		if ownerID == team.LeadAgentID {
 			slog.Warn("DispatchUnblockedTasks: auto-failing lead-owned task",
 				"task_id", task.ID, "team_id", teamID)
-			_ = m.teamStore.UpdateTask(ctx, task.ID, map[string]any{
-				"status": store.TeamTaskStatusFailed,
-				"result": "Cannot dispatch task to the team lead — reassign to a team member",
-			})
+			m.failDispatch(ctx, task, team, "Cannot dispatch task to the team lead — reassign to a team member")
 			continue
 		}
 		if dispatched[ownerID] {

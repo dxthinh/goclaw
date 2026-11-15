@@ -35,6 +35,7 @@ type TeamToolManager struct {
 	teamCache     sync.Map // agentID (uuid.UUID) → *teamCacheEntry
 	agentCache    sync.Map // agentID (uuid.UUID) → *agentCacheEntry
 	agentKeyCache sync.Map // agentKey (string) → *agentCacheEntry
+	dispatchLocks sync.Map // teamID (uuid.UUID) → *sync.Mutex; tuần tự hóa dispatch theo team
 }
 
 func NewTeamToolManager(teamStore store.TeamStore, agentStore store.AgentStore, msgBus *bus.MessageBus, dataDir string) *TeamToolManager {

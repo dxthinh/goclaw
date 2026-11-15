@@ -431,38 +431,68 @@ const activeTeamJoin = `JOIN agent_teams tm ON tm.id = t.team_id
 func (s *SQLiteTeamStore) RecoverAllStaleTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	// SQLite: UPDATE ... FROM not supported in older versions; use subquery in WHERE.
-	_, err := s.db.ExecContext(ctx,
+	// RETURNING trả đúng các dòng vừa recover, để ticker không dispatch nhầm task
+	// pending khác vừa được tạo.
+	rows, err := s.db.QueryContext(ctx,
 		`UPDATE team_tasks SET status = ?, locked_at = NULL, lock_expires_at = NULL,
 		     followup_at = NULL, followup_count = 0, followup_message = NULL,
 		     followup_channel = NULL, followup_chat_id = NULL, updated_at = ?
 		 WHERE status = ? AND lock_expires_at IS NOT NULL AND lock_expires_at < ?
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
-		   )`,
+		   )
+		 `+recoveredTaskReturning,
 		store.TeamTaskStatusPending, now, store.TeamTaskStatusInProgress, now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return s.queryRecoveredTasks(ctx, store.TeamTaskStatusPending)
+	defer rows.Close()
+	return scanRecoveredTaskInfoRows(rows)
 }
+
+// recoveredTaskReturning trả về cột của RecoveredTaskInfo từ các dòng vừa UPDATE.
+const recoveredTaskReturning = `RETURNING id, team_id, tenant_id, task_number, subject, COALESCE(channel, ''), COALESCE(chat_id, '')`
 
 func (s *SQLiteTeamStore) ForceRecoverAllTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
-	_, err := s.db.ExecContext(ctx,
+	rows, err := s.db.QueryContext(ctx,
 		`UPDATE team_tasks SET status = ?, locked_at = NULL, lock_expires_at = NULL,
 		     followup_at = NULL, followup_count = 0, followup_message = NULL,
 		     followup_channel = NULL, followup_chat_id = NULL, updated_at = ?
 		 WHERE status = ?
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
-		   )`,
+		   )
+		 `+recoveredTaskReturning,
 		store.TeamTaskStatusPending, now, store.TeamTaskStatusInProgress,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return s.queryRecoveredTasks(ctx, store.TeamTaskStatusPending)
+	defer rows.Close()
+	return scanRecoveredTaskInfoRows(rows)
+}
+
+// ListBusyTaskOwners trả về các owner đang giữ task in_progress trong team.
+func (s *SQLiteTeamStore) ListBusyTaskOwners(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT owner_agent_id FROM team_tasks
+		 WHERE team_id = ? AND tenant_id = ? AND status = ? AND owner_agent_id IS NOT NULL`,
+		teamID, tenantIDForInsert(ctx), store.TeamTaskStatusInProgress)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (s *SQLiteTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.UUID) ([]store.TeamTaskData, error) {
@@ -487,6 +517,8 @@ func (s *SQLiteTeamStore) ListRecoverableTasks(ctx context.Context, teamID uuid.
 	return scanTaskRowsJoined(rows)
 }
 
+// MarkAllStaleTasks bỏ qua task pending mà owner đang giữ một task in_progress
+// khác trong cùng team (task đó đang xếp hàng, không bị bỏ quên).
 func (s *SQLiteTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	_, err := s.db.ExecContext(ctx,
@@ -494,8 +526,14 @@ func (s *SQLiteTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.
 		 WHERE status = ? AND updated_at < ?
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
+		   )
+		   AND NOT EXISTS (
+		     SELECT 1 FROM team_tasks busy
+		     WHERE busy.team_id = team_tasks.team_id AND busy.tenant_id = team_tasks.tenant_id
+		       AND busy.owner_agent_id = team_tasks.owner_agent_id
+		       AND busy.status = ? AND busy.id <> team_tasks.id
 		   )`,
-		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan,
+		store.TeamTaskStatusStale, now, store.TeamTaskStatusPending, olderThan, store.TeamTaskStatusInProgress,
 	)
 	if err != nil {
 		return nil, err
@@ -519,7 +557,8 @@ func (s *SQLiteTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan 
 	return s.queryRecoveredTasks(ctx, store.TeamTaskStatusStale)
 }
 
-// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers have reached terminal status.
+// FixOrphanedBlockedTasks unblocks blocked tasks where all blockers are completed or cancelled.
+// Blocker failed không tính là đã giải quyết: task phụ thuộc chờ lead retry hoặc cancel.
 func (s *SQLiteTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	// Find blocked tasks where every entry in blocked_by is in terminal status.
@@ -533,9 +572,9 @@ func (s *SQLiteTeamStore) FixOrphanedBlockedTasks(ctx context.Context) ([]store.
 		   AND NOT EXISTS (
 		     SELECT 1 FROM json_each(t.blocked_by) AS je
 		     JOIN team_tasks bt ON bt.id = je.value AND bt.tenant_id = t.tenant_id
-		     WHERE bt.status NOT IN (?, ?, ?)
+		     WHERE bt.status NOT IN (?, ?)
 		   )`,
-		store.TeamTaskStatusCompleted, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
+		store.TeamTaskStatusCompleted, store.TeamTaskStatusCancelled,
 	)
 	if err != nil {
 		return nil, err

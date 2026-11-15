@@ -75,8 +75,10 @@ func (t *TeamTasksTool) handleBlockerComment(
 			escalationMsg := fmt.Sprintf(
 				"[Escalation] Member %q is blocked on task #%d \"%s\"\n\n"+
 					"Blocker: %s\n\n"+
-					"Use team_tasks(action=\"retry\", task_id=\"%s\") to reopen with updated instructions.",
-				memberKey, task.TaskNumber, task.Subject, text, taskID)
+					"Use team_tasks(action=\"retry\", task_id=\"%s\") to reopen with updated instructions, "+
+					"or team_tasks(action=\"cancel\", task_id=\"%s\", text=\"reason\") to drop it.",
+				memberKey, task.TaskNumber, task.Subject, text, taskID, taskID)
+			escalationMsg += BlockedDependentsNote(ctx, t.manager.Store(), team.ID, taskID)
 
 			// Escalation metadata: preserve original actor sender through re-ingress
 			// so the leader's response turn can attribute to the real user (#915).

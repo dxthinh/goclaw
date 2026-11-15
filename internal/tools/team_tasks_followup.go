@@ -135,6 +135,8 @@ func (t *TeamTasksTool) executeRetry(ctx context.Context, args map[string]any) *
 	))
 
 	// Dispatch immediately (retry is an explicit action, not during a turn).
+	// Dispatch có chủ ý: đặt lại bộ đếm để circuit breaker chỉ tính lần lỗi.
+	resetDispatchCount(task)
 	t.manager.DispatchTaskToAgent(ctx, task, team, *task.OwnerAgentID)
 
 	assignee := t.manager.AgentKeyFromID(ctx, *task.OwnerAgentID)

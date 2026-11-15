@@ -25,13 +25,15 @@ const (
 	defaultFollowupInterval  = 30 * time.Minute
 )
 
-// TaskTicker periodically recovers stale tasks and re-dispatches pending work.
+// TaskTicker periodically recovers stale tasks and re-dispatches pending work
+// (via DispatchRecoveredTasks, only for the tasks it recovered).
 // All recovery/stale/followup queries are batched across v2 active teams (single SQL each).
 type TaskTicker struct {
-	teams    store.TeamStore
-	agents   store.AgentStore
-	msgBus   *bus.MessageBus
-	interval time.Duration
+	teams      store.TeamStore
+	agents     store.AgentStore
+	msgBus     *bus.MessageBus
+	redispatch TaskRedispatcher // dispatch lại task sau khi recover; nil thì bỏ qua
+	interval   time.Duration
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -40,7 +42,15 @@ type TaskTicker struct {
 	lastFollowupSent map[uuid.UUID]time.Time // taskID → last followup sent time
 }
 
-func NewTaskTicker(teams store.TeamStore, agents store.AgentStore, msgBus *bus.MessageBus, intervalSec int) *TaskTicker {
+// TaskRedispatcher dispatch lại đúng các task ticker vừa đưa về pending.
+// *tools.TeamToolManager cài interface này.
+type TaskRedispatcher interface {
+	DispatchRecoveredTasks(ctx context.Context, teamID uuid.UUID, taskIDs []uuid.UUID)
+}
+
+var _ TaskRedispatcher = (*tools.TeamToolManager)(nil)
+
+func NewTaskTicker(teams store.TeamStore, agents store.AgentStore, msgBus *bus.MessageBus, redispatch TaskRedispatcher, intervalSec int) *TaskTicker {
 	interval := defaultRecoveryInterval
 	if intervalSec > 0 {
 		interval = time.Duration(intervalSec) * time.Second
@@ -49,6 +59,7 @@ func NewTaskTicker(teams store.TeamStore, agents store.AgentStore, msgBus *bus.M
 		teams:            teams,
 		agents:           agents,
 		msgBus:           msgBus,
+		redispatch:       redispatch,
 		interval:         interval,
 		stopCh:           make(chan struct{}),
 		lastFollowupSent: make(map[uuid.UUID]time.Time),
@@ -117,8 +128,8 @@ func (t *TaskTicker) recoverAll(forceRecover bool) {
 		slog.Info("task_ticker: recovered tasks", "count", len(recovered), "force", forceRecover)
 		t.notifyLeaders(recoverCtx, recovered, "recovered (lock expired)",
 			"These tasks were reset to pending because the assigned agent stopped responding.\n"+
-				"To re-dispatch: use team_tasks(action=\"retry\", task_id=\"<task_id>\") for each task above.\n"+
-				"To cancel: use team_tasks(action=\"update\", task_id=\"<task_id>\", status=\"cancelled\").\n"+
+				"They are dispatched to their assignees again automatically — no action is needed to resume them.\n"+
+				"To cancel: use team_tasks(action=\"cancel\", task_id=\"<task_id>\", text=\"reason\").\n"+
 				"To view all tasks: use team_tasks(action=\"list\").")
 	}
 
@@ -133,7 +144,7 @@ func (t *TaskTicker) recoverAll(forceRecover bool) {
 		t.notifyLeaders(recoverCtx, stale, "marked stale (no progress for 2+ hours)",
 			"These tasks have been pending too long without being picked up.\n"+
 				"To re-dispatch: use team_tasks(action=\"retry\", task_id=\"<task_id>\").\n"+
-				"To cancel: use team_tasks(action=\"update\", task_id=\"<task_id>\", status=\"cancelled\").\n"+
+				"To cancel: use team_tasks(action=\"cancel\", task_id=\"<task_id>\", text=\"reason\").\n"+
 				"To view current board: use team_tasks(action=\"list\").")
 		t.broadcastStaleEvents(recoverCtx, stale)
 	}
@@ -147,14 +158,14 @@ func (t *TaskTicker) recoverAll(forceRecover bool) {
 	if len(staleReview) > 0 {
 		slog.Info("task_ticker: marked in_review stale", "count", len(staleReview))
 		t.notifyLeaders(recoverCtx, staleReview, "in review too long (4+ hours) — marked stale",
-			"These tasks have been waiting for approval too long.\n"+
-				"To approve: use team_tasks(action=\"approve\", task_id=\"<task_id>\").\n"+
-				"To reject: use team_tasks(action=\"reject\", task_id=\"<task_id>\", text=\"reason\").\n"+
-				"To retry: use team_tasks(action=\"retry\", task_id=\"<task_id>\").")
+			"These tasks waited for approval too long and are now stale, so they can no longer be approved or rejected.\n"+
+				"To run one again: use team_tasks(action=\"retry\", task_id=\"<task_id>\").\n"+
+				"To cancel: use team_tasks(action=\"cancel\", task_id=\"<task_id>\", text=\"reason\").\n"+
+				"To review its result first: use team_tasks(action=\"get\", task_id=\"<task_id>\").")
 		t.broadcastStaleEvents(recoverCtx, staleReview)
 	}
 
-	// Step 5: Fix orphaned blocked tasks where all blockers are terminal.
+	// Step 5: Fix orphaned blocked tasks where all blockers are completed or cancelled.
 	fixed, err := t.teams.FixOrphanedBlockedTasks(recoverCtx)
 	if err != nil {
 		slog.Warn("task_ticker: fix orphaned blocked tasks", "error", err)
@@ -162,12 +173,47 @@ func (t *TaskTicker) recoverAll(forceRecover bool) {
 	if len(fixed) > 0 {
 		slog.Info("task_ticker: auto-unblocked orphaned tasks", "count", len(fixed))
 		t.notifyLeaders(recoverCtx, fixed, "auto-unblocked (all blockers resolved)",
-			"These blocked tasks were automatically unblocked because all their dependencies completed.\n"+
-				"They are now pending and will be dispatched if assigned.")
+			"These blocked tasks were automatically unblocked because all their dependencies completed or were cancelled.\n"+
+				"They are now pending and are dispatched to their assignees automatically.")
 	}
 
-	// Step 6: Prune old cooldown entries to prevent memory leak.
+	// Step 6: Dispatch again the tasks that recovery or unblocking returned to
+	// pending, so they do not wait for the lead or the stale timeout.
+	// Timeout riêng: các bước trên có thể dùng hết hạn của recoverCtx, mà task
+	// đã về pending thì nhịp sau không recover lại nữa.
+	dispatchCtx, dispatchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.dispatchRecovered(dispatchCtx, recovered, fixed)
+	dispatchCancel()
+
+	// Step 7: Prune old cooldown entries to prevent memory leak.
 	t.pruneCooldowns()
+}
+
+// dispatchRecovered gọi DispatchRecoveredTasks một lần cho mỗi cặp tenant/team,
+// chỉ với các task vừa trở về pending. Context mang tenant để store lọc đúng phạm vi.
+func (t *TaskTicker) dispatchRecovered(ctx context.Context, groups ...[]store.RecoveredTaskInfo) {
+	if t.redispatch == nil {
+		return
+	}
+	type teamKey struct{ TeamID, TenantID uuid.UUID }
+	byTeam := map[teamKey][]uuid.UUID{}
+	var order []teamKey
+	for _, list := range groups {
+		for _, task := range list {
+			key := teamKey{TeamID: task.TeamID, TenantID: task.TenantID}
+			if _, ok := byTeam[key]; !ok {
+				order = append(order, key)
+			}
+			byTeam[key] = append(byTeam[key], task.ID)
+		}
+	}
+	for _, key := range order {
+		scopeCtx := ctx
+		if key.TenantID != uuid.Nil {
+			scopeCtx = store.WithTenantID(ctx, key.TenantID)
+		}
+		t.redispatch.DispatchRecoveredTasks(scopeCtx, key.TeamID, byTeam[key])
+	}
 }
 
 // ============================================================

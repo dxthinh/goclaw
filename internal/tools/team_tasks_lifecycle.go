@@ -60,6 +60,21 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 		}
 	}
 
+	// Chỉ owner hoặc lead được complete. Lấy task trước khi claim; bản này dùng
+	// lại cho event bên dưới nên không thêm truy vấn.
+	task, err := t.manager.Store().GetTask(ctx, taskID)
+	if err != nil {
+		return ErrorResult("task not found: " + err.Error())
+	}
+	if task.TeamID != team.ID {
+		return ErrorResult("task does not belong to your team")
+	}
+	if ch := ToolChannelFromCtx(ctx); task.OwnerAgentID != nil && *task.OwnerAgentID != agentID &&
+		agentID != team.LeadAgentID && ch != ChannelSystem && ch != ChannelDashboard {
+		return ErrorResult(fmt.Sprintf("task %s is assigned to %s — only its owner or the team lead can complete it",
+			taskID, t.manager.AgentKeyFromID(ctx, *task.OwnerAgentID)))
+	}
+
 	// Auto-claim if the task is still pending (saves an extra tool call).
 	// ClaimTask is atomic — only one agent can succeed, others get an error.
 	// Ignore claim error: task may already be in_progress (claimed by us or someone else).
@@ -103,23 +118,13 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 	registered := t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)
 
 	ownerKey := t.manager.AgentKeyFromID(ctx, agentID)
-	// Fetch task for TaskNumber/Subject needed by notification subscriber.
-	completedTask, _ := t.manager.Store().GetTask(ctx, taskID)
-	var taskNumber int
-	var taskSubject string
-	var taskLocalKey string
-	if completedTask != nil {
-		taskNumber = completedTask.TaskNumber
-		taskSubject = completedTask.Subject
-		if lk, ok := completedTask.Metadata[TaskMetaLocalKey].(string); ok {
-			taskLocalKey = lk
-		}
-	}
+	// TaskNumber/Subject/local_key cho subscriber thông báo lấy từ task đã đọc ở trên.
+	taskLocalKey, _ := task.Metadata[TaskMetaLocalKey].(string)
 	t.manager.BroadcastTeamEvent(ctx, protocol.EventTeamTaskCompleted, BuildTaskEventPayload(
 		team.ID.String(), taskID.String(),
 		store.TeamTaskStatusCompleted,
 		"agent", ownerKey,
-		WithTaskInfo(taskNumber, taskSubject),
+		WithTaskInfo(task.TaskNumber, task.Subject),
 		WithOwner(ownerKey, t.manager.AgentDisplayName(ctx, ownerKey)),
 		WithContextInfo(ctx),
 		WithLocalKey(taskLocalKey),
@@ -210,13 +215,11 @@ func (t *TeamTasksTool) executeApprove(ctx context.Context, args map[string]any)
 		return ErrorResult(err.Error())
 	}
 
-	// Only lead can approve tasks via tool (non-lead agents should not approve).
-	// System/dashboard channels bypass this check (human UI approval).
-	ch := ToolChannelFromCtx(ctx)
-	if ch != ChannelSystem && ch != ChannelDashboard {
-		if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
-			return ErrorResult(err.Error())
-		}
+	// Only lead can approve tasks via tool. Không bỏ qua theo tên kênh: task tạo
+	// từ dashboard chạy ở kênh "dashboard", nên member sẽ tự duyệt được. Người
+	// duyệt trên Web UI đi qua RPC teams.tasks.approve, không qua tool này.
+	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
+		return ErrorResult(err.Error())
 	}
 
 	// Fetch task for subject (used in lead message) and team ownership check
@@ -267,12 +270,10 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 		return ErrorResult(err.Error())
 	}
 
-	// Only lead can reject tasks via tool.
-	ch := ToolChannelFromCtx(ctx)
-	if ch != ChannelSystem && ch != ChannelDashboard {
-		if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
-			return ErrorResult(err.Error())
-		}
+	// Only lead can reject tasks via tool (cùng lý do như approve: không bỏ qua
+	// theo tên kênh; Web UI dùng RPC teams.tasks.reject).
+	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
+		return ErrorResult(err.Error())
 	}
 
 	reason, _ := args["text"].(string)
@@ -330,6 +331,8 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 			WithReason(reason),
 			WithContextInfo(ctx),
 		))
+		// Dispatch có chủ ý: đặt lại bộ đếm để circuit breaker chỉ tính lần lỗi.
+		resetDispatchCount(task)
 		t.manager.DispatchTaskToAgent(ctx, task, team, *task.OwnerAgentID)
 		return NewResult(fmt.Sprintf("Task %s rejected and re-dispatched to %s with feedback.",
 			taskID, t.manager.AgentKeyFromID(ctx, *task.OwnerAgentID)))
