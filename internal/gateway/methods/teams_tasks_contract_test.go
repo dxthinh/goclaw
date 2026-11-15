@@ -179,3 +179,26 @@ func TestCleanTeamSettings_KeepsTaskContract(t *testing.T) {
 		t.Errorf("unknown keys must be stripped: %s", cleaned)
 	}
 }
+
+func TestTaskRetry_EnabledTeamRequiresContract(t *testing.T) {
+	f, _ := newContractFixture(t, true)
+	f.st.task.Status = store.TeamTaskStatusFailed
+	params := map[string]any{"teamId": f.teamID.String(), "taskId": f.taskID.String(), "comment": "try again"}
+
+	ok, code, msg := f.call(t, f.m.handleTaskRetry, params)
+	if ok || code != protocol.ErrInvalidRequest || msg != i18n.T("en", i18n.MsgTaskContractRequired) {
+		t.Fatalf("got ok=%v code=%s msg=%q", ok, code, msg)
+	}
+	if f.st.resets != 0 || len(f.st.assigned) != 0 || len(f.st.comments) != 0 {
+		t.Fatal("rejected retry must not touch the task")
+	}
+
+	c, _ := tools.NewTaskContractFromInput(validRPCContract())
+	f.st.task.Metadata = map[string]any{tools.TaskMetaContract: c.ToMetadata()}
+	if ok, code, msg := f.call(t, f.m.handleTaskRetry, params); !ok {
+		t.Fatalf("retry with contract: %s %s", code, msg)
+	}
+	if len(f.st.assigned) != 1 {
+		t.Fatalf("assigned = %v", f.st.assigned)
+	}
+}

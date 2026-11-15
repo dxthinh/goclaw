@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/nextlevelbuilder/goclaw/internal/edition"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -43,4 +44,22 @@ func TaskContractRequired(team *store.TeamData, taskType string) bool {
 		taskType = "general"
 	}
 	return taskType == "general" && ParseTaskContractConfig(team.Settings).Enabled
+}
+
+// ErrTaskContractMissing: team bắt buộc contract mà task chưa có.
+var ErrTaskContractMissing = errors.New("this team requires a task contract (objective, deliverables, acceptance) before the task can be assigned or dispatched")
+
+// CheckTaskContractForAssign kiểm tra task sắp được giao hoặc dispatch lại có
+// chủ ý (assign, retry) ở team đã bật task_contract: task general phải có
+// contract hợp lệ. Trả ErrTaskContractMissing khi chưa có, lỗi Validate khi
+// contract sai, nil khi được phép hoặc team không bắt buộc.
+func CheckTaskContractForAssign(team *store.TeamData, task *store.TeamTaskData) error {
+	if task == nil || !TaskContractRequired(team, task.TaskType) {
+		return nil
+	}
+	c := TaskContractFromTask(task)
+	if c == nil {
+		return ErrTaskContractMissing
+	}
+	return c.Validate()
 }

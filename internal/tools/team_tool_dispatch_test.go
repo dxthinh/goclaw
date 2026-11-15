@@ -538,3 +538,32 @@ func TestDispatchMessage_PointsToContract(t *testing.T) {
 		t.Errorf("task without contract must not mention it:\n%s", msgs[1].Content)
 	}
 }
+
+// Team bắt buộc contract: tool retry không dispatch lại task general chưa có contract.
+func TestRetry_EnabledTeamRequiresContract(t *testing.T) {
+	h := newDispatchHarness(t)
+	h.team.Settings = []byte(`{"task_contract":{"enabled":true}}`)
+	member := testMemberID
+	task := h.addTask(&store.TeamTaskData{
+		Subject: "write report", Status: store.TeamTaskStatusFailed, OwnerAgentID: &member, TaskType: "general",
+	})
+	tool := NewTeamTasksTool(h.mgr, FullTeamPolicy{})
+
+	res := tool.Execute(h.leadToolCtx(), map[string]any{"action": "retry", "task_id": task.ID.String()})
+	if !res.IsError || !strings.Contains(res.ForLLM, "task contract") {
+		t.Fatalf("expected contract error, got %q", res.ForLLM)
+	}
+	if len(h.memberDispatches()) != 0 || h.status(task.ID) != store.TeamTaskStatusFailed {
+		t.Fatal("task must stay failed and undispatched")
+	}
+
+	c, _ := NewTaskContractFromInput(validContractArgs())
+	h.tasks.tasks[task.ID].Metadata = map[string]any{TaskMetaContract: c.ToMetadata()}
+	res = tool.Execute(h.leadToolCtx(), map[string]any{"action": "retry", "task_id": task.ID.String()})
+	if res.IsError {
+		t.Fatalf("retry with contract: %s", res.ForLLM)
+	}
+	if len(h.memberDispatches()) != 1 {
+		t.Fatal("task with contract must be dispatched")
+	}
+}
