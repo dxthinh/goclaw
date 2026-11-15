@@ -15,6 +15,7 @@ export const teamSettingsSchema = z.object({
   memberRequestsEnabled: z.boolean(),
   memberRequestsAutoDispatch: z.boolean(),
   blockerEscalationEnabled: z.boolean(),
+  taskContractEnabled: z.boolean(),
   followupInterval: z.number().min(1).max(1440),
   followupMaxReminders: z.number().min(0).max(100),
   // Access control

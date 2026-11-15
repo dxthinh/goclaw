@@ -2,10 +2,22 @@ import { useState, useCallback } from "react";
 import { useWs } from "@/hooks/use-ws";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { Methods } from "@/api/protocol";
-import type { TeamData, TeamMemberData, TeamTaskData, TeamTaskComment, TeamTaskEvent, TeamTaskAttachment, TeamAccessSettings, ScopeEntry } from "@/types/team";
+import type { TeamData, TeamMemberData, TeamTaskData, TeamTaskComment, TeamTaskEvent, TeamTaskAttachment, TeamAccessSettings, ScopeEntry, TaskContractInput } from "@/types/team";
 import { toast } from "@/stores/use-toast-store";
 import i18next from "i18next";
 import { userFriendlyError } from "@/lib/error-utils";
+
+/** Tham số teams.tasks.create; contract bắt buộc khi team bật task_contract và task được giao ngay. */
+export interface CreateTaskParams {
+  subject: string;
+  description?: string;
+  priority?: number;
+  taskType?: string;
+  assignTo?: string;
+  channel?: string;
+  chatId?: string;
+  contract?: TaskContractInput;
+}
 
 export function useTeams() {
   const ws = useWs();
@@ -174,7 +186,7 @@ export function useTeams() {
   );
 
   const createTask = useCallback(
-    async (teamId: string, params: { subject: string; description?: string; priority?: number; taskType?: string; assignTo?: string; channel?: string; chatId?: string }) => {
+    async (teamId: string, params: CreateTaskParams) => {
       try {
         const res = await ws.call<{ task: TeamTaskData }>(
           Methods.TEAMS_TASK_CREATE,
@@ -258,6 +270,36 @@ export function useTeams() {
     [ws],
   );
 
+  // Trả lời câu hỏi clarify của member: task awaiting_input được dispatch lại
+  // cho owner, hoặc cho assignee (agent_id hoặc agent_key) nếu có.
+  const answerTask = useCallback(
+    async (teamId: string, taskId: string, text: string, assignee?: string) => {
+      try {
+        await ws.call(Methods.TEAMS_TASK_ANSWER, { teamId, taskId, text, assignee });
+        toast.success(i18next.t("teams:toast.taskAnswered"));
+      } catch (err) {
+        toast.error(i18next.t("teams:toast.failedAnswerTask"), userFriendlyError(err));
+        throw err;
+      }
+    },
+    [ws],
+  );
+
+  // Yêu cầu sửa kết quả task in_review: lý do thành amendment changes_requested
+  // và task được làm lại. Khác rejectTask (hủy task).
+  const requestTaskChanges = useCallback(
+    async (teamId: string, taskId: string, reason: string) => {
+      try {
+        await ws.call(Methods.TEAMS_TASK_REQUEST_CHANGES, { teamId, taskId, reason });
+        toast.success(i18next.t("teams:toast.taskChangesRequested"));
+      } catch (err) {
+        toast.error(i18next.t("teams:toast.failedRequestChanges"), userFriendlyError(err));
+        throw err;
+      }
+    },
+    [ws],
+  );
+
   const addMember = useCallback(
     async (teamId: string, agent: string, role?: string) => {
       try {
@@ -301,6 +343,7 @@ export function useTeams() {
     teams, loading, load, createTeam, deleteTeam, getTeam, getTeamTasks, getTeamScopes,
     getTaskDetail, getTaskLight, approveTask, rejectTask, addTaskComment, getTaskComments, getTaskEvents,
     createTask, deleteTask, deleteTasksBulk, assignTask, cancelTask, retryTask,
+    answerTask, requestTaskChanges,
     addMember, removeMember, updateTeam,
   };
 }

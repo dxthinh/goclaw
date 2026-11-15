@@ -560,6 +560,12 @@
     "private_reply_message": {
       "label": "Nội dung DM",
       "help": "Hỗ trợ biến commenter_name và post_title. Để trống dùng mặc định tiếng Anh."
+    },
+    "task_approval": {
+      "enabled": {
+        "label": "Duyệt task của team qua lệnh",
+        "help": "Cho người tạo yêu cầu duyệt kết quả task của team bằng /approve <số>, hoặc yêu cầu sửa bằng /changes <số> <lý do>, ngay trong chat này. Chỉ áp cho task mà lead đánh dấu cần duyệt kết quả."
+      }
     }
   },
   "fieldOptions": {

@@ -115,7 +115,60 @@ export interface TeamTaskData {
   // Count badges
   comment_count?: number;
   attachment_count?: number;
+  /** Metadata tự do của task; contract, checkpoint_pending, acceptance_report nằm ở đây. */
+  metadata?: TeamTaskMetadata;
 }
+
+/** Ai đang được chờ duyệt kết quả task in_review (metadata.checkpoint_pending). */
+export type TaskCheckpointPending = "user" | "lead";
+
+/** Loại amendment do hệ thống ghi vào contract. */
+export type TaskContractAmendmentKind = "answer" | "changes_requested" | "reassigned";
+
+/** Một lần bổ sung contract sau khi tạo (khớp tools.TaskContractAmendment). */
+export interface TaskContractAmendment {
+  version: number;
+  text: string;
+  by: string;
+  at: string;
+  kind: TaskContractAmendmentKind | string;
+}
+
+/** Task Contract lưu ở metadata.contract (khớp tools.TaskContract). */
+export interface TaskContract {
+  objective: string;
+  deliverables: string[];
+  acceptance: string[];
+  scope_in?: string[];
+  scope_out?: string[];
+  inputs?: string[];
+  on_unclear?: "ask" | "assume_and_note";
+  needs?: string[];
+  checkpoint?: "" | "result";
+  limits?: { max_iterations?: number };
+  version?: number;
+  amendments?: TaskContractAmendment[];
+}
+
+/** Báo cáo của member cho một tiêu chí nghiệm thu; index đếm từ 1. */
+export interface AcceptanceReportItem {
+  index: number;
+  met: boolean;
+  evidence?: string;
+}
+
+export interface TeamTaskMetadata {
+  contract?: TaskContract;
+  checkpoint_pending?: TaskCheckpointPending;
+  acceptance_report?: AcceptanceReportItem[];
+  [key: string]: unknown;
+}
+
+/** Contract người dùng nhập ở form tạo task (gửi kèm teams.tasks.create). */
+export type TaskContractInput = Pick<
+  TaskContract,
+  "objective" | "deliverables" | "acceptance" | "scope_in" | "scope_out" | "inputs" | "on_unclear" | "needs"
+> & { limits?: { max_iterations?: number } };
 
 export interface TeamTaskComment {
   id: string;

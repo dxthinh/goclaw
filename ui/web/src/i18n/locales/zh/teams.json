@@ -140,7 +140,73 @@
     "retryDescription": "任务将作为新一轮运行返回给执行者。您的评论会发布到任务并包含在派发内容中——请在此写下答复或缺失的说明。",
     "retryCommentPlaceholder": "执行者应当如何调整，或者他们在等待什么答复？",
     "retryCommentRequired": "重试需要填写评论。",
-    "retryAssignee": "执行者"
+    "retryAssignee": "执行者",
+    "types": {
+      "general": "通用",
+      "delegation": "委派",
+      "escalation": "升级"
+    },
+    "contract": {
+      "title": "任务契约",
+      "version": "v{{version}}",
+      "required": "必填：此团队使用任务契约，且任务将立即分配。",
+      "optionalHint": "可选。填写三个主要字段，或全部留空。",
+      "objective": "目标",
+      "objectivePlaceholder": "任务的目的，与用户请求相关",
+      "deliverables": "交付物",
+      "deliverablesPlaceholder": "每行一项，例如团队工作区中的 report.md",
+      "acceptance": "验收标准",
+      "acceptancePlaceholder": "每行一条可验证的标准",
+      "more": "更多选项",
+      "scopeIn": "范围内",
+      "scopeOut": "范围外",
+      "inputs": "输入",
+      "needs": "所需工具",
+      "needsHint": "工具组或工具名称，每行一项。被分配者必须全部具备。",
+      "linesHint": "每行一项",
+      "onUnclear": "不明确时",
+      "onUnclearAsk": "询问负责人",
+      "onUnclearAssume": "自行假设并记录",
+      "maxIterations": "最大迭代次数",
+      "maxIterationsHint": "受被分配者自身的工具迭代上限限制。",
+      "maxIterationsValue": "最大迭代次数：{{count}}",
+      "errors": {
+        "required": "必填。",
+        "tooLong": "每项最多 2000 个字符。",
+        "tooMany": "最多 20 项。",
+        "invalidNumber": "请输入正整数。"
+      },
+      "criterionMet": "已达成",
+      "criterionUnmet": "未达成",
+      "criterionUnreported": "未报告",
+      "evidence": "证据",
+      "amendments": "补充",
+      "amendmentKind": {
+        "answer": "回答",
+        "changes_requested": "要求修改",
+        "reassigned": "重新分配"
+      }
+    },
+    "feedback": {
+      "awaitingTitle": "等待回答",
+      "question": "来自 {{agent}} 的问题",
+      "missingTool": "{{agent}} 缺少工具",
+      "noQuestion": "成员提出了问题，请查看下方评论。",
+      "answerPlaceholder": "给成员的回答",
+      "answerAssignee": "将任务交给",
+      "keepOwner": "保留当前负责人",
+      "answer": "发送回答",
+      "reviewTitleUser": "等待用户审批",
+      "reviewTitleLead": "等待负责人审核",
+      "reviewHintUser": "在此审批结果，或在原聊天中输入 /approve {{number}}。",
+      "reviewHintLead": "成员的验收报告不完整或有未达成的标准。请审批结果或要求修改。",
+      "approve": "审批结果",
+      "requestChanges": "要求修改",
+      "requestChangesTitle": "要求修改",
+      "requestChangesDescription": "原因会加入契约，成员将重做任务。若要放弃任务，请使用取消。",
+      "requestChangesPlaceholder": "需要修改什么",
+      "requestChangesRequired": "必须填写原因。"
+    }
   },
   "delegations": {
     "noTitle": "暂无委托",
@@ -308,7 +374,10 @@
       "downgradeNote": "降级是安全的 — V2数据会保留但隐藏。",
       "betaNote": "部分功能目前处于Beta阶段。",
       "gotIt": "知道了"
-    }
+    },
+    "taskContract": "任务契约",
+    "taskContractEnabled": "要求任务契约",
+    "taskContractEnabledDesc": "分配给成员的任务（request 和 note 除外）必须包含目标、交付物和验收标准。成员完成时需逐条报告每个标准。"
   },
   "create": {
     "title": "创建Team",
@@ -367,7 +436,11 @@
     "taskCancelled": "任务已取消",
     "failedCancelTask": "取消任务失败",
     "taskRetried": "任务已返回给执行者",
-    "failedRetryTask": "重试任务失败"
+    "failedRetryTask": "重试任务失败",
+    "taskAnswered": "已发送回答",
+    "failedAnswerTask": "发送回答失败",
+    "taskChangesRequested": "已要求修改",
+    "failedRequestChanges": "要求修改失败"
   },
   "board": {
     "kanban": "看板",

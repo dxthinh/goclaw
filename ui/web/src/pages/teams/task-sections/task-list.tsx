@@ -11,6 +11,7 @@ import type { TeamTaskData, TeamTaskComment, TeamTaskEvent, TeamTaskAttachment }
 import type { TeamMemberData } from "@/types/team";
 import { taskStatusBadgeVariant, isTerminalStatus } from "./task-utils";
 import { buildTaskLookup, buildMemberLookup, buildAssigneeOptions } from "../board/board-utils";
+import type { TaskFeedbackActions } from "./task-detail-feedback";
 
 const TaskDetailDialog = lazy(() =>
   import("./task-detail-dialog").then((m) => ({ default: m.TaskDetailDialog }))
@@ -32,11 +33,12 @@ interface TaskListProps {
   addTaskComment?: (teamId: string, taskId: string, content: string) => Promise<void>;
   cancelTask?: (teamId: string, taskId: string, reason?: string) => Promise<void>;
   retryTask?: (teamId: string, taskId: string, comment: string, agentId?: string) => Promise<void>;
+  feedback?: TaskFeedbackActions;
 }
 
 export function TaskList({
   tasks, loading, teamId, members, isTeamV2, emojiLookup,
-  getTaskDetail, deleteTask, deleteTasksBulk, addTaskComment, cancelTask, retryTask,
+  getTaskDetail, deleteTask, deleteTasksBulk, addTaskComment, cancelTask, retryTask, feedback,
 }: TaskListProps) {
   const { t } = useTranslation("teams");
   const [selectedTask, setSelectedTask] = useState<TeamTaskData | null>(null);
@@ -282,6 +284,7 @@ export function TaskList({
             deleteTask={deleteTask}
             cancelTask={cancelTask}
             retryTask={retryTask}
+            feedback={feedback}
             assignees={assigneeOptions}
             onAddComment={addTaskComment}
             taskLookup={taskLookup}

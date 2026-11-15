@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Switch } from "@/components/ui/switch";
-import { ShieldAlert, Clock, FolderLock, FolderSync } from "lucide-react";
+import { ShieldAlert, Clock, FolderLock, FolderSync, FileCheck2 } from "lucide-react";
 
 interface TeamOrchestrationSectionProps {
   workspaceScope: string;
@@ -11,6 +11,10 @@ interface TeamOrchestrationSectionProps {
   setMemberRequestsAutoDispatch: (v: boolean) => void;
   blockerEscalationEnabled: boolean;
   setBlockerEscalationEnabled: (v: boolean) => void;
+  /** Hiện công tắc Task Contract (ẩn ở bản Lite). */
+  showTaskContract: boolean;
+  taskContractEnabled: boolean;
+  setTaskContractEnabled: (v: boolean) => void;
   followupInterval: number;
   setFollowupInterval: (v: number) => void;
   followupMaxReminders: number;
@@ -22,12 +26,13 @@ const WORKSPACE_OPTIONS = [
   { value: "shared", Icon: FolderSync, labelKey: "workspaceScopeShared", descKey: "workspaceScopeSharedDesc" },
 ] as const;
 
-/** Workspace scope, member requests, blocker escalation, and follow-up reminder settings. */
+/** Workspace scope, member requests, task contract, blocker escalation, and follow-up reminder settings. */
 export function TeamOrchestrationSection({
   workspaceScope, setWorkspaceScope,
   memberRequestsEnabled, setMemberRequestsEnabled,
   memberRequestsAutoDispatch, setMemberRequestsAutoDispatch,
   blockerEscalationEnabled, setBlockerEscalationEnabled,
+  showTaskContract, taskContractEnabled, setTaskContractEnabled,
   followupInterval, setFollowupInterval,
   followupMaxReminders, setFollowupMaxReminders,
 }: TeamOrchestrationSectionProps) {
@@ -94,6 +99,27 @@ export function TeamOrchestrationSection({
           )}
         </div>
       </div>
+
+      {/* Task Contract */}
+      {showTaskContract && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium">{t("settings.taskContract")}</h3>
+          <div className="rounded-lg border bg-gradient-to-r from-sky-500/5 to-indigo-500/5 p-4">
+            <div className="flex items-start gap-4">
+              <div className="rounded-lg bg-sky-500/10 p-2.5 text-sky-600 dark:text-sky-400">
+                <FileCheck2 className="h-5 w-5" />
+              </div>
+              <div className="flex flex-1 items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <span className="text-sm font-semibold">{t("settings.taskContractEnabled")}</span>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t("settings.taskContractEnabledDesc")}</p>
+                </div>
+                <Switch checked={taskContractEnabled} onCheckedChange={setTaskContractEnabled} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Blocker Escalation */}
       <div className="space-y-4">

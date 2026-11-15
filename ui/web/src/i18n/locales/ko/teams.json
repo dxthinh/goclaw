@@ -140,7 +140,73 @@
     "retryDescription": "작업이 담당자에게 새 실행으로 다시 전달됩니다. 댓글은 작업에 기록되고 배정 내용에 포함됩니다. 답변이나 누락된 지시를 여기에 적으세요.",
     "retryCommentPlaceholder": "담당자가 무엇을 다르게 해야 하나요, 또는 어떤 답변을 기다리고 있었나요?",
     "retryCommentRequired": "재시도하려면 댓글이 필요합니다.",
-    "retryAssignee": "담당자"
+    "retryAssignee": "담당자",
+    "types": {
+      "general": "일반",
+      "delegation": "위임",
+      "escalation": "에스컬레이션"
+    },
+    "contract": {
+      "title": "작업 계약",
+      "version": "v{{version}}",
+      "required": "필수: 이 팀은 작업 계약을 사용하며 작업이 바로 배정됩니다.",
+      "optionalHint": "선택 사항입니다. 세 가지 주요 항목을 모두 채우거나 모두 비워 두세요.",
+      "objective": "목표",
+      "objectivePlaceholder": "사용자 요청과 연결된 작업의 목적",
+      "deliverables": "산출물",
+      "deliverablesPlaceholder": "한 줄에 하나씩, 예: 팀 워크스페이스의 report.md",
+      "acceptance": "인수 기준",
+      "acceptancePlaceholder": "한 줄에 검증 가능한 기준 하나",
+      "more": "추가 옵션",
+      "scopeIn": "범위 내",
+      "scopeOut": "범위 외",
+      "inputs": "입력",
+      "needs": "필요한 도구",
+      "needsHint": "도구 그룹 또는 도구 이름, 한 줄에 하나씩. 담당자가 모두 갖추어야 합니다.",
+      "linesHint": "한 줄에 하나씩",
+      "onUnclear": "불명확할 때",
+      "onUnclearAsk": "리드에게 질문",
+      "onUnclearAssume": "가정하고 기록",
+      "maxIterations": "최대 반복 횟수",
+      "maxIterationsHint": "담당자 자체의 도구 반복 한도로 제한됩니다.",
+      "maxIterationsValue": "최대 반복 횟수: {{count}}",
+      "errors": {
+        "required": "필수 항목입니다.",
+        "tooLong": "각 항목은 최대 2000자입니다.",
+        "tooMany": "최대 20개 항목입니다.",
+        "invalidNumber": "양의 정수를 입력하세요."
+      },
+      "criterionMet": "충족",
+      "criterionUnmet": "미충족",
+      "criterionUnreported": "보고 없음",
+      "evidence": "근거",
+      "amendments": "보완 내역",
+      "amendmentKind": {
+        "answer": "답변",
+        "changes_requested": "수정 요청",
+        "reassigned": "재배정"
+      }
+    },
+    "feedback": {
+      "awaitingTitle": "답변 대기 중",
+      "question": "{{agent}}의 질문",
+      "missingTool": "{{agent}}에게 도구가 없습니다",
+      "noQuestion": "멤버가 질문했습니다. 아래 댓글을 확인하세요.",
+      "answerPlaceholder": "멤버에게 보낼 답변",
+      "answerAssignee": "작업 담당자",
+      "keepOwner": "현재 담당자 유지",
+      "answer": "답변 보내기",
+      "reviewTitleUser": "사용자 승인 대기 중",
+      "reviewTitleLead": "리드 검토 대기 중",
+      "reviewHintUser": "여기에서 결과를 승인하거나 원래 채팅에서 /approve {{number}}를 입력하세요.",
+      "reviewHintLead": "멤버의 인수 보고가 불완전하거나 미충족 기준이 있습니다. 결과를 승인하거나 수정을 요청하세요.",
+      "approve": "결과 승인",
+      "requestChanges": "수정 요청",
+      "requestChangesTitle": "수정 요청",
+      "requestChangesDescription": "사유가 계약에 추가되고 멤버가 작업을 다시 합니다. 작업을 포기하려면 취소를 사용하세요.",
+      "requestChangesPlaceholder": "무엇을 수정해야 하나요",
+      "requestChangesRequired": "사유를 입력해야 합니다."
+    }
   },
   "delegations": {
     "noTitle": "위임 없음",
@@ -308,7 +374,10 @@
       "downgradeNote": "다운그레이드는 안전합니다 — V2 데이터가 보존되지만 숨겨집니다.",
       "betaNote": "일부 기능은 현재 베타 버전입니다.",
       "gotIt": "알겠습니다"
-    }
+    },
+    "taskContract": "작업 계약",
+    "taskContractEnabled": "작업 계약 필수",
+    "taskContractEnabledDesc": "멤버에게 주는 작업(request, note 제외)에는 목표, 산출물, 인수 기준이 있어야 합니다. 멤버는 완료 시 각 기준을 보고합니다."
   },
   "create": {
     "title": "팀 만들기",
@@ -359,7 +428,11 @@
     "taskCancelled": "작업이 취소되었습니다",
     "failedCancelTask": "작업 취소 실패",
     "taskRetried": "작업이 담당자에게 다시 전달되었습니다",
-    "failedRetryTask": "작업 재시도 실패"
+    "failedRetryTask": "작업 재시도 실패",
+    "taskAnswered": "답변을 보냈습니다",
+    "failedAnswerTask": "답변 전송 실패",
+    "taskChangesRequested": "수정을 요청했습니다",
+    "failedRequestChanges": "수정 요청 실패"
   },
   "board": {
     "kanban": "보드",

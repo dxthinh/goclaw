@@ -140,7 +140,73 @@
     "retryDescription": "The task goes back to its assignee as a new run. Your comment is posted on the task and included in the assignment — this is where the answer or missing instruction goes.",
     "retryCommentPlaceholder": "What should the assignee do differently, or what was the answer they were waiting for?",
     "retryCommentRequired": "A comment is required to retry.",
-    "retryAssignee": "Assignee"
+    "retryAssignee": "Assignee",
+    "types": {
+      "general": "General",
+      "delegation": "Delegation",
+      "escalation": "Escalation"
+    },
+    "contract": {
+      "title": "Task Contract",
+      "version": "v{{version}}",
+      "required": "Required: this team uses task contracts and the task is assigned now.",
+      "optionalHint": "Optional. Fill in the three main fields, or leave everything empty.",
+      "objective": "Objective",
+      "objectivePlaceholder": "What the task is for, tied to the user's request",
+      "deliverables": "Deliverables",
+      "deliverablesPlaceholder": "One per line, e.g. report.md in the team workspace",
+      "acceptance": "Acceptance criteria",
+      "acceptancePlaceholder": "One verifiable criterion per line",
+      "more": "More options",
+      "scopeIn": "In scope",
+      "scopeOut": "Out of scope",
+      "inputs": "Inputs",
+      "needs": "Required tools",
+      "needsHint": "Tool group or tool names, one per line. The assignee must have all of them.",
+      "linesHint": "One item per line",
+      "onUnclear": "When unclear",
+      "onUnclearAsk": "Ask the lead",
+      "onUnclearAssume": "Assume and note it",
+      "maxIterations": "Max iterations",
+      "maxIterationsHint": "Capped by the assignee's own tool iteration limit.",
+      "maxIterationsValue": "Max iterations: {{count}}",
+      "errors": {
+        "required": "Required.",
+        "tooLong": "Each item can be at most 2000 characters.",
+        "tooMany": "At most 20 items.",
+        "invalidNumber": "Enter a positive whole number."
+      },
+      "criterionMet": "Met",
+      "criterionUnmet": "Not met",
+      "criterionUnreported": "Not reported",
+      "evidence": "Evidence",
+      "amendments": "Amendments",
+      "amendmentKind": {
+        "answer": "Answer",
+        "changes_requested": "Changes requested",
+        "reassigned": "Reassigned"
+      }
+    },
+    "feedback": {
+      "awaitingTitle": "Waiting for an answer",
+      "question": "Question from {{agent}}",
+      "missingTool": "{{agent}} is missing a tool",
+      "noQuestion": "The member asked a question. See the comments below.",
+      "answerPlaceholder": "Your answer for the member",
+      "answerAssignee": "Give the task to",
+      "keepOwner": "Keep current owner",
+      "answer": "Send answer",
+      "reviewTitleUser": "Waiting for user approval",
+      "reviewTitleLead": "Waiting for lead review",
+      "reviewHintUser": "Approve the result here, or type /approve {{number}} in the original chat.",
+      "reviewHintLead": "The member's acceptance report is incomplete or has unmet criteria. Approve the result or request changes.",
+      "approve": "Approve result",
+      "requestChanges": "Request changes",
+      "requestChangesTitle": "Request changes",
+      "requestChangesDescription": "The reason is added to the contract and the member redoes the task. To drop the task instead, use Cancel.",
+      "requestChangesPlaceholder": "What needs to change",
+      "requestChangesRequired": "A reason is required."
+    }
   },
   "delegations": {
     "noTitle": "No delegations",
@@ -308,7 +374,10 @@
       "downgradeNote": "Downgrade is safe — V2 data is preserved but hidden.",
       "betaNote": "Some features are currently in Beta.",
       "gotIt": "Got it"
-    }
+    },
+    "taskContract": "Task Contract",
+    "taskContractEnabled": "Require task contracts",
+    "taskContractEnabledDesc": "Tasks given to members (except request and note) must have an objective, deliverables and acceptance criteria. Members report each criterion when they finish."
   },
   "create": {
     "title": "Create Team",
@@ -367,7 +436,11 @@
     "taskCancelled": "Task cancelled",
     "failedCancelTask": "Failed to cancel task",
     "taskRetried": "Task sent back to its assignee",
-    "failedRetryTask": "Failed to retry task"
+    "failedRetryTask": "Failed to retry task",
+    "taskAnswered": "Answer sent",
+    "failedAnswerTask": "Failed to send answer",
+    "taskChangesRequested": "Changes requested",
+    "failedRequestChanges": "Failed to request changes"
   },
   "board": {
     "kanban": "Board",

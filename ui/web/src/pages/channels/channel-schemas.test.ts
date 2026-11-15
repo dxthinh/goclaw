@@ -71,6 +71,17 @@ describe("telegram configSchema", () => {
       "join_request",
     ]);
   });
+
+  it("exposes task approval by command only for Telegram", () => {
+    const field = telegramConfig.find((f) => f.key === "task_approval.enabled");
+    expect(field).toBeDefined();
+    expect(field!.type).toBe("boolean");
+    expect(field!.defaultValue).toBe(false);
+    for (const [channelType, fields] of Object.entries(configSchema)) {
+      if (channelType === "telegram") continue;
+      expect(fields.some((f) => f.key.startsWith("task_approval")), channelType).toBe(false);
+    }
+  });
 });
 
 describe("discord configSchema", () => {
