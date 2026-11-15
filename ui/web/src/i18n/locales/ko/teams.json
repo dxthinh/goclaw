@@ -174,7 +174,8 @@
         "required": "필수 항목입니다.",
         "tooLong": "각 항목은 최대 2000자입니다.",
         "tooMany": "최대 20개 항목입니다.",
-        "invalidNumber": "양의 정수를 입력하세요."
+        "invalidNumber": "양의 정수를 입력하세요.",
+        "totalTooLong": "계약 전체는 최대 {{max}}자까지 가능합니다(현재 {{count}}자)."
       },
       "criterionMet": "충족",
       "criterionUnmet": "미충족",

@@ -174,7 +174,8 @@
         "required": "Bắt buộc.",
         "tooLong": "Mỗi mục tối đa 2000 ký tự.",
         "tooMany": "Tối đa 20 mục.",
-        "invalidNumber": "Nhập số nguyên dương."
+        "invalidNumber": "Nhập số nguyên dương.",
+        "totalTooLong": "Tổng ký tự của contract tối đa {{max}} (hiện {{count}})."
       },
       "criterionMet": "Đạt",
       "criterionUnmet": "Chưa đạt",

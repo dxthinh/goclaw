@@ -174,7 +174,8 @@
         "required": "必填。",
         "tooLong": "每项最多 2000 个字符。",
         "tooMany": "最多 20 项。",
-        "invalidNumber": "请输入正整数。"
+        "invalidNumber": "请输入正整数。",
+        "totalTooLong": "契约总字符数最多 {{max}}（当前 {{count}}）。"
       },
       "criterionMet": "已达成",
       "criterionUnmet": "未达成",

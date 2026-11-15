@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  EMPTY_CONTRACT_FORM, buildContractInput, getAcceptanceReport, getCheckpointPending,
+  CONTRACT_MAX_TOTAL, EMPTY_CONTRACT_FORM, buildContractInput, runeCount, getAcceptanceReport, getCheckpointPending,
   getLatestClarifyQuestion, getTaskContract, isContractRequired, validateContractForm,
 } from "./task-contract-utils";
 
@@ -38,6 +38,29 @@ describe("validateContractForm", () => {
     }, true);
     expect(errs).toContainEqual({ field: "acceptance", code: "tooMany" });
     expect(errs).toContainEqual({ field: "maxIterations", code: "invalidNumber" });
+  });
+});
+
+describe("giới hạn tổng ký tự", () => {
+  // 6 mục x 1700 ký tự = 10200 > 10000, mỗi mục vẫn dưới 2000.
+  const big = Array.from({ length: 6 }, (_, i) => `${i}`.padEnd(1700, "x")).join("\n");
+
+  it("báo lỗi khi tổng vượt 10000 ký tự như backend", () => {
+    const errs = validateContractForm({ ...EMPTY_CONTRACT_FORM, objective: "o", deliverables: "d", acceptance: big }, true);
+    expect(errs).toContainEqual({ field: "total", code: "totalTooLong", count: 1 + 1 + 6 * 1700 });
+    expect(errs.some((e) => e.code === "tooLong")).toBe(false);
+  });
+
+  it("cho phép đúng bằng giới hạn", () => {
+    const acceptance = ["a".repeat(2000), "b".repeat(2000), "c".repeat(2000), "d".repeat(2000), "e".repeat(1998)].join("\n");
+    const errs = validateContractForm({ ...EMPTY_CONTRACT_FORM, objective: "o", deliverables: "d", acceptance }, true);
+    expect(errs).toEqual([]);
+    expect(CONTRACT_MAX_TOTAL).toBe(10000);
+  });
+
+  it("đếm theo code point như utf8.RuneCountInString", () => {
+    expect(runeCount("😀ab")).toBe(3);
+    expect(runeCount("Việt")).toBe(4);
   });
 });
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ContractFormError, ContractFormState } from "../task-sections/task-contract-utils";
+import { CONTRACT_MAX_TOTAL, type ContractFormError, type ContractFormState } from "../task-sections/task-contract-utils";
 
 interface ContractFieldsProps {
   value: ContractFormState;
@@ -26,7 +26,8 @@ export function ContractFields({ value, onChange, required, errors, disabled }: 
   const { t } = useTranslation("teams");
   const [moreOpenState, setMoreOpen] = useState(false);
   // Lỗi ở trường tùy chọn thì mở sẵn phần mở rộng để người dùng thấy lỗi.
-  const moreOpen = moreOpenState || errors.some((e) => !MAIN_FIELDS.has(e.field));
+  const moreOpen = moreOpenState || errors.some((e) => e.field !== "total" && !MAIN_FIELDS.has(e.field));
+  const totalError = errors.find((e) => e.code === "totalTooLong");
   const set = <K extends keyof ContractFormState>(key: K, v: ContractFormState[K]) => onChange({ ...value, [key]: v });
 
   const errorFor = (field: keyof ContractFormState) => {
@@ -62,6 +63,11 @@ export function ContractFields({ value, onChange, required, errors, disabled }: 
       <p className="text-xs text-muted-foreground">
         {required ? t("tasks.contract.required") : t("tasks.contract.optionalHint")}
       </p>
+      {totalError && totalError.code === "totalTooLong" && (
+        <p className="text-xs text-destructive" role="alert">
+          {t("tasks.contract.errors.totalTooLong", { max: CONTRACT_MAX_TOTAL, count: totalError.count })}
+        </p>
+      )}
 
       {textArea("objective", t("tasks.contract.objective"), { placeholder: t("tasks.contract.objectivePlaceholder"), mark: true })}
       {textArea("deliverables", t("tasks.contract.deliverables"), { placeholder: t("tasks.contract.deliverablesPlaceholder"), mark: true, rows: 3 })}

@@ -6,6 +6,13 @@ import type {
 // Giới hạn kích thước contract, khớp internal/tools/team_task_contract.go.
 export const CONTRACT_MAX_STRING = 2000;
 export const CONTRACT_MAX_ITEMS = 20;
+/** Tổng ký tự của mọi chuỗi trong contract (taskContractMaxTotal). */
+export const CONTRACT_MAX_TOTAL = 10000;
+
+/** Đếm ký tự như utf8.RuneCountInString của Go (code point, không phải UTF-16). */
+export function runeCount(s: string): number {
+  return Array.from(s).length;
+}
 
 // Loại task miễn contract (khớp tools.TaskContractRequired).
 const CONTRACT_EXEMPT_TYPES = new Set(["request", "note"]);
@@ -107,7 +114,9 @@ export function isContractFormEmpty(f: ContractFormState): boolean {
 
 export type ContractFormError =
   | { field: "objective" | "deliverables" | "acceptance"; code: "required" }
-  | { field: keyof ContractFormState; code: "tooLong" | "tooMany" | "invalidNumber" };
+  | { field: keyof ContractFormState; code: "tooLong" | "tooMany" | "invalidNumber" }
+  /** Lỗi cả contract: tổng ký tự vượt CONTRACT_MAX_TOTAL. */
+  | { field: "total"; code: "totalTooLong"; count: number };
 
 /**
  * Kiểm form contract trước khi gửi. Contract bắt buộc thì ba trường chính phải
@@ -120,13 +129,18 @@ export function validateContractForm(f: ContractFormState, required: boolean): C
   if (!f.objective.trim()) errors.push({ field: "objective", code: "required" });
   if (splitLines(f.deliverables).length === 0) errors.push({ field: "deliverables", code: "required" });
   if (splitLines(f.acceptance).length === 0) errors.push({ field: "acceptance", code: "required" });
-  if (f.objective.trim().length > CONTRACT_MAX_STRING) errors.push({ field: "objective", code: "tooLong" });
+  const objective = f.objective.trim();
+  if (runeCount(objective) > CONTRACT_MAX_STRING) errors.push({ field: "objective", code: "tooLong" });
+  let total = runeCount(objective);
   const lists: (keyof ContractFormState)[] = ["deliverables", "acceptance", "scopeIn", "scopeOut", "inputs", "needs"];
   for (const field of lists) {
     const items = splitLines(f[field] as string);
     if (items.length > CONTRACT_MAX_ITEMS) errors.push({ field, code: "tooMany" });
-    if (items.some((s) => s.length > CONTRACT_MAX_STRING)) errors.push({ field, code: "tooLong" });
+    if (items.some((s) => runeCount(s) > CONTRACT_MAX_STRING)) errors.push({ field, code: "tooLong" });
+    for (const s of items) total += runeCount(s);
   }
+  // Backend cộng mọi chuỗi đã bỏ khoảng trắng đầu cuối (totalRunes).
+  if (total > CONTRACT_MAX_TOTAL) errors.push({ field: "total", code: "totalTooLong", count: total });
   const mi = f.maxIterations.trim();
   if (mi && !(/^\d+$/.test(mi) && Number(mi) > 0)) errors.push({ field: "maxIterations", code: "invalidNumber" });
   return errors;

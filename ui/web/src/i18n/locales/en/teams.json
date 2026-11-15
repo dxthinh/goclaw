@@ -174,7 +174,8 @@
         "required": "Required.",
         "tooLong": "Each item can be at most 2000 characters.",
         "tooMany": "At most 20 items.",
-        "invalidNumber": "Enter a positive whole number."
+        "invalidNumber": "Enter a positive whole number.",
+        "totalTooLong": "The contract can have at most {{max}} characters in total (now {{count}})."
       },
       "criterionMet": "Met",
       "criterionUnmet": "Not met",

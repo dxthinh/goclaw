@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { TeamTaskData, TeamMemberData, ScopeEntry } from "@/types/team";
 import type { CreateTaskParams } from "../hooks/use-teams";
 import { ContractFields } from "./contract-fields";
+import { buildAssigneeOptions } from "./board-utils";
 import {
   EMPTY_CONTRACT_FORM, buildContractInput, isContractRequired, validateContractForm,
   type ContractFormState,
@@ -38,6 +39,9 @@ export function CreateTaskDialog({
   const [contract, setContract] = useState<ContractFormState>(EMPTY_CONTRACT_FORM);
   const [submitted, setSubmitted] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Lead không nhận được task: dispatch đánh task failed ngay sau khi tạo
+  // (giống ô chọn của retry), nên chỉ liệt kê member.
+  const assignees = buildAssigneeOptions(members);
 
   // Quy tắc giống backend: team bật contract, có assignee, loại task không miễn.
   const contractRequired = isContractRequired(taskContractEnabled, taskType, !!assignTo);
@@ -110,17 +114,14 @@ export function CreateTaskDialog({
                 min={0} className="w-full rounded-md border bg-background px-3 py-2 text-base md:text-sm" />
             </div>
           </div>
-          {members.length > 0 && (
+          {assignees.length > 0 && (
             <div className="space-y-1.5">
               <label htmlFor="task-assignee" className="text-sm font-medium">{t("tasks.assignTo")}</label>
               <select id="task-assignee" value={assignTo} onChange={(e) => setAssignTo(e.target.value)}
                 className="w-full rounded-md border bg-background px-3 py-2 text-base md:text-sm">
                 <option value="">{t("tasks.unassigned")}</option>
-                {members.map((m) => (
-                  <option key={m.agent_id} value={m.agent_id}>
-                    {m.display_name || m.agent_key || m.agent_id}
-                    {m.role === "lead" ? " (Lead)" : ""}
-                  </option>
+                {assignees.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
             </div>

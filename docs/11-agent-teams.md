@@ -154,11 +154,11 @@ flowchart TD
 | `complete` | Mark task done with result summary, optional `deliverables` (final file paths to send to the user) and `criteria` (`[{index, met, evidence}]`, one per acceptance criterion of the contract) | Members/Agents |
 | `clarify` | Owner asks the lead a question (`text`, `kind`: `question` or `missing_tool`); task moves to `awaiting_input` instead of failing | Members (Standard only) |
 | `answer` | Lead answers a `clarify` question (`task_id`, `text`, optional `assignee` to hand the task to another member); task is dispatched again | Lead (Standard only) |
-| `approve` | Approve an `in_review` task. Refused for every agent when the task waits for the user (`checkpoint_pending=user`) | Lead |
+| `approve` | Approve an `in_review` task. Refused for every agent when the task waits for the user (`checkpoint_pending=user`). On a task with the result checkpoint that is not yet waiting for the user, the lead's approve does not complete it: the task stays `in_review` and is forwarded to the user (`checkpoint_pending=user`) | Lead |
 | `reject` | Send an `in_review` task back with a reason. With an owner the task is reset and re-dispatched (the reason becomes a `changes_requested` amendment when there is a contract). Refused when the task waits for the user | Lead |
 | `cancel` | Cancel task with reason | Lead |
 | `assign` | Admin-assign a pending task to an agent | Admin |
-| `review` | Submit task for review, transitions to in_review status | Members |
+| `review` | Submit task for review, transitions to in_review status. Refused for a task with a contract in a team that enables `task_contract`, and for a task with the result checkpoint: those must finish with `complete` | Members |
 | `comment` | Add comment to task | All |
 | `progress` | Update task progress (percent, step) | Members |
 | `list` | List tasks (filter: active/in_review/completed/all, page) | All |
@@ -351,7 +351,7 @@ tools happened to produce:
 
 A task reaches `in_review` in three ways:
 
-- The member calls `review` (submit for review). The lead or a dashboard user approves or rejects it.
+- The member calls `review` (submit for review). The lead or a dashboard user approves or rejects it. `review` is refused for a task with a contract (team enables `task_contract`) and for a task with the result checkpoint, because it would skip the acceptance check and the user's approval; such tasks finish with `complete`.
 - The task has a contract and the member's `complete` misses a criterion, reports one as not met, or the run ends without `complete`. The task waits for the lead with `checkpoint_pending=lead` (see §5).
 - The task carries the result checkpoint and every criterion is met. It waits for the user with `checkpoint_pending=user` (see §5, User Approval).
 
@@ -405,7 +405,7 @@ When the member completes with every criterion met, the task stays `in_review` w
 
 Commands are handled by the gateway consumer before any agent, without the LLM, and only in the task's original chat. The same task can also be approved or sent back on the dashboard.
 
-**Why agents cannot approve for the user:** `approve` and `reject` in the `team_tasks` tool always refuse a task with `checkpoint_pending=user`, whichever agent calls them and on whichever channel, and the MCP bridge applies the same guard. The guard is written into the tool rather than a configurable hook, because hooks can be disabled or time out to "allow".
+**Why agents cannot approve for the user:** `approve` and `reject` in the `team_tasks` tool always refuse a task with `checkpoint_pending=user`, whichever agent calls them and on whichever channel. When the lead approves a task that carries the result checkpoint but is not yet waiting for the user (for example `checkpoint_pending=lead` after unmet criteria), the task is not completed: it stays `in_review` and is forwarded to the user. The MCP bridge refuses `approve` and `reject` on tasks waiting for the user, and also refuses `approve` on every task with the result checkpoint (the lead forwards it with `team_tasks(action="approve")`); `reject` stays allowed there. The guard is written into the tool rather than a configurable hook, because hooks can be disabled or time out to "allow".
 
 ---
 
