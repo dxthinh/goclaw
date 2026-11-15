@@ -202,3 +202,46 @@ func TestTaskRetry_EnabledTeamRequiresContract(t *testing.T) {
 		t.Fatalf("assigned = %v", f.st.assigned)
 	}
 }
+
+func TestTaskCreate_UnknownTaskTypeRejected(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		f, cs := newContractFixture(t, enabled)
+		ok, code, msg := f.call(t, f.m.handleTaskCreate, map[string]any{
+			"teamId": f.teamID.String(), "subject": "Q3", "taskType": "generl",
+		})
+		if ok || code != protocol.ErrInvalidRequest {
+			t.Fatalf("enabled=%v: expected INVALID_REQUEST, got ok=%v code=%s", enabled, ok, code)
+		}
+		if msg != i18n.T("en", i18n.MsgTaskTypeInvalid, "generl") {
+			t.Errorf("message = %q", msg)
+		}
+		if len(cs.created) != 0 {
+			t.Fatal("task must not be created")
+		}
+	}
+}
+
+func TestTaskCreate_EnabledTeamContractByTaskType(t *testing.T) {
+	// Task escalation chưa giao (luồng chờ người duyệt) vẫn tạo được.
+	f, cs := newContractFixture(t, true)
+	ok, _, msg := f.call(t, f.m.handleTaskCreate, map[string]any{
+		"teamId": f.teamID.String(), "subject": "Review", "taskType": "escalation",
+	})
+	if !ok || len(cs.created) != 1 {
+		t.Fatalf("unassigned escalation task must be created: ok=%v msg=%q", ok, msg)
+	}
+
+	// Giao ngay cho member thì delegation và escalation đều cần contract.
+	for _, typ := range []string{"delegation", "escalation"} {
+		f, cs = newContractFixture(t, true)
+		ok, code, msg := f.call(t, f.m.handleTaskCreate, map[string]any{
+			"teamId": f.teamID.String(), "subject": "Q3", "taskType": typ, "assignTo": f.member.String(),
+		})
+		if ok || code != protocol.ErrInvalidRequest || msg != i18n.T("en", i18n.MsgTaskContractRequired) {
+			t.Fatalf("assigned %s task must need a contract: ok=%v code=%s msg=%q", typ, ok, code, msg)
+		}
+		if len(cs.created) != 0 {
+			t.Fatalf("%s: task must not be created", typ)
+		}
+	}
+}

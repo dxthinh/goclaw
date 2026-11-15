@@ -28,9 +28,10 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		isLead = true // system/teammate channels act on behalf of the lead
 	}
 
-	taskType, _ := args["task_type"].(string)
-	if taskType == "" {
-		taskType = "general"
+	rawTaskType, _ := args["task_type"].(string)
+	taskType, err := NormalizeCreateTaskType(rawTaskType)
+	if err != nil {
+		return ErrorResult(err.Error())
 	}
 
 	if !isLead {
@@ -223,12 +224,12 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	}
 
 	task := &store.TeamTaskData{
-		TeamID:           team.ID,
-		Subject:          subject,
-		Description:      description,
-		Status:           status,
-		BlockedBy:        blockedBy,
-		Priority:         priority,
+		TeamID:      team.ID,
+		Subject:     subject,
+		Description: description,
+		Status:      status,
+		BlockedBy:   blockedBy,
+		Priority:    priority,
 		// SCOPE-intentional (#915 audit 2026-04-16): team task visibility is
 		// per-chat, not per-user. team_tasks_read.go filters end-user lists by
 		// this same UserID. Migrating to ActorIDFromContext would hide group
@@ -351,16 +352,15 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 }
 
 // resolveCreateContract đọc và kiểm tra contract của lệnh create. Team đã bật
-// task contract thì task general bắt buộc có contract hợp lệ; team chưa bật mà
-// lead vẫn gửi contract thì contract vẫn được kiểm tra và lưu. Task request và
-// note không bắt buộc. Trả thông báo lỗi cho LLM (tiếng Anh) khi không hợp lệ.
+// task contract thì mọi task trừ request và note bắt buộc có contract hợp lệ; team chưa bật mà
+// lead vẫn gửi contract thì contract vẫn được kiểm tra và lưu. Trả thông báo lỗi cho LLM (tiếng Anh) khi không hợp lệ.
 func resolveCreateContract(team *store.TeamData, taskType string, raw any) (*TaskContract, string) {
 	contract, err := NewTaskContractFromInput(raw)
 	if err != nil {
 		return nil, "invalid contract: " + err.Error()
 	}
 	if contract == nil && TaskContractRequired(team, taskType) {
-		return nil, "This team requires a task contract for every general task. Add contract={objective, deliverables, acceptance}. " + taskContractExample
+		return nil, "This team requires a task contract for every task except task_type request and note. Add contract={objective, deliverables, acceptance}. " + taskContractExample
 	}
 	return contract, ""
 }

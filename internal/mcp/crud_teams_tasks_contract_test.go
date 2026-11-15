@@ -157,3 +157,41 @@ func TestMCPTasks_NilTeamRejected(t *testing.T) {
 	assert.Contains(t, toolResultText(res), "team not found")
 	assert.Empty(t, ts.assigned)
 }
+
+func TestMCPTasksCreate_UnknownTaskTypeRejected(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		ts, teamID, _, call := newContractMCPFixture(t, enabled)
+		isErr, text := call("goclaw_teams_tasks_create", map[string]any{
+			"team_id": teamID.String(), "subject": "Q3", "task_type": "generl",
+		})
+		assert.True(t, isErr, text)
+		assert.Contains(t, text, "must be general, request, note, delegation or escalation")
+		assert.Empty(t, ts.tasks)
+
+		isErr, text = call("goclaw_teams_tasks_create", map[string]any{
+			"team_id": teamID.String(), "subject": "Q3", "task_type": "note",
+		})
+		require.False(t, isErr, text)
+		assert.Len(t, ts.tasks, 1)
+	}
+}
+
+func TestMCPTasksCreate_EnabledTeamContractByTaskType(t *testing.T) {
+	ts, teamID, memberID, call := newContractMCPFixture(t, true)
+	// Task escalation chưa giao (luồng chờ người duyệt) vẫn tạo được.
+	isErr, text := call("goclaw_teams_tasks_create", map[string]any{
+		"team_id": teamID.String(), "subject": "Review", "task_type": "escalation",
+	})
+	require.False(t, isErr, text)
+	require.Len(t, ts.tasks, 1)
+
+	// Giao ngay cho member thì delegation và escalation đều cần contract.
+	for _, typ := range []string{"delegation", "escalation"} {
+		isErr, text = call("goclaw_teams_tasks_create", map[string]any{
+			"team_id": teamID.String(), "subject": "Q3", "task_type": typ, "assign_to": memberID.String(),
+		})
+		assert.True(t, isErr, typ+": "+text)
+		assert.Contains(t, text, "task contract")
+		assert.Len(t, ts.tasks, 1)
+	}
+}

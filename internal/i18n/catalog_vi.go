@@ -384,5 +384,6 @@ func init() {
 		MsgSnapshotRepairRange:                     "Chỉ sửa các giờ UTC đầy đủ trong [%s, %s)",
 		MsgTaskContractInvalid:                     "Task contract không hợp lệ: %s",
 		MsgTaskContractRequired:                    "Team này yêu cầu task contract (objective, deliverables, acceptance) trước khi giao task",
+		MsgTaskTypeInvalid:                         "Loại task %q không hợp lệ: chỉ nhận general, request, note, delegation hoặc escalation",
 	})
 }

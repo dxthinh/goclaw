@@ -264,41 +264,54 @@ func handleTeammateMessage(
 	schedCtx := tools.WithTaskActionFlags(ctx, taskActionFlags)
 
 	// Contract của task đi vào system prompt để member luôn thấy bản hiện hành.
-	contractPrompt := teammateContractPrompt(ctx, deps.TeamStore, taskIDStr)
+	// Đọc task lỗi ở team bật contract thì không chạy lượt này: kết quả lỗi đi
+	// qua cùng đường hậu xử lý như lượt chạy lỗi (task bị failed, lead được báo),
+	// không tự retry.
+	contractPrompt, contractErr := teammateContractPrompt(ctx, deps.TeamStore, msg.Metadata[tools.MetaTeamID], taskIDStr)
 
-	outCh := deps.Sched.Schedule(schedCtx, scheduler.LaneTeam, agent.RunRequest{
-		SessionKey:      sessionKey,
-		Message:         msg.Content,
-		Channel:         origChannel,
-		ChannelType:     origChannelType,
-		ChatID:          origChatID,
-		ChatTitle:       resolveGroupDisplayTitle(schedCtx, deps.ChannelMgr, origChannel, origChatID, origPeerKind, ""),
-		PeerKind:        origPeerKind,
-		LocalKey:        origLocalKey,
-		UserID:          announceUserID,
-		SenderID:        teammateSenderID, // real user who triggered the teammate dispatch (#915)
-		Role:            teammateRole,     // RBAC role for admin bypass during teammate turn (#915)
-		RunID:           fmt.Sprintf("teammate-%s-%s", msg.Metadata[tools.MetaFromAgent], msg.Metadata[tools.MetaToAgent]),
-		// Streamed for connection liveness, not for delivery. A teammate run is
-		// never registered with the channel manager, so HandleAgentEvent drops its
-		// chunks on the first line and nothing is delivered incrementally; the task
-		// result still comes from the final RunResult. What streaming buys is the
-		// response headers arriving immediately: a non-streamed request to a slow
-		// reasoning model holds a silent connection for the whole generation, and
-		// ResponseHeaderTimeout kills it — observed as
-		// `http2: timeout awaiting response headers` on a member asked to produce a
-		// large file, while the same model over the same provider was fine on a
-		// streamed channel run.
-		Stream:          true,
-		TeamTaskID:      msg.Metadata[tools.MetaTeamTaskID],
-		TeamWorkspace:   msg.Metadata[tools.MetaTeamWorkspace],
-		LeaderAgentID:   msg.Metadata[tools.MetaLeaderAgentID],
-		WorkspaceChatID: origChatID,
-		TeamID:          msg.Metadata[tools.MetaTeamID],
-		LinkedTraceID:   linkedTraceID,
+	var outCh <-chan scheduler.RunOutcome
+	if contractErr != nil {
+		slog.Warn("teammate message: task contract unavailable, run skipped",
+			"task_id", taskIDStr, "to", targetAgent, "error", contractErr)
+		failed := make(chan scheduler.RunOutcome, 1)
+		failed <- scheduler.RunOutcome{Err: contractErr}
+		close(failed)
+		outCh = failed
+	} else {
+		outCh = deps.Sched.Schedule(schedCtx, scheduler.LaneTeam, agent.RunRequest{
+			SessionKey:  sessionKey,
+			Message:     msg.Content,
+			Channel:     origChannel,
+			ChannelType: origChannelType,
+			ChatID:      origChatID,
+			ChatTitle:   resolveGroupDisplayTitle(schedCtx, deps.ChannelMgr, origChannel, origChatID, origPeerKind, ""),
+			PeerKind:    origPeerKind,
+			LocalKey:    origLocalKey,
+			UserID:      announceUserID,
+			SenderID:    teammateSenderID, // real user who triggered the teammate dispatch (#915)
+			Role:        teammateRole,     // RBAC role for admin bypass during teammate turn (#915)
+			RunID:       fmt.Sprintf("teammate-%s-%s", msg.Metadata[tools.MetaFromAgent], msg.Metadata[tools.MetaToAgent]),
+			// Streamed for connection liveness, not for delivery. A teammate run is
+			// never registered with the channel manager, so HandleAgentEvent drops its
+			// chunks on the first line and nothing is delivered incrementally; the task
+			// result still comes from the final RunResult. What streaming buys is the
+			// response headers arriving immediately: a non-streamed request to a slow
+			// reasoning model holds a silent connection for the whole generation, and
+			// ResponseHeaderTimeout kills it — observed as
+			// `http2: timeout awaiting response headers` on a member asked to produce a
+			// large file, while the same model over the same provider was fine on a
+			// streamed channel run.
+			Stream:          true,
+			TeamTaskID:      msg.Metadata[tools.MetaTeamTaskID],
+			TeamWorkspace:   msg.Metadata[tools.MetaTeamWorkspace],
+			LeaderAgentID:   msg.Metadata[tools.MetaLeaderAgentID],
+			WorkspaceChatID: origChatID,
+			TeamID:          msg.Metadata[tools.MetaTeamID],
+			LinkedTraceID:   linkedTraceID,
 
-		ExtraSystemPrompt: contractPrompt,
-	})
+			ExtraSystemPrompt: contractPrompt,
+		})
+	}
 
 	deps.BgWg.Add(1)
 	go func(origCh, origChatID, senderID, taskID string, outMeta, inMeta map[string]string) {

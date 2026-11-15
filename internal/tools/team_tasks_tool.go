@@ -92,11 +92,11 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"task_type": map[string]any{
 				"type":        "string",
-				"description": "Task type for create: 'general' (default), 'request', or 'note'",
+				"description": "Task type for create: 'general' (default), 'request', 'note', 'delegation' or 'escalation'",
 			},
 			"contract": map[string]any{
 				"type":        "object",
-				"description": "Task contract for create (required for task_type=general when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note').",
+				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note').",
 				"properties": map[string]any{
 					"objective":    map[string]any{"type": "string"},
 					"deliverables": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},

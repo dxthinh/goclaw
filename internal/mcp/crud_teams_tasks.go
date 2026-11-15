@@ -48,9 +48,9 @@ func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore
 		mcpgo.WithString("subject", mcpgo.Required(), mcpgo.Description("Task subject (max 500 chars).")),
 		mcpgo.WithString("description", mcpgo.Description("Task description.")),
 		mcpgo.WithNumber("priority", mcpgo.Description("Task priority.")),
-		mcpgo.WithString("task_type", mcpgo.Description("Task type; defaults to \"general\".")),
+		mcpgo.WithString("task_type", mcpgo.Description("Task type: \"general\" (default), \"request\", \"note\", \"delegation\" or \"escalation\".")),
 		mcpgo.WithString("assign_to", mcpgo.Description("Agent UUID to assign immediately after creation.")),
-		mcpgo.WithObject("contract", mcpgo.Description("Task contract: objective (string), deliverables (array), acceptance (array), optional scope_in, scope_out, inputs, on_unclear. Required with assign_to for general tasks when the team enables task_contract.")),
+		mcpgo.WithObject("contract", mcpgo.Description("Task contract: objective (string), deliverables (array), acceptance (array), optional scope_in, scope_out, inputs, on_unclear. Required with assign_to for every task_type except request and note when the team enables task_contract.")),
 		mcpgo.WithString("channel", mcpgo.Description("Origin channel; defaults to \"dashboard\".")),
 		mcpgo.WithString("chat_id", mcpgo.Description("Origin chat ID; defaults to the team ID.")),
 	), handleTeamsTasksCreate(teams))
@@ -220,7 +220,10 @@ func handleTeamsTasksCreate(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		if len(description) > maxTaskCommentLength {
 			return mcpgo.NewToolResultError("teams.tasks.create: description too long"), nil
 		}
-		taskType := req.GetString("task_type", "general")
+		taskType, err := tools.NormalizeCreateTaskType(req.GetString("task_type", ""))
+		if err != nil {
+			return toolError("teams.tasks.create", err)
+		}
 		channel := req.GetString("channel", "dashboard")
 		chatID := req.GetString("chat_id", teamID.String())
 		assignTo := req.GetString("assign_to", "")

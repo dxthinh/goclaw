@@ -91,7 +91,6 @@ func (m *TeamToolManager) FollowupMaxReminders(team *store.TeamData) int {
 // Version helpers
 // ============================================================
 
-
 // ============================================================
 // Follow-up settings helpers
 // ============================================================
@@ -196,7 +195,7 @@ func (m *TeamToolManager) createEscalationTask(ctx context.Context, team *store.
 		Status:           store.TeamTaskStatusPending,
 		UserID:           store.UserIDFromContext(ctx),
 		Channel:          OriginChannelFromCtx(ctx),
-		TaskType:         "escalation",
+		TaskType:         TaskTypeEscalation,
 		CreatedByAgentID: &agentID,
 		ChatID:           OriginChatIDFromCtx(ctx),
 	}

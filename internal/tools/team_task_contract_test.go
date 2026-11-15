@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -220,6 +221,12 @@ func TestParseTaskContractConfig(t *testing.T) {
 	if TaskContractRequired(team, "request") || TaskContractRequired(team, "note") || TaskContractRequired(nil, "general") {
 		t.Error("request/note tasks and nil team must not require a contract")
 	}
+	// delegation, escalation, task_type gõ sai hoặc loại lạ không được né cổng contract.
+	for _, typ := range []string{"delegation", "escalation", "generl", "General", "request "} {
+		if !TaskContractRequired(team, typ) {
+			t.Errorf("task_type %q must require a contract on an enabled team", typ)
+		}
+	}
 
 	edition.SetCurrent(edition.Lite)
 	t.Cleanup(func() { edition.SetCurrent(edition.Standard) })
@@ -292,6 +299,23 @@ func TestContractLine_AllLineBreaks(t *testing.T) {
 	for _, sep := range []string{"\r\n", "\n", "\r", "\v", "\f", "\u0085", "\u2028", "\u2029"} {
 		if got := contractLine("a" + sep + "b"); got != "a b" {
 			t.Errorf("sep %q: got %q", sep, got)
+		}
+	}
+}
+
+func TestNormalizeCreateTaskType(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "general", "general": "general", "request": "request", "note": "note",
+		"delegation": "delegation", "escalation": "escalation",
+	} {
+		got, err := NormalizeCreateTaskType(in)
+		if err != nil || got != want {
+			t.Errorf("%q: got %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"generl", "General", "Escalation", " note"} {
+		if _, err := NormalizeCreateTaskType(in); !errors.Is(err, ErrTaskTypeInvalid) {
+			t.Errorf("%q: expected ErrTaskTypeInvalid, got %v", in, err)
 		}
 	}
 }

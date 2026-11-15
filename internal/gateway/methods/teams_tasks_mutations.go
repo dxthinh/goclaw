@@ -42,9 +42,10 @@ func (m *TeamsMethods) handleTaskCreate(ctx context.Context, client *gateway.Cli
 		return
 	}
 
-	taskType := params.TaskType
-	if taskType == "" {
-		taskType = "general"
+	taskType, typeErr := tools.NormalizeCreateTaskType(params.TaskType)
+	if typeErr != nil {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, i18n.T(locale, i18n.MsgTaskTypeInvalid, params.TaskType)))
+		return
 	}
 
 	// Chỉ cần team khi task được giao ngay: để biết team có bắt buộc contract.
