@@ -330,7 +330,7 @@ func TestTaskCheckpoint_ContractThenMetadata(t *testing.T) {
 
 func TestRenderTaskContract_UnclearPointsToClarify(t *testing.T) {
 	c, _ := NewTaskContractFromInput(validContractArgs())
-	out := RenderTaskContract(&store.TeamTaskData{TaskNumber: 3}, c)
+	out := RenderTaskContract(&store.TeamTaskData{TaskNumber: 3}, c, nil)
 	if !strings.Contains(out, `action="clarify"`) || strings.Contains(out, "blocker") {
 		t.Errorf("If unclear line must point to clarify:\n%s", out)
 	}

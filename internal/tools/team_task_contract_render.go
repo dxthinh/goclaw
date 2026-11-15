@@ -10,8 +10,10 @@ import (
 
 // RenderTaskContract sinh khối "## Task Contract" cho system prompt của lượt
 // member. Văn bản tiếng Anh vì dành cho LLM. Trả chuỗi rỗng khi không có contract.
-// Khối chỉ mô tả một task: task của lượt chạy hiện tại.
-func RenderTaskContract(task *store.TeamTaskData, c *TaskContract) string {
+// Khối chỉ mô tả một task: task của lượt chạy hiện tại. Dòng "If unclear" chỉ
+// gợi ý hành động mà policy (TeamActionPolicy đang áp cho tool team_tasks) cho
+// phép; policy nil coi như Full, giống TeamToolManager.actionAllowed.
+func RenderTaskContract(task *store.TeamTaskData, c *TaskContract, policy TeamActionPolicy) string {
 	if task == nil || c == nil {
 		return ""
 	}
@@ -35,11 +37,7 @@ func RenderTaskContract(task *store.TeamTaskData, c *TaskContract) string {
 	writeContractBullets(&sb, "In scope:", c.ScopeIn)
 	writeContractBullets(&sb, "Out of scope:", c.ScopeOut)
 	writeContractBullets(&sb, "Inputs:", c.Inputs)
-	if c.OnUnclear == TaskContractOnUnclearAssume {
-		sb.WriteString("If unclear: make the most reasonable assumption, continue, and state every assumption in your result\n")
-	} else {
-		sb.WriteString("If unclear: ask via team_tasks(action=\"clarify\", text=\"<your question>\") instead of guessing; the task waits for the answer\n")
-	}
+	sb.WriteString(contractUnclearLine(c.OnUnclear, policy) + "\n")
 	if len(c.Amendments) > 0 {
 		sb.WriteString("Amendments:\n")
 		for _, a := range c.Amendments {
@@ -47,6 +45,24 @@ func RenderTaskContract(task *store.TeamTaskData, c *TaskContract) string {
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// contractUnclearLine chọn hướng dẫn khi thiếu thông tin theo on_unclear và
+// policy: clarify khi được phép; không có clarify thì comment blocker (cùng
+// gợi ý với tin dispatch); policy chặn cả comment (Lite) thì ghi câu hỏi còn
+// mở vào result khi complete, vì đó là đường duy nhất tới lead.
+func contractUnclearLine(onUnclear string, policy TeamActionPolicy) string {
+	allowed := func(action string) bool { return policy == nil || policy.IsAllowed(action) }
+	switch {
+	case onUnclear == TaskContractOnUnclearAssume:
+		return "If unclear: make the most reasonable assumption, continue, and state every assumption in your result"
+	case allowed("clarify"):
+		return "If unclear: ask via team_tasks(action=\"clarify\", text=\"<your question>\") instead of guessing; the task waits for the answer"
+	case allowed("comment"):
+		return "If unclear: do not guess; report it via team_tasks(action=\"comment\", type=\"blocker\", text=\"<what is missing>\") — this fails the task and notifies the leader"
+	default:
+		return "If unclear: do not guess silently; finish with team_tasks(action=\"complete\") and list every open question and assumption in your result so the leader can follow up"
+	}
 }
 
 func writeContractBullets(sb *strings.Builder, title string, items []string) {

@@ -659,10 +659,7 @@ func wireExtras(
 				dt.SetPostTurnProcessor(postTurn)
 			}
 		}
-		var teamPolicy tools.TeamActionPolicy = tools.FullTeamPolicy{}
-		if !edition.Current().TeamFullMode {
-			teamPolicy = tools.LiteTeamPolicy{}
-		}
+		teamPolicy := tools.EditionTeamPolicy()
 		teamMgr.SetActionPolicy(teamPolicy)
 		toolsReg.Register(tools.NewTeamTasksTool(teamMgr, teamPolicy))
 		// Wire workspace interceptor into write_file so team workspace validation
