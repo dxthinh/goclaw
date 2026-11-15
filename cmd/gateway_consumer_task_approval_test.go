@@ -59,6 +59,8 @@ type fakeTaskFeedback struct {
 	enabled  map[string]bool
 	approved []uuid.UUID
 	changes  []string
+	// submitted: task được nộp chờ user duyệt thay vì completed.
+	submitted []uuid.UUID
 }
 
 func (f *fakeTaskFeedback) AnswerTask(context.Context, *store.TeamData, *store.TeamTaskData, string, uuid.UUID, tools.TaskActor) error {
@@ -73,6 +75,16 @@ func (f *fakeTaskFeedback) ApproveUserCheckpoint(_ context.Context, _ *store.Tea
 	return nil
 }
 func (f *fakeTaskFeedback) ChannelTaskApprovalEnabled(name string) bool { return f.enabled[name] }
+
+// SubmitResultForUserApproval: nộp chờ duyệt khi task có checkpoint "result"
+// (đọc qua tools.TaskCheckpoint như hàm thật), ghi lại task đã nộp.
+func (f *fakeTaskFeedback) SubmitResultForUserApproval(_ context.Context, _ *store.TeamData, task *store.TeamTaskData, _ string, _ tools.TaskActor) (bool, error) {
+	if tools.TaskCheckpoint(task) != tools.TaskContractCheckpointResult {
+		return false, nil
+	}
+	f.submitted = append(f.submitted, task.ID)
+	return true, nil
+}
 
 type approvalCase struct {
 	deps *ConsumerDeps

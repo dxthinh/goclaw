@@ -252,3 +252,40 @@ func TestTeamTaskOutcome_FailureNotesBlockedDependents(t *testing.T) {
 		t.Errorf("task hoàn thành không được có note: %q", ok.note)
 	}
 }
+
+// Tự hoàn thành sau lượt chạy đi qua cổng duyệt của user: task có checkpoint
+// "result" (trong contract hoặc metadata.checkpoint) không thành completed.
+func TestTeamTaskOutcome_CheckpointSubmitsForUserApproval(t *testing.T) {
+	contract, err := tools.NewTaskContractFromInput(map[string]any{
+		"objective": "o", "deliverables": []any{"d"}, "acceptance": []any{"a"}, "checkpoint": "result",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]map[string]any{
+		"contract":    {tools.TaskMetaContract: contract.ToMetadata()},
+		"no contract": {tools.TaskMetaCheckpoint: tools.TaskContractCheckpointResult},
+	}
+	for name, meta := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := newOutcomeCase(store.TeamTaskStatusInProgress)
+			c.ts.task.Metadata = meta
+			fb := &fakeTaskFeedback{}
+			c.deps.TaskFeedback = fb
+			c.run(scheduler.RunOutcome{Result: &agent.RunResult{Content: "draft"}}, tools.TaskActionFlags{})
+			c.assert(t, nil, "")
+			if len(fb.submitted) != 1 {
+				t.Fatalf("submitted = %v, want the task submitted for approval", fb.submitted)
+			}
+		})
+	}
+	// Không có checkpoint: vẫn tự hoàn thành như cũ.
+	c := newOutcomeCase(store.TeamTaskStatusInProgress)
+	fb := &fakeTaskFeedback{}
+	c.deps.TaskFeedback = fb
+	c.run(scheduler.RunOutcome{Result: &agent.RunResult{Content: "done"}}, tools.TaskActionFlags{})
+	c.assert(t, []string{"CompleteTask"}, protocol.EventTeamTaskCompleted)
+	if len(fb.submitted) != 0 {
+		t.Errorf("task without checkpoint must not be submitted: %v", fb.submitted)
+	}
+}

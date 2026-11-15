@@ -352,3 +352,51 @@ func TestDispatchInstructions_FollowActionPolicy(t *testing.T) {
 		t.Errorf("full instructions must mention clarify:\n%s", full)
 	}
 }
+
+// Tool complete đi qua cổng duyệt của user, cho cả task có và không có contract:
+// task có checkpoint "result" vào in_review chờ user, không completed.
+func TestComplete_CheckpointSubmitsForUserApproval(t *testing.T) {
+	for _, withContract := range []bool{true, false} {
+		mb, tool, _, _, ctx := newTestTeamSetup()
+		mb.approvalChannels = map[string]bool{"telegram": true}
+		taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInProgress, withContract, "")
+		task := readTask(mb, taskID)
+		if withContract {
+			c := TaskContractFromTask(task)
+			c.Checkpoint = TaskContractCheckpointResult
+			task.Metadata[TaskMetaContract] = c.ToMetadata()
+		} else {
+			task.Metadata[TaskMetaCheckpoint] = TaskContractCheckpointResult
+		}
+		mCtx := memberCtx(ctx)
+		res := tool.Execute(mCtx, map[string]any{"action": "complete", "task_id": taskID.String(), "result": "report ready"})
+		if res.IsError || !strings.Contains(res.ForLLM, "user's approval") {
+			t.Fatalf("contract=%v: complete = %q", withContract, res.ForLLM)
+		}
+		got := readTask(mb, taskID)
+		if got.Status != store.TeamTaskStatusInReview || TaskCheckpointPending(got) != CheckpointPendingUser ||
+			got.Result == nil || *got.Result != "report ready" {
+			t.Errorf("contract=%v: status=%q pending=%q, want in_review waiting for user with result", withContract, got.Status, TaskCheckpointPending(got))
+		}
+		if len(mb.approvalNotices) != 1 || !TaskActionFlagsFromCtx(mCtx).Completed {
+			t.Errorf("contract=%v: notices=%v flags=%+v", withContract, mb.approvalNotices, TaskActionFlagsFromCtx(mCtx))
+		}
+		// /approve sau đó mới hoàn thành task.
+		if err := ApproveUserCheckpoint(ctx, mb, mb.team, got, TaskActor{UserID: "42"}); err != nil {
+			t.Fatalf("contract=%v: approve: %v", withContract, err)
+		}
+		if readTask(mb, taskID).Status != store.TeamTaskStatusCompleted {
+			t.Errorf("contract=%v: approve did not complete the task", withContract)
+		}
+	}
+}
+
+// Task không có checkpoint vẫn completed như cũ khi gọi complete.
+func TestComplete_WithoutCheckpointCompletes(t *testing.T) {
+	mb, tool, _, _, ctx := newTestTeamSetup()
+	taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInProgress, true, "")
+	res := tool.Execute(memberCtx(ctx), map[string]any{"action": "complete", "task_id": taskID.String(), "result": "done"})
+	if res.IsError || readTask(mb, taskID).Status != store.TeamTaskStatusCompleted || len(mb.approvalNotices) != 0 {
+		t.Fatalf("complete without checkpoint: %q status=%q", res.ForLLM, readTask(mb, taskID).Status)
+	}
+}

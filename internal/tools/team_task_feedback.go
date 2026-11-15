@@ -29,14 +29,14 @@ type TaskActor struct {
 }
 
 func (a TaskActor) actorType() string {
-	if a.AgentID != nil {
+	if a.AgentID != nil || a.AgentKey != "" {
 		return "agent"
 	}
 	return "human"
 }
 
 func (a TaskActor) actorID() string {
-	if a.AgentID != nil {
+	if a.AgentKey != "" {
 		return a.AgentKey
 	}
 	return a.UserID
@@ -44,7 +44,7 @@ func (a TaskActor) actorID() string {
 
 // by là giá trị trường by của amendment: agent key của lead, hoặc "user".
 func (a TaskActor) by() string {
-	if a.AgentID != nil && a.AgentKey != "" {
+	if a.AgentKey != "" {
 		return a.AgentKey
 	}
 	return "user"

@@ -48,6 +48,8 @@ type TeamToolBackend interface {
 
 	// ChannelTaskApprovalEnabled: kênh gốc có duyệt task qua lệnh chat được không.
 	ChannelTaskApprovalEnabled(channelName string) bool
+	// NotifyUserApproval gửi tin "task chờ bạn duyệt" về chat gốc của task.
+	NotifyUserApproval(ctx context.Context, task *store.TeamTaskData)
 }
 
 // Compile-time check: *TeamToolManager must satisfy TeamToolBackend.

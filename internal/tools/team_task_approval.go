@@ -168,3 +168,58 @@ func notifyLeadOfFeedback(ctx context.Context, p inboundPublisher, team *store.T
 			"task_id", task.ID, "leader", leadAg.AgentKey)
 	}
 }
+
+// userApprovalBackend là phần backend mà bước nộp kết quả chờ user duyệt cần.
+type userApprovalBackend interface {
+	Store() store.TeamStore
+	BroadcastTeamEvent(ctx context.Context, name string, payload any)
+	ChannelTaskApprovalEnabled(channelName string) bool
+	NotifyUserApproval(ctx context.Context, task *store.TeamTaskData)
+}
+
+// SubmitResultForUserApproval là cổng duyệt của mọi đường hoàn thành task
+// (tool complete, tự hoàn thành sau lượt chạy). Task có checkpoint "result"
+// (đọc qua TaskCheckpoint, cả task có lẫn không có contract) không thành
+// completed: chuyển in_progress → in_review kèm result, đặt
+// checkpoint_pending = "user", phát EventTeamTaskReviewed và gửi tin chờ duyệt
+// về chat gốc. Task phụ thuộc không được mở khóa vì task chưa completed.
+// Trả submitted = false khi task không có checkpoint; người gọi hoàn thành
+// task như cũ.
+func SubmitResultForUserApproval(ctx context.Context, b userApprovalBackend, team *store.TeamData, task *store.TeamTaskData, result string, actor TaskActor) (submitted bool, err error) {
+	if TaskCheckpoint(task) != TaskContractCheckpointResult {
+		return false, nil
+	}
+	if err := b.Store().SubmitTaskResultForReview(ctx, task.ID, team.ID, result); err != nil {
+		return true, fmt.Errorf("failed to submit result for the user's approval: %w", err)
+	}
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]any)
+	}
+	task.Metadata[TaskMetaCheckpointPending] = CheckpointPendingUser
+	if err := b.Store().UpdateTask(ctx, task.ID, map[string]any{"metadata": task.Metadata}); err != nil {
+		return true, fmt.Errorf("failed to mark task as waiting for the user: %w", err)
+	}
+	task.Status = store.TeamTaskStatusInReview
+	b.BroadcastTeamEvent(ctx, protocol.EventTeamTaskReviewed, BuildTaskEventPayload(
+		team.ID.String(), task.ID.String(),
+		store.TeamTaskStatusInReview,
+		actor.actorType(), actor.actorID(),
+		WithTaskInfo(task.TaskNumber, task.Subject),
+		WithChannel(task.Channel),
+		WithChatID(task.ChatID),
+		WithLocalKey(taskLocalKey(task)),
+	))
+	// Tin chờ duyệt chỉ gửi khi kênh gốc còn duyệt được bằng lệnh; nếu kênh đã
+	// tắt task_approval, task vẫn chờ và được duyệt trên dashboard.
+	if b.ChannelTaskApprovalEnabled(task.Channel) {
+		b.NotifyUserApproval(ctx, task)
+	} else {
+		slog.Warn("task_approval: origin channel no longer approves by command; task waits for dashboard approval",
+			"task_id", task.ID, "channel", task.Channel)
+	}
+	return true, nil
+}
+
+func (m *TeamToolManager) SubmitResultForUserApproval(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, result string, actor TaskActor) (bool, error) {
+	return SubmitResultForUserApproval(ctx, m, team, task, result, actor)
+}

@@ -86,7 +86,20 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 		}
 	}
 
-	if err := t.manager.Store().CompleteTask(ctx, taskID, team.ID, result); err != nil {
+	// Mọi lần hoàn thành đi qua cổng duyệt của user: task có checkpoint
+	// "result" được nộp chờ duyệt (in_review) thay vì completed.
+	actor := TaskActor{AgentID: &agentID, AgentKey: t.manager.AgentKeyFromID(ctx, agentID)}
+	submitted := false
+	finish := func() error {
+		ok, err := SubmitResultForUserApproval(ctx, t.manager, team, task, result, actor)
+		if ok {
+			submitted = err == nil
+			return err
+		}
+		return t.manager.Store().CompleteTask(ctx, taskID, team.ID, result)
+	}
+
+	if err := finish(); err != nil {
 		// Fast path: check in-memory turn flags before hitting DB again.
 		if flags := TaskActionFlagsFromCtx(ctx); flags != nil && flags.Completed {
 			return NewResult(fmt.Sprintf("Task %s already completed.%s", taskID, t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)))
@@ -99,10 +112,15 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 				return NewResult(fmt.Sprintf("Task %s already completed.%s", taskID, t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)))
 			case store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled:
 				return NewResult(fmt.Sprintf("Task %s is %s — cannot complete.", taskID, current.Status))
+			case store.TeamTaskStatusInReview:
+				if TaskCheckpointPending(current) == CheckpointPendingUser {
+					recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
+					return NewResult(fmt.Sprintf("Task %s is already waiting for the user's approval.", taskID))
+				}
 			case store.TeamTaskStatusPending:
 				// Task was reset by stale recovery — re-assign and retry once.
 				if t.manager.Store().AssignTask(ctx, taskID, agentID, team.ID) == nil {
-					if t.manager.Store().CompleteTask(ctx, taskID, team.ID, result) == nil {
+					if finish() == nil {
 						slog.Info("executeComplete: re-assigned stale-recovered task", "task_id", taskID)
 						err = nil
 					}
@@ -113,9 +131,13 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 			return ErrorResult("failed to complete task: " + err.Error())
 		}
 	}
-	// Record action flag after successful store operation.
+	// Record action flag after successful store operation (cả khi nộp chờ duyệt:
+	// bước sau lượt chạy không được tự hoàn thành task).
 	recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
 	registered := t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)
+	if submitted {
+		return NewResult(fmt.Sprintf("Task #%d result submitted for the user's approval.%s The task completes only when the user approves it; dependent tasks wait until then. Your work on it is done — end your turn.", task.TaskNumber, registered))
+	}
 
 	ownerKey := t.manager.AgentKeyFromID(ctx, agentID)
 	// TaskNumber/Subject/local_key cho subscriber thông báo lấy từ task đã đọc ở trên.

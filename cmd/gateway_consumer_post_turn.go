@@ -214,6 +214,17 @@ func resolveTeamTaskOutcome(
 		if len(result) > 100_000 {
 			result = result[:100_000] + "\n[truncated]"
 		}
+		// Cổng duyệt dùng chung với tool complete: task có checkpoint "result"
+		// được nộp chờ user duyệt thay vì completed.
+		if deps.TaskFeedback != nil && currentTask != nil {
+			submitted, err := deps.TaskFeedback.SubmitResultForUserApproval(ctx, cachedTeam, currentTask, result, tools.TaskActor{AgentKey: toAgent})
+			if submitted {
+				if err != nil {
+					slog.Warn("post-turn: submit for user approval failed", "task_id", meta.TaskID, "error", err)
+				}
+				break
+			}
+		}
 		if err := deps.TeamStore.CompleteTask(ctx, meta.TaskID, meta.TeamID, result); err != nil {
 			slog.Warn("auto-complete: CompleteTask error", "task_id", meta.TaskID, "error", err)
 		} else {

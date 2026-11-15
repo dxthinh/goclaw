@@ -98,6 +98,9 @@ type TaskFeedbackService interface {
 	RequestTaskChanges(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, reason string, actor TaskActor) error
 	ApproveUserCheckpoint(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, actor TaskActor) error
 	ChannelTaskApprovalEnabled(channelName string) bool
+	// SubmitResultForUserApproval: cổng duyệt dùng chung cho mọi đường hoàn
+	// thành task (xem hàm cùng tên). submitted = false thì hoàn thành như cũ.
+	SubmitResultForUserApproval(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, result string, actor TaskActor) (submitted bool, err error)
 }
 
 var _ TaskFeedbackService = (*TeamToolManager)(nil)

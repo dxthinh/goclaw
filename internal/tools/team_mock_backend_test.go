@@ -828,6 +828,8 @@ type mockBackend struct {
 	inbound    []bus.InboundMessage
 	// approvalChannels: kênh đã bật task_approval (xem ChannelTaskApprovalEnabled).
 	approvalChannels map[string]bool
+	// approvalNotices: task đã được gửi tin chờ user duyệt.
+	approvalNotices []uuid.UUID
 	// unblockedDispatches đếm số lần DispatchUnblockedTasks được gọi.
 	unblockedDispatches int
 	mu                  sync.Mutex
@@ -943,6 +945,13 @@ func (mb *mockBackend) RestoreTraceContext(ctx context.Context, _ *store.TeamTas
 func (mb *mockBackend) FollowupDelayMinutes(_ *store.TeamData) int { return 30 }
 func (mb *mockBackend) FollowupMaxReminders(_ *store.TeamData) int { return 0 }
 func (mb *mockBackend) DataDir() string                            { return "/tmp/test" }
+
+// NotifyUserApproval ghi lại task được báo chờ user duyệt.
+func (mb *mockBackend) NotifyUserApproval(_ context.Context, task *store.TeamTaskData) {
+	mb.mu.Lock()
+	mb.approvalNotices = append(mb.approvalNotices, task.ID)
+	mb.mu.Unlock()
+}
 
 // approvalChannels: các kênh coi như đã bật duyệt task qua lệnh chat.
 func (mb *mockBackend) ChannelTaskApprovalEnabled(channel string) bool {

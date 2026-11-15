@@ -34,6 +34,9 @@ func (f *rpcFeedback) ApproveUserCheckpoint(_ context.Context, _ *store.TeamData
 	return f.err
 }
 func (f *rpcFeedback) ChannelTaskApprovalEnabled(string) bool { return true }
+func (f *rpcFeedback) SubmitResultForUserApproval(context.Context, *store.TeamData, *store.TeamTaskData, string, tools.TaskActor) (bool, error) {
+	return false, nil
+}
 
 func TestTaskAnswerRPC_CallsSharedFeedback(t *testing.T) {
 	f := newHumanTaskFixture(t, store.TeamTaskStatusAwaitingInput)
