@@ -382,5 +382,7 @@ func init() {
 		MsgSnapshotRepairIncomplete:                "Trace nguồn chưa đầy đủ, đang chạy hoặc ngoài thời hạn lưu; snapshot chưa thay đổi",
 		MsgSnapshotRepairCounts:                    "Số đếm snapshot vượt dữ liệu nguồn còn lưu; snapshot chưa thay đổi",
 		MsgSnapshotRepairRange:                     "Chỉ sửa các giờ UTC đầy đủ trong [%s, %s)",
+		MsgTaskContractInvalid:                     "Task contract không hợp lệ: %s",
+		MsgTaskContractRequired:                    "Team này yêu cầu task contract (objective, deliverables, acceptance) trước khi giao task",
 	})
 }

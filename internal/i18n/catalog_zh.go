@@ -382,5 +382,7 @@ func init() {
 		MsgSnapshotRepairIncomplete:                "源 trace 不完整、正在运行或已超出保留期；快照未更改",
 		MsgSnapshotRepairCounts:                    "快照计数超过保留的源数据；快照未更改",
 		MsgSnapshotRepairRange:                     "修复需要 [%s, %s) 范围内的完整 UTC 小时",
+		MsgTaskContractInvalid:                     "任务契约无效：%s",
+		MsgTaskContractRequired:                    "该团队要求在分配任务前提供任务契约（objective、deliverables、acceptance）",
 	})
 }
