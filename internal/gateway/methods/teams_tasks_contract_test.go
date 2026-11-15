@@ -202,3 +202,21 @@ func TestTaskRetry_EnabledTeamRequiresContract(t *testing.T) {
 		t.Fatalf("assigned = %v", f.st.assigned)
 	}
 }
+
+func TestTaskCreate_UnknownTaskTypeRejected(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		f, cs := newContractFixture(t, enabled)
+		ok, code, msg := f.call(t, f.m.handleTaskCreate, map[string]any{
+			"teamId": f.teamID.String(), "subject": "Q3", "taskType": "generl",
+		})
+		if ok || code != protocol.ErrInvalidRequest {
+			t.Fatalf("enabled=%v: expected INVALID_REQUEST, got ok=%v code=%s", enabled, ok, code)
+		}
+		if msg != i18n.T("en", i18n.MsgTaskTypeInvalid, "generl") {
+			t.Errorf("message = %q", msg)
+		}
+		if len(cs.created) != 0 {
+			t.Fatal("task must not be created")
+		}
+	}
+}

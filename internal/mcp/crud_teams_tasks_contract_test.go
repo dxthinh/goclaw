@@ -157,3 +157,21 @@ func TestMCPTasks_NilTeamRejected(t *testing.T) {
 	assert.Contains(t, toolResultText(res), "team not found")
 	assert.Empty(t, ts.assigned)
 }
+
+func TestMCPTasksCreate_UnknownTaskTypeRejected(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		ts, teamID, _, call := newContractMCPFixture(t, enabled)
+		isErr, text := call("goclaw_teams_tasks_create", map[string]any{
+			"team_id": teamID.String(), "subject": "Q3", "task_type": "generl",
+		})
+		assert.True(t, isErr, text)
+		assert.Contains(t, text, "must be general, request or note")
+		assert.Empty(t, ts.tasks)
+
+		isErr, text = call("goclaw_teams_tasks_create", map[string]any{
+			"team_id": teamID.String(), "subject": "Q3", "task_type": "note",
+		})
+		require.False(t, isErr, text)
+		assert.Len(t, ts.tasks, 1)
+	}
+}

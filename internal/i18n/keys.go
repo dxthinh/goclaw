@@ -402,4 +402,5 @@ const (
 	// Task contract của agent team.
 	MsgTaskContractInvalid  = "error.task_contract_invalid"  // "invalid task contract: %s"
 	MsgTaskContractRequired = "error.task_contract_required" // "this team requires a task contract before assigning"
+	MsgTaskTypeInvalid      = "error.task_type_invalid"      // "invalid task type %q: must be general, request or note"
 )

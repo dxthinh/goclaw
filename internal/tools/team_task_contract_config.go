@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/nextlevelbuilder/goclaw/internal/edition"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -33,17 +34,40 @@ func ParseTaskContractConfig(settings json.RawMessage) TaskContractConfig {
 	return cfg
 }
 
+// Các loại task người dùng, lead hoặc client được phép tạo. Loại nội bộ như
+// escalation do hệ thống tự tạo, không đi qua các bề mặt create.
+const (
+	TaskTypeGeneral = "general"
+	TaskTypeRequest = "request"
+	TaskTypeNote    = "note"
+)
+
+// ErrTaskTypeInvalid: task_type gửi vào create không thuộc general, request, note.
+var ErrTaskTypeInvalid = errors.New("invalid task_type: must be general, request or note")
+
+// NormalizeCreateTaskType chuẩn hoá task_type của lệnh create: rỗng thành
+// general; giá trị ngoài general, request, note trả ErrTaskTypeInvalid để lỗi
+// gõ (vd "generl") không âm thầm tạo task lạ né được cổng contract.
+func NormalizeCreateTaskType(taskType string) (string, error) {
+	switch taskType {
+	case "":
+		return TaskTypeGeneral, nil
+	case TaskTypeGeneral, TaskTypeRequest, TaskTypeNote:
+		return taskType, nil
+	default:
+		return "", fmt.Errorf("%w (got %q)", ErrTaskTypeInvalid, taskType)
+	}
+}
+
 // TaskContractRequired cho biết task loại taskType của team có bắt buộc
-// contract hay không: chỉ task general ở team đã bật. Task request và note
-// không bắt buộc. taskType rỗng được hiểu là general.
+// contract hay không khi team đã bật task_contract. Chỉ request và note được
+// miễn; mọi loại khác, kể cả rỗng hay giá trị lạ, đều bị coi như general để
+// cổng không bị né bằng một task_type gõ sai.
 func TaskContractRequired(team *store.TeamData, taskType string) bool {
-	if team == nil {
+	if team == nil || taskType == TaskTypeRequest || taskType == TaskTypeNote {
 		return false
 	}
-	if taskType == "" {
-		taskType = "general"
-	}
-	return taskType == "general" && ParseTaskContractConfig(team.Settings).Enabled
+	return ParseTaskContractConfig(team.Settings).Enabled
 }
 
 // ErrTaskContractMissing: team bắt buộc contract mà task chưa có.

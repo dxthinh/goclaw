@@ -384,5 +384,6 @@ func init() {
 		MsgSnapshotRepairRange:                     "修复需要 [%s, %s) 范围内的完整 UTC 小时",
 		MsgTaskContractInvalid:                     "任务契约无效：%s",
 		MsgTaskContractRequired:                    "该团队要求在分配任务前提供任务契约（objective、deliverables、acceptance）",
+		MsgTaskTypeInvalid:                         "任务类型 %q 无效：只能是 general、request 或 note",
 	})
 }

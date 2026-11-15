@@ -509,6 +509,18 @@ func TestCreateTaskContract(t *testing.T) {
 		}
 	})
 
+	t.Run("UnknownTaskTypeRejected", func(t *testing.T) {
+		for _, settings := range []string{contractEnabledSettings, ""} {
+			result, task := createWithContract(t, settings, map[string]any{"task_type": "generl"})
+			if !result.IsError || task != nil {
+				t.Fatalf("settings %q: unknown task_type must be rejected, got %q", settings, result.ForLLM)
+			}
+			if !strings.Contains(result.ForLLM, "must be general, request or note") {
+				t.Errorf("error must list valid types: %s", result.ForLLM)
+			}
+		}
+	})
+
 	t.Run("DisabledTeamWithoutContractUnchanged", func(t *testing.T) {
 		result, task := createWithContract(t, "", nil)
 		if result.IsError || task == nil {
