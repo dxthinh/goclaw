@@ -338,10 +338,15 @@ func BuildPreviewPrompt(ctx context.Context, ag *store.AgentData, mode PromptMod
 			teamGuidance = defaultTeamGuidance()
 			if members, err := deps.TeamStore.ListMembers(ctx, team.ID); err == nil {
 				teamMembers = members
-				// Inject virtual TEAM.md (same as pipeline resolver.go:190)
+				// Inject virtual TEAM.md (cùng cách resolver dựng, kể cả tóm tắt năng lực của lead)
+				var previewReg tools.ToolExecutor
+				if r, ok := deps.ToolLister.(*tools.Registry); ok {
+					previewReg = r
+				}
+				caps, _ := teamMemberCapabilities(ctx, deps.ToolPolicy, previewReg, deps.AgentStore, team, members, ag.ID, deps.DisabledTools)
 				contextFiles = append(contextFiles, bootstrap.ContextFile{
 					Path:    bootstrap.TeamFile,
-					Content: buildTeamMD(team, members, ag.ID),
+					Content: buildTeamMD(team, members, ag.ID, caps),
 				})
 			}
 		}

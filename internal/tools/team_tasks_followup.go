@@ -119,6 +119,15 @@ func (t *TeamTasksTool) executeRetry(ctx context.Context, args map[string]any) *
 	if err := CheckTaskContractForAssign(team, task); err != nil {
 		return ErrorResult("cannot retry: " + err.Error())
 	}
+	if contract := TaskContractFromTask(task); contract != nil && len(contract.Needs) > 0 {
+		members, err := t.manager.CachedListMembers(ctx, team.ID, agentID)
+		if err != nil {
+			return ErrorResult("failed to load team members: " + err.Error())
+		}
+		if err := checkTaskNeedsFromBackend(ctx, t.manager, team, members, contract, *task.OwnerAgentID, taskChannelTypeFromCtx(ctx, task.Channel)); err != nil {
+			return ErrorResult("cannot retry: " + err.Error())
+		}
+	}
 
 	// Reset status to pending first (AssignTask only transitions from pending).
 	if err := t.manager.Store().ResetTaskStatus(ctx, taskID, team.ID); err != nil {

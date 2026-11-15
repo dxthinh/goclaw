@@ -396,5 +396,7 @@ func init() {
 		MsgTaskApprovalChanges:                     "🔁 已要求修改任务 #%d \"%s\"，任务已退回给执行者。",
 		MsgTaskApprovalFailed:                      "无法更新任务 #%d：%s",
 		MsgTaskTypeInvalid:                         "任务类型 %q 无效：只能是 general、request、note、delegation 或 escalation",
+		MsgTaskNeedsMissing:                        "执行者 %s 缺少任务所需的工具：%s。具备这些工具的成员：%s",
+		MsgTaskNeedsNoMember:                       "执行者 %s 缺少任务所需的工具：%s。没有成员具备这些工具，请让管理员为某个成员授予这些工具",
 	})
 }

@@ -123,6 +123,9 @@ func redispatchTask(ctx context.Context, b taskFeedbackBackend, team *store.Team
 	if err := CheckTaskContractForAssign(team, task); err != nil {
 		return err
 	}
+	if err := checkRedispatchNeeds(ctx, b, team, task, assignee); err != nil {
+		return err
+	}
 	if task.Metadata != nil {
 		if err := b.Store().UpdateTask(ctx, task.ID, map[string]any{"metadata": task.Metadata}); err != nil {
 			return fmt.Errorf("failed to save task metadata: %w", err)
@@ -215,4 +218,25 @@ func taskLocalKey(task *store.TeamTaskData) string {
 	}
 	lk, _ := task.Metadata[TaskMetaLocalKey].(string)
 	return lk
+}
+
+// checkRedispatchNeeds áp cổng needs của contract (xem CheckAssignee) cho
+// assignee của lần dispatch lại, giống assign và retry. Backend không hỗ trợ
+// kiểm tra, team chưa bật contract hoặc contract không có needs thì bỏ qua.
+// Loại kênh không biết ở đây (lệnh chat, dashboard) nên không lọc theo kênh.
+func checkRedispatchNeeds(ctx context.Context, b taskFeedbackBackend, team *store.TeamData, task *store.TeamTaskData, assignee uuid.UUID) error {
+	c, ok := b.(teamTaskNeedsChecker)
+	if !ok || !ParseTaskContractConfig(team.Settings).Enabled {
+		return nil
+	}
+	contract := TaskContractFromTask(task)
+	if contract == nil || len(contract.Needs) == 0 {
+		return nil
+	}
+	members, err := b.Store().ListMembers(ctx, team.ID)
+	if err != nil {
+		return fmt.Errorf("failed to load team members: %w", err)
+	}
+	_, err = c.CheckAssignee(ctx, team, members, contract, assignee, "", false)
+	return err
 }

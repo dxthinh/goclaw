@@ -400,3 +400,68 @@ func TestComplete_WithoutCheckpointCompletes(t *testing.T) {
 		t.Fatalf("complete without checkpoint: %q status=%q", res.ForLLM, readTask(mb, taskID).Status)
 	}
 }
+
+// needsBackend thêm cổng needs (teamTaskNeedsChecker) vào mock: assignee nằm
+// trong lacking thì thiếu tool, Satisfying là các member khác có đủ.
+type needsBackend struct {
+	*mockBackend
+	lacking    map[uuid.UUID]bool
+	satisfying []string
+}
+
+func (n *needsBackend) CheckAssignee(_ context.Context, _ *store.TeamData, _ []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, _ string, _ bool) (string, error) {
+	if contract == nil || len(contract.Needs) == 0 || !n.lacking[assigneeID] {
+		return "", nil
+	}
+	return "", &TaskNeedsError{Assignee: n.AgentKeyFromID(context.Background(), assigneeID), Missing: contract.Needs, Satisfying: n.satisfying}
+}
+
+// makeNeedsTask tạo task của member trong team đã bật contract, với needs=web.
+func makeNeedsTask(t *testing.T, mb *mockBackend, status string) uuid.UUID {
+	t.Helper()
+	mb.team.Settings = []byte(contractEnabledSettings)
+	id := makeFeedbackTask(t, mb, status, true, "")
+	task := readTask(mb, id)
+	c := TaskContractFromTask(task)
+	c.Needs = []string{"web"}
+	task.Metadata[TaskMetaContract] = c.ToMetadata()
+	return id
+}
+
+// clarify missing_tool: tin báo lead kèm member có đủ tool trong needs (cổng của phase 3).
+func TestClarifyMissingTool_ListsMembersWithNeeds(t *testing.T) {
+	mb, _, _, _, ctx := newTestTeamSetup()
+	nb := &needsBackend{mockBackend: mb, lacking: map[uuid.UUID]bool{testMemberID: true}, satisfying: []string{"member2-agent"}}
+	tool := NewTeamTasksTool(nb, FullTeamPolicy{})
+	taskID := makeNeedsTask(t, mb, store.TeamTaskStatusInProgress)
+
+	res := tool.Execute(memberCtx(ctx), map[string]any{"action": "clarify", "task_id": taskID.String(), "text": "no web_fetch", "kind": "missing_tool"})
+	if res.IsError {
+		t.Fatalf("clarify: %s", res.ForLLM)
+	}
+	if len(mb.inbound) != 1 || !strings.Contains(mb.inbound[0].Content, "[Missing tool]") || !strings.Contains(mb.inbound[0].Content, "member2-agent") {
+		t.Errorf("lead notice must list members with the needed tools: %+v", mb.inbound)
+	}
+}
+
+// answer dispatch lại qua cổng needs: giữ owner thiếu tool thì bị từ chối,
+// giao cho member có đủ thì được.
+func TestAnswer_RedispatchChecksNeeds(t *testing.T) {
+	mb, _, leadID, _, ctx := newTestTeamSetup()
+	nb := &needsBackend{mockBackend: mb, lacking: map[uuid.UUID]bool{testMemberID: true}, satisfying: []string{"member2-agent"}}
+	tool := NewTeamTasksTool(nb, FullTeamPolicy{})
+	taskID := makeNeedsTask(t, mb, store.TeamTaskStatusAwaitingInput)
+	lead := store.WithAgentID(ctx, leadID)
+
+	res := tool.Execute(lead, map[string]any{"action": "answer", "task_id": taskID.String(), "text": "try again"})
+	if !res.IsError || !strings.Contains(res.ForLLM, "member2-agent") {
+		t.Fatalf("answer to owner lacking needs must fail naming alternatives: %q", res.ForLLM)
+	}
+	if readTask(mb, taskID).Status != store.TeamTaskStatusAwaitingInput || len(mb.dispatches) != 0 {
+		t.Fatal("rejected answer must not dispatch")
+	}
+	res = tool.Execute(lead, map[string]any{"action": "answer", "task_id": taskID.String(), "text": "member2 has web", "assignee": "member2-agent"})
+	if res.IsError || len(mb.dispatches) != 1 || mb.dispatches[0].AgentID != testMember2ID {
+		t.Fatalf("answer reassigning to a member with the tools: %q %+v", res.ForLLM, mb.dispatches)
+	}
+}

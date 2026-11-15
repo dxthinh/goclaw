@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"slices"
-
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
@@ -20,24 +18,7 @@ var imageGenToolDef = providers.ToolDefinition{
 }
 
 func (l *Loop) toolVisibleForChannel(name, channelType string, telegramManagerPermissions []string) bool {
-	if name == "telegram_manager" {
-		return channelType == "telegram" && len(telegramManagerPermissions) > 0
-	}
-	if l.tools == nil {
-		return true
-	}
-	tool, ok := l.tools.Get(name)
-	if !ok {
-		return true
-	}
-	ca, ok := tool.(tools.ChannelAware)
-	if !ok {
-		return true
-	}
-	if channelType == "" {
-		return false
-	}
-	return slices.Contains(ca.RequiredChannelTypes(), channelType)
+	return tools.ToolVisibleForChannel(l.tools, name, channelType, telegramManagerPermissions)
 }
 
 // buildFilteredTools resolves the per-iteration tool definitions based on policy,
@@ -91,75 +72,30 @@ func (l *Loop) buildFilteredTools(req *RunRequest, hadBootstrap bool, iteration,
 		}
 	}
 
-	// V3 orchestration mode filtering: hide tools the agent shouldn't see.
-	// spawn: no delegate/team_tasks. delegate: no team_tasks. team: all.
-	if orchDeny := orchModeDenyTools(l.orchMode); len(orchDeny) > 0 {
-		filtered := toolDefs[:0:0]
-		for _, td := range toolDefs {
-			if td.Function == nil || !orchDeny[td.Function.Name] {
-				filtered = append(filtered, td)
-			} else {
-				if allowedTools != nil {
-					delete(allowedTools, td.Function.Name)
-				}
-			}
-		}
-		toolDefs = filtered
-	}
-
-	// Per-tenant tool exclusions: remove tools disabled for this agent's tenant.
-	if len(l.disabledTools) > 0 {
-		filtered := toolDefs[:0]
-		for _, td := range toolDefs {
-			if td.Function == nil || !l.disabledTools[td.Function.Name] {
-				filtered = append(filtered, td)
-			} else {
-				if allowedTools != nil {
-					delete(allowedTools, td.Function.Name)
-				}
-			}
-		}
-		toolDefs = filtered
-	}
-
-	// Bootstrap mode: restrict API tool definitions to write_file only (open agents).
-	// Predefined agents keep all tools — BOOTSTRAP.md guides behavior.
+	// Post-policy filter chain (orchestration mode, tenant exclusions, bootstrap,
+	// skill_evolve, channel). Shared with team task needs checks via
+	// tools.RunToolFilter so assignment-time capability matches run time.
+	//   - orchestration mode: spawn hides delegate + team_tasks; delegate hides team_tasks.
+	//   - tenant exclusions: tools disabled for this agent's tenant.
+	//   - bootstrap (open agents only): restrict to write_file; predefined agents keep all tools.
+	//   - skill_manage stays in the shared registry but is hidden when skill_evolve is off.
+	//   - channel-aware tools are hidden when the channel type doesn't match (or is empty);
+	//     telegram_manager also requires explicit channel permissions.
+	var bootstrapAllow map[string]bool
 	if hadBootstrap && l.agentType != store.AgentTypePredefined {
-		var bootstrapDefs []providers.ToolDefinition
-		for _, td := range toolDefs {
-			if td.Function != nil && bootstrapToolAllowlist[td.Function.Name] {
-				bootstrapDefs = append(bootstrapDefs, td)
-			}
-		}
-		toolDefs = bootstrapDefs
+		bootstrapAllow = bootstrapToolAllowlist
 	}
-
-	// Hide skill_manage from LLM when skill_evolve is off.
-	// Tool stays in the registry (shared) but won't appear in API tool definitions.
-	if !l.skillEvolve {
-		filtered := toolDefs[:0:0]
-		for _, td := range toolDefs {
-			if td.Function == nil || td.Function.Name != "skill_manage" {
-				filtered = append(filtered, td)
-			}
-		}
-		toolDefs = filtered
-	}
-
-	// Hide channel-specific tools when channel type doesn't match. Channel-aware
-	// tools are hidden when there is no channel context; telegram_manager also
-	// requires explicit channel permissions before it is visible to the LLM.
-	filtered := toolDefs[:0:0]
-	for _, td := range toolDefs {
-		if td.Function != nil && !l.toolVisibleForChannel(td.Function.Name, req.ChannelType, req.TelegramManagerPermissions) {
-			if allowedTools != nil {
-				delete(allowedTools, td.Function.Name)
-			}
-			continue
-		}
-		filtered = append(filtered, td)
-	}
-	toolDefs = filtered
+	toolDefs = tools.RunToolFilter{
+		DenyNames:       orchModeDenyTools(l.orchMode),
+		Disabled:        l.disabledTools,
+		BootstrapAllow:  bootstrapAllow,
+		HideSkillManage: !l.skillEvolve,
+		Channel: &tools.ChannelToolFilter{
+			Registry:                   l.tools,
+			Type:                       req.ChannelType,
+			TelegramManagerPermissions: req.TelegramManagerPermissions,
+		},
+	}.Apply(toolDefs, allowedTools)
 
 	// Final iteration: strip all tools to force a text-only response.
 	// Without this the model may keep requesting tools and exit with "...".

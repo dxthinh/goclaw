@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -100,7 +102,11 @@ func (t *TeamTasksTool) executeClarify(ctx context.Context, args map[string]any)
 		WithContextInfo(ctx),
 	))
 
-	notifyLeadOfFeedback(ctx, t.manager, team, task, buildClarifyLeadNotice(memberKey, task, taskID, kind, text))
+	var alternatives []string
+	if kind == ClarifyKindMissingTool {
+		alternatives = t.membersWithTaskNeeds(ctx, team, task, agentID)
+	}
+	notifyLeadOfFeedback(ctx, t.manager, team, task, buildClarifyLeadNotice(memberKey, task, taskID, kind, text, alternatives))
 
 	return NewResult(fmt.Sprintf(
 		"Your question was sent to the lead. Task #%d is now awaiting input. Stop working on it and end your turn now; "+
@@ -108,13 +114,16 @@ func (t *TeamTasksTool) executeClarify(ctx context.Context, args map[string]any)
 }
 
 // buildClarifyLeadNotice dựng tin báo lead (tiếng Anh, dành cho LLM).
-func buildClarifyLeadNotice(memberKey string, task *store.TeamTaskData, taskID uuid.UUID, kind, text string) string {
+func buildClarifyLeadNotice(memberKey string, task *store.TeamTaskData, taskID uuid.UUID, kind, text string, alternatives []string) string {
 	head := fmt.Sprintf("[Clarification needed] Member %q asked a question on task #%d \"%s\" (id: %s):\n\n%s\n\n",
 		memberKey, task.TaskNumber, task.Subject, taskID, text)
 	if kind == ClarifyKindMissingTool {
 		head = fmt.Sprintf("[Missing tool] Member %q cannot do task #%d \"%s\" (id: %s) because a tool is missing:\n\n%s\n\n"+
 			"Give the task to a member that has the tool with team_tasks(action=\"answer\", task_id=\"%s\", text=\"...\", assignee=\"<agent_key>\"), or cancel it.\n\n",
 			memberKey, task.TaskNumber, task.Subject, taskID, text, taskID)
+		if len(alternatives) > 0 {
+			head += "Members that have every tool in the contract's needs: " + strings.Join(alternatives, ", ") + ".\n\n"
+		}
 	}
 	return head + fmt.Sprintf(
 		"Answer only if you know for certain: team_tasks(action=\"answer\", task_id=\"%s\", text=\"<answer>\"). "+
@@ -168,6 +177,26 @@ func (t *TeamTasksTool) executeAnswer(ctx context.Context, args map[string]any) 
 	}
 	return NewResult(fmt.Sprintf("Answer recorded on task #%d \"%s\" and the task was dispatched to %s.",
 		task.TaskNumber, task.Subject, t.manager.AgentKeyFromID(ctx, *task.OwnerAgentID)))
+}
+
+// membersWithTaskNeeds trả các member (trừ lead và owner) có đủ tool trong
+// contract.needs khi owner báo thiếu tool, lấy từ cổng needs (TaskNeedsError).
+// Rỗng khi task không có needs, owner vẫn đủ needs (tool thiếu nằm ngoài
+// needs), team chưa bật contract hoặc backend không kiểm được.
+func (t *TeamTasksTool) membersWithTaskNeeds(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, ownerID uuid.UUID) []string {
+	contract := TaskContractFromTask(task)
+	if contract == nil || len(contract.Needs) == 0 {
+		return nil
+	}
+	members, err := t.manager.CachedListMembers(ctx, team.ID, ownerID)
+	if err != nil {
+		return nil
+	}
+	var needsErr *TaskNeedsError
+	if errors.As(checkTaskNeedsFromBackend(ctx, t.manager, team, members, contract, ownerID, ""), &needsErr) {
+		return needsErr.Satisfying
+	}
+	return nil
 }
 
 // isTeamMember cho biết agentID có trong danh sách member của team.

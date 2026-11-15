@@ -19,7 +19,8 @@ const maxTaskCommentLength = 10000
 
 // registerTeamsTasksCRUDTools registers the goclaw_teams_tasks_* MCP tools
 // backed by store.TeamStore. agents resolves agent_key/UUID inputs for assign.
-func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore, agents store.AgentStore) {
+// caps kiểm tra contract.needs khi giao task (nil: bỏ qua kiểm tra).
+func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore, agents store.AgentStore, caps *tools.TeamCapabilityChecker) {
 	srv.AddTool(mcpgo.NewTool("goclaw_teams_tasks_list",
 		mcpgo.WithDescription("List a team's tasks, optionally filtered by status/channel/chatID."),
 		mcpgo.WithString("team_id", mcpgo.Required(), mcpgo.Description("Team UUID.")),
@@ -50,10 +51,10 @@ func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore
 		mcpgo.WithNumber("priority", mcpgo.Description("Task priority.")),
 		mcpgo.WithString("task_type", mcpgo.Description("Task type: \"general\" (default), \"request\", \"note\", \"delegation\" or \"escalation\".")),
 		mcpgo.WithString("assign_to", mcpgo.Description("Agent UUID to assign immediately after creation.")),
-		mcpgo.WithObject("contract", mcpgo.Description("Task contract: objective (string), deliverables (array), acceptance (array), optional scope_in, scope_out, inputs, on_unclear. Required with assign_to for every task_type except request and note when the team enables task_contract.")),
+		mcpgo.WithObject("contract", mcpgo.Description("Task contract: objective (string), deliverables (array), acceptance (array), optional scope_in, scope_out, inputs, on_unclear, needs (tool groups or tool names the assignee must have; checked against assign_to when the team enables task_contract). Required with assign_to for every task_type except request and note when the team enables task_contract.")),
 		mcpgo.WithString("channel", mcpgo.Description("Origin channel; defaults to \"dashboard\".")),
 		mcpgo.WithString("chat_id", mcpgo.Description("Origin chat ID; defaults to the team ID.")),
-	), handleTeamsTasksCreate(teams))
+	), handleTeamsTasksCreate(teams, agents, caps))
 
 	srv.AddTool(mcpgo.NewTool("goclaw_teams_tasks_delete",
 		mcpgo.WithDescription("Hard-delete a task in a terminal status."),
@@ -74,7 +75,7 @@ func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore
 		mcpgo.WithString("team_id", mcpgo.Required(), mcpgo.Description("Team UUID.")),
 		mcpgo.WithString("task_id", mcpgo.Required(), mcpgo.Description("Task UUID.")),
 		mcpgo.WithString("agent_id", mcpgo.Required(), mcpgo.Description("Assignee agent key or UUID.")),
-	), handleTeamsTasksAssign(teams, agents))
+	), handleTeamsTasksAssign(teams, agents, caps))
 
 	srv.AddTool(mcpgo.NewTool("goclaw_teams_tasks_get",
 		mcpgo.WithDescription("Fetch a task with its comments, events, and attachments."),
@@ -202,7 +203,7 @@ func handleTeamsTasksEvents(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 	}
 }
 
-func handleTeamsTasksCreate(teams store.TeamStore) mcpserver.ToolHandlerFunc {
+func handleTeamsTasksCreate(teams store.TeamStore, agents store.AgentStore, caps *tools.TeamCapabilityChecker) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		teamID, err := parseTeamID(req)
 		if err != nil {
@@ -237,14 +238,20 @@ func handleTeamsTasksCreate(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		if contract != nil {
 			contract.Checkpoint = tools.TaskContractCheckpointNone
 		}
-		// Cùng cổng với teams.tasks.create của dashboard: chỉ bắt buộc khi giao ngay.
-		if contract == nil && assignTo != "" {
+		// Cùng cổng với teams.tasks.create của dashboard: chỉ bắt buộc khi giao
+		// ngay, và assignee phải có đủ tool trong contract.needs.
+		if assignTo != "" && (contract == nil || len(contract.Needs) > 0) {
 			team, err := getTeamForContract(ctx, teams, teamID)
 			if err != nil {
 				return toolError("teams.tasks.create", err)
 			}
-			if tools.TaskContractRequired(team, taskType) {
+			if contract == nil && tools.TaskContractRequired(team, taskType) {
 				return toolError("teams.tasks.create", tools.ErrTaskContractMissing)
+			}
+			if assigneeID, err := uuid.Parse(assignTo); err == nil {
+				if err := caps.CheckTaskNeedsInTeam(ctx, teams, agents, team, contract, assigneeID); err != nil {
+					return toolError("teams.tasks.create", err)
+				}
 			}
 		}
 
@@ -320,7 +327,7 @@ func handleTeamsTasksDeleteBulk(teams store.TeamStore) mcpserver.ToolHandlerFunc
 	}
 }
 
-func handleTeamsTasksAssign(teams store.TeamStore, agents store.AgentStore) mcpserver.ToolHandlerFunc {
+func handleTeamsTasksAssign(teams store.TeamStore, agents store.AgentStore, caps *tools.TeamCapabilityChecker) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		teamID, taskID, err := parseTeamTaskIDs(req)
 		if err != nil {
@@ -343,6 +350,9 @@ func handleTeamsTasksAssign(teams store.TeamStore, agents store.AgentStore) mcps
 			return toolError("teams.tasks.assign", err)
 		}
 		if err := tools.CheckTaskContractForAssign(team, task); err != nil {
+			return toolError("teams.tasks.assign", err)
+		}
+		if err := caps.CheckTaskNeedsInTeam(ctx, teams, agents, team, tools.TaskContractFromTask(task), agentID); err != nil {
 			return toolError("teams.tasks.assign", err)
 		}
 		if err := teams.AssignTask(ctx, taskID, agentID, teamID); err != nil {

@@ -44,14 +44,14 @@ type TraceCollector interface {
 // Each agent has a unique ID and its own provider/model/tools config.
 // Cached Loops expire after TTL (safety net for multi-instance).
 type Router struct {
-	agents          map[string]*agentEntry
-	mu              sync.RWMutex
-	activeRuns      sync.Map     // runID → *ActiveRun
-	sessionRuns     sync.Map     // sessionKey → runID (secondary index for O(1) IsSessionBusy)
-	agentActivity   sync.Map     // sessionKey → *AgentActivityStatus
-	resolver        ResolverFunc // optional: lazy creation from DB
-	ttl             time.Duration
-	traceCollector  TraceCollector // optional: for force-marking aborted traces
+	agents         map[string]*agentEntry
+	mu             sync.RWMutex
+	activeRuns     sync.Map     // runID → *ActiveRun
+	sessionRuns    sync.Map     // sessionKey → runID (secondary index for O(1) IsSessionBusy)
+	agentActivity  sync.Map     // sessionKey → *AgentActivityStatus
+	resolver       ResolverFunc // optional: lazy creation from DB
+	ttl            time.Duration
+	traceCollector TraceCollector // optional: for force-marking aborted traces
 }
 
 func NewRouter() *Router {
@@ -147,6 +147,14 @@ func agentCacheKey(ctx context.Context, agentID string) string {
 	}
 	return tid.String() + ":" + agentID
 }
+
+// cacheDependent là Agent có prompt phụ thuộc dữ liệu của agent khác.
+type cacheDependent interface {
+	DependsOnAgentKeys() []string
+}
+
+// DependsOnAgentKeys trả các agent_key mà prompt của Loop phụ thuộc.
+func (l *Loop) DependsOnAgentKeys() []string { return l.cacheDependsOn }
 
 // matchAgentCacheKey reports whether a cache key's final segment equals agentKey.
 // Cache keys are either bare ("agentKey") or tenant-scoped ("tenantID:agentKey").
@@ -258,9 +266,9 @@ type ActiveRun struct {
 	StartedAt  time.Time
 	InjectCh   chan InjectedMessage // buffered channel for mid-run user message injection
 	Done       chan struct{}        // closed when goroutine actually exits (via UnregisterRun)
-	State      atomic.Int32        // 0=running, 1=aborting, 2=done
-	TraceID    uuid.UUID           // set after trace creation via SetRunTraceID
-	TenantID   uuid.UUID           // captured at RegisterRun for forceMarkTraceAborted
+	State      atomic.Int32         // 0=running, 1=aborting, 2=done
+	TraceID    uuid.UUID            // set after trace creation via SetRunTraceID
+	TenantID   uuid.UUID            // captured at RegisterRun for forceMarkTraceAborted
 }
 
 // AbortResult describes the outcome of a single AbortRun call.

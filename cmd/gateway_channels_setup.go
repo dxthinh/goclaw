@@ -173,6 +173,7 @@ func wireChannelRPCMethods(server *gateway.Server, pgStores *store.Stores, chann
 	// Register agent teams WS RPC methods
 	if pgStores.Teams != nil {
 		teamsM := methods.NewTeamsMethods(pgStores.Teams, pgStores.Agents, pgStores.AgentLinks, agentRouter, msgBus, msgBus, dataDir)
+		teamsM.SetToolCapabilities(server.TeamCapabilities()) // kiểm tra contract.needs khi giao task
 		teamsM.SetTaskFeedback(taskFeedback)
 		teamsM.Register(server.Router())
 	}

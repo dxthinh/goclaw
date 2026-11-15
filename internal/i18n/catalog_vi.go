@@ -396,5 +396,7 @@ func init() {
 		MsgTaskApprovalChanges:                     "🔁 Đã yêu cầu sửa task #%d \"%s\". Task được giao lại cho người thực hiện.",
 		MsgTaskApprovalFailed:                      "Không cập nhật được task #%d: %s",
 		MsgTaskTypeInvalid:                         "Loại task %q không hợp lệ: chỉ nhận general, request, note, delegation hoặc escalation",
+		MsgTaskNeedsMissing:                        "Agent %s thiếu tool mà task cần: %s. Các member có đủ: %s",
+		MsgTaskNeedsNoMember:                       "Agent %s thiếu tool mà task cần: %s. Không member nào có đủ; cần admin cấp các tool này cho một member",
 	})
 }

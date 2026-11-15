@@ -543,6 +543,7 @@ func runGateway() {
 	server.SetDB(pgStores.DB)
 	server.SetPolicyEngine(permPE)
 	server.SetToolPolicy(toolPE)
+	server.SetBuiltinToolTenantConfigs(pgStores.BuiltinToolTenantCfgs)
 	server.SetPairingService(pgStores.Pairing)
 	server.SetMessageBus(msgBus)
 	server.SetExecApprovalManager(execApprovalMgr)

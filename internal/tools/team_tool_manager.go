@@ -35,11 +35,12 @@ type TeamToolManager struct {
 	teamStore     store.TeamStore
 	agentStore    store.AgentStore
 	msgBus        *bus.MessageBus
-	dataDir       string   // base data directory for workspace path resolution
-	teamCache     sync.Map // agentID (uuid.UUID) → *teamCacheEntry
-	agentCache    sync.Map // agentID (uuid.UUID) → *agentCacheEntry
-	agentKeyCache sync.Map // agentKey (string) → *agentCacheEntry
-	dispatchLocks sync.Map // teamID (uuid.UUID) → *sync.Mutex; tuần tự hóa dispatch theo team
+	dataDir       string                 // base data directory for workspace path resolution
+	teamCache     sync.Map               // agentID (uuid.UUID) → *teamCacheEntry
+	agentCache    sync.Map               // agentID (uuid.UUID) → *agentCacheEntry
+	agentKeyCache sync.Map               // agentKey (string) → *agentCacheEntry
+	dispatchLocks sync.Map               // teamID (uuid.UUID) → *sync.Mutex; tuần tự hóa dispatch theo team
+	capabilities  *TeamCapabilityChecker // nil: bỏ qua kiểm tra needs của contract (xem SetToolPolicy)
 
 	// approvalEnabled cho biết kênh theo tên có hỗ trợ và đã bật duyệt task qua
 	// lệnh chat (channels.ChannelSupportsTaskApproval). Nối sau khi channel

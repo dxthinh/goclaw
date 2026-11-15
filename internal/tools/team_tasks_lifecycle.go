@@ -15,6 +15,10 @@ func (t *TeamTasksTool) executeClaim(ctx context.Context, args map[string]any) *
 		return ErrorResult(err.Error())
 	}
 
+	// Claim là member tự nhận task: cùng cổng needs như khi giao, claimant là assignee.
+	if msg := t.checkClaimNeeds(ctx, team, agentID, taskID); msg != "" {
+		return ErrorResult(msg)
+	}
 	if err := t.manager.Store().ClaimTask(ctx, taskID, agentID, team.ID); err != nil {
 		return ErrorResult("failed to claim task: " + err.Error())
 	}

@@ -403,6 +403,8 @@ const (
 	MsgTaskContractInvalid  = "error.task_contract_invalid"  // "invalid task contract: %s"
 	MsgTaskContractRequired = "error.task_contract_required" // "this team requires a task contract before assigning"
 	MsgTaskTypeInvalid      = "error.task_type_invalid"      // "invalid task type %q: must be general, request, note, delegation or escalation"
+	MsgTaskNeedsMissing     = "error.task_needs_missing"     // "assignee %s lacks the tools this task needs: %s. Members that have them: %s"
+	MsgTaskNeedsNoMember    = "error.task_needs_no_member"   // "assignee %s lacks the tools this task needs: %s. No team member has them"
 	// Feedback loop của task: clarify/answer, yêu cầu sửa, duyệt checkpoint của user.
 	MsgTaskNotAwaitingInput     = "error.task_not_awaiting_input"   // "task is not waiting for an answer"
 	MsgTaskNotInReview          = "error.task_not_in_review"        // "task is not waiting for review"
