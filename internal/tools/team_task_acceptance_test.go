@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
@@ -235,6 +236,36 @@ func TestApprove_LeadReviewWithCheckpointForwardsToUser(t *testing.T) {
 	res = tool.Execute(ctx, map[string]any{"action": "approve", "task_id": taskID.String()})
 	if !res.IsError {
 		t.Fatalf("second approve must be refused, got %q", res.ForLLM)
+	}
+}
+
+// Task đã rời trạng thái chờ lead ở đường khác (ví dụ dashboard vừa duyệt)
+// giữa lúc đọc và lúc ghi: chuyển tiếp báo xung đột, không gắn lại marker user.
+func TestForwardLeadReview_ConflictLeavesTaskUntouched(t *testing.T) {
+	mb, tool, _, _, ctx := newTestTeamSetup()
+	enableContract(mb)
+	mb.approvalChannels = map[string]bool{"telegram": true}
+	taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInReview, true, CheckpointPendingLead)
+	setContractCheckpoint(t, mb, taskID)
+	stale := *readTask(mb, taskID)
+	stale.Metadata = maps.Clone(stale.Metadata)
+
+	done := readTask(mb, taskID)
+	done.Status = store.TeamTaskStatusCompleted
+	delete(done.Metadata, TaskMetaCheckpointPending)
+	done.Metadata["other"] = "kept"
+
+	team := mb.team
+	res := tool.forwardLeadReviewToUser(ctx, team, &stale, testLeadID)
+	if !res.IsError || !strings.Contains(res.ForLLM, "no longer waiting") {
+		t.Fatalf("forward = %q, want a conflict error", res.ForLLM)
+	}
+	got := readTask(mb, taskID)
+	if got.Status != store.TeamTaskStatusCompleted || TaskCheckpointPending(got) != "" || got.Metadata["other"] != "kept" {
+		t.Fatalf("task changed after conflict: status=%q meta=%v", got.Status, got.Metadata)
+	}
+	if len(mb.approvalNotices) != 0 {
+		t.Errorf("no approval notice expected, got %v", mb.approvalNotices)
 	}
 }
 

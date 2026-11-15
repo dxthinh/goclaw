@@ -23,6 +23,10 @@ type RecoveredTaskInfo struct {
 // ErrTaskNotFound is returned when a task does not exist.
 var ErrTaskNotFound = errors.New("task not found")
 
+// ErrTaskCheckpointConflict: task không còn ở in_review với marker
+// checkpoint_pending như người gọi đã đọc (đã được duyệt, huỷ, hoặc đổi ở đường khác).
+var ErrTaskCheckpointConflict = errors.New("task is no longer waiting for that review")
+
 // Team status constants.
 const (
 	TeamStatusActive   = "active"
@@ -265,6 +269,14 @@ type TaskStore interface {
 	// result, nhả khóa và trộn metadataPatch vào metadata trong cùng một câu
 	// UPDATE (task chờ duyệt kết quả). Lỗi thì không phần nào được ghi.
 	SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error
+	// CompleteTaskWithMetadata là CompleteTask kèm trộn metadataPatch vào
+	// metadata trong cùng câu UPDATE (ví dụ báo cáo tiêu chí nghiệm thu).
+	CompleteTaskWithMetadata(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error
+	// TransitionTaskCheckpointPending đổi metadata.checkpoint_pending từ from
+	// sang to cho task in_review, chỉ khi marker hiện tại đúng là from; các khóa
+	// metadata khác giữ nguyên (trộn patch). Trả ErrTaskCheckpointConflict khi
+	// không dòng nào khớp (task đã được duyệt, huỷ hoặc marker đã đổi).
+	TransitionTaskCheckpointPending(ctx context.Context, taskID, teamID uuid.UUID, from, to string) error
 	// GetTaskByNumberInChat tra đúng một task theo số trong team và chat gốc
 	// (channel, chat_id). Trả ErrTaskNotFound khi không có.
 	GetTaskByNumberInChat(ctx context.Context, teamID uuid.UUID, taskNumber int, channel, chatID string) (*TeamTaskData, error)

@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -74,5 +75,93 @@ func TestTeamTask_LeadReviewWritesAcceptanceReport(t *testing.T) {
 	// Lần nộp thứ hai (task đã in_review) bị từ chối, không ghi đè.
 	if err := tools.SubmitResultForLeadReview(ctx, ts, team, got, "other", nil); err == nil {
 		t.Error("second submit from in_review should fail")
+	}
+}
+
+// TransitionTaskCheckpointPending (PG): đổi marker lead → user bằng một câu
+// UPDATE có điều kiện; sai marker, sai tenant hoặc task đã completed thì báo
+// xung đột và không ghi gì; metadata khác (contract) giữ nguyên.
+func TestTeamTask_TransitionCheckpointPending(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, memberID := seedTeam(t, db, tenantID, agentID)
+
+	task := makeTask(teamID, "lead review", store.TeamTaskStatusPending)
+	task.Metadata = map[string]any{"source": "test"}
+	if err := ts.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := ts.ClaimTask(ctx, task.ID, memberID, teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := ts.SubmitTaskResultForReview(ctx, task.ID, teamID, "draft", map[string]any{"checkpoint_pending": "lead"}); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+
+	if err := ts.TransitionTaskCheckpointPending(ctx, task.ID, teamID, "user", "lead"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("wrong from marker: err = %v, want conflict", err)
+	}
+	otherTenant, _ := seedTenantAgent(t, db)
+	if err := ts.TransitionTaskCheckpointPending(tenantCtx(otherTenant), task.ID, teamID, "lead", "user"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("other tenant: err = %v, want conflict", err)
+	}
+	if err := ts.TransitionTaskCheckpointPending(ctx, task.ID, teamID, "lead", "user"); err != nil {
+		t.Fatalf("TransitionTaskCheckpointPending: %v", err)
+	}
+	got, _ := ts.GetTask(ctx, task.ID)
+	if got.Status != store.TeamTaskStatusInReview || got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
+		t.Fatalf("after transition: status=%q meta=%v", got.Status, got.Metadata)
+	}
+
+	if err := ts.ApproveTask(ctx, task.ID, teamID, ""); err != nil {
+		t.Fatalf("ApproveTask: %v", err)
+	}
+	if err := ts.TransitionTaskCheckpointPending(ctx, task.ID, teamID, "user", "lead"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("completed task: err = %v, want conflict", err)
+	}
+}
+
+// CompleteTaskWithMetadata (PG): báo cáo tiêu chí ghi cùng câu hoàn thành;
+// CompleteTask không chạm metadata; task không in_progress thì lỗi.
+func TestTeamTask_CompleteTaskWithMetadata(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, memberID := seedTeam(t, db, tenantID, agentID)
+
+	withReport := makeTask(teamID, "with report", store.TeamTaskStatusPending)
+	plain := makeTask(teamID, "plain", store.TeamTaskStatusPending)
+	for _, task := range []*store.TeamTaskData{withReport, plain} {
+		task.Metadata = map[string]any{"source": "test"}
+		if err := ts.CreateTask(ctx, task); err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		if err := ts.ClaimTask(ctx, task.ID, memberID, teamID); err != nil {
+			t.Fatalf("ClaimTask: %v", err)
+		}
+	}
+	report := []any{map[string]any{"index": 1, "met": true, "evidence": "ok"}}
+	if err := ts.CompleteTaskWithMetadata(ctx, withReport.ID, teamID, "done", map[string]any{tools.TaskMetaAcceptanceReport: report}); err != nil {
+		t.Fatalf("CompleteTaskWithMetadata: %v", err)
+	}
+	got, _ := ts.GetTask(ctx, withReport.ID)
+	rep, _ := got.Metadata[tools.TaskMetaAcceptanceReport].([]any)
+	if got.Status != store.TeamTaskStatusCompleted || len(rep) != 1 || got.Metadata["source"] != "test" {
+		t.Fatalf("with report: status=%q meta=%v", got.Status, got.Metadata)
+	}
+	if err := ts.CompleteTask(ctx, plain.ID, teamID, "done"); err != nil {
+		t.Fatalf("CompleteTask: %v", err)
+	}
+	got, _ = ts.GetTask(ctx, plain.ID)
+	if got.Status != store.TeamTaskStatusCompleted || len(got.Metadata) != 1 {
+		t.Fatalf("plain: status=%q meta=%v", got.Status, got.Metadata)
+	}
+	if err := ts.CompleteTaskWithMetadata(ctx, plain.ID, teamID, "again", map[string]any{"x": 1}); err == nil {
+		t.Fatal("completing a completed task should fail")
 	}
 }

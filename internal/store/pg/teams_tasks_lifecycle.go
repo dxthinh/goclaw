@@ -58,21 +58,38 @@ func (s *PGTeamStore) AssignTask(ctx context.Context, taskID, agentID, teamID uu
 }
 
 func (s *PGTeamStore) CompleteTask(ctx context.Context, taskID, teamID uuid.UUID, result string) error {
+	return s.CompleteTaskWithMetadata(ctx, taskID, teamID, result, nil)
+}
+
+// CompleteTaskWithMetadata hoàn thành task in_progress; metadataPatch (nếu có)
+// được trộn vào metadata trong cùng câu UPDATE. Patch rỗng thì cột metadata
+// không bị chạm, giữ đúng hành vi của CompleteTask.
+func (s *PGTeamStore) CompleteTaskWithMetadata(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error {
+	metaSet := ""
+	args := []any{store.TeamTaskStatusCompleted, result, time.Now(),
+		taskID, store.TeamTaskStatusInProgress, teamID, tenantIDForInsert(ctx)}
+	if len(metadataPatch) > 0 {
+		patch, err := marshalMetadataPatch(metadataPatch)
+		if err != nil {
+			return err
+		}
+		metaSet = ", metadata = COALESCE(metadata, '{}'::jsonb) || $8::jsonb"
+		args = append(args, patch)
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	tid := tenantIDForInsert(ctx)
 	res, err := tx.ExecContext(ctx,
 		`UPDATE team_tasks SET status = $1, result = $2, locked_at = NULL, lock_expires_at = NULL,
 		 followup_at = NULL, followup_count = 0, followup_message = NULL, followup_channel = NULL, followup_chat_id = NULL,
 		 progress_percent = NULL,
-		 updated_at = $3
+		 updated_at = $3`+metaSet+`
 		 WHERE id = $4 AND status = $5 AND team_id = $6 AND tenant_id = $7`,
-		store.TeamTaskStatusCompleted, result, time.Now(),
-		taskID, store.TeamTaskStatusInProgress, teamID, tid,
+		args...,
 	)
 	if err != nil {
 		return err

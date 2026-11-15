@@ -127,11 +127,8 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 			submitted = err == nil
 			return err
 		}
-		if err := t.manager.Store().CompleteTask(ctx, taskID, team.ID, result); err != nil {
-			return err
-		}
-		saveAcceptanceReport(ctx, t.manager.Store(), task, extraMeta)
-		return nil
+		// Báo cáo tiêu chí (nếu có) ghi trong cùng câu UPDATE hoàn thành task.
+		return t.manager.Store().CompleteTaskWithMetadata(ctx, taskID, team.ID, result, extraMeta)
 	}
 
 	if err := finish(); err != nil {

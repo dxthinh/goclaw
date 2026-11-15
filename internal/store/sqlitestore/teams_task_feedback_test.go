@@ -3,6 +3,7 @@
 package sqlitestore
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -179,4 +180,66 @@ func containsTask(tasks []store.TeamTaskData, id interface{ String() string }) b
 		}
 	}
 	return false
+}
+
+// TransitionTaskCheckpointPending chỉ đổi marker khi task in_review và marker
+// hiện tại đúng là from; metadata khác giữ nguyên; không khớp thì báo xung đột.
+func TestTeamTaskSQLite_TransitionCheckpointPending(t *testing.T) {
+	f := newDepFixture(t)
+	task := f.create(t, "lead review")
+	if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft", map[string]any{"checkpoint_pending": "lead"}); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+	if err := f.teams.TransitionTaskCheckpointPending(f.ctx, task.ID, f.teamID, "user", "lead"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("wrong from marker: err = %v, want conflict", err)
+	}
+	if err := f.teams.TransitionTaskCheckpointPending(f.ctx, task.ID, f.teamID, "lead", "user"); err != nil {
+		t.Fatalf("TransitionTaskCheckpointPending: %v", err)
+	}
+	got, _ := f.teams.GetTask(f.ctx, task.ID)
+	if got.Status != store.TeamTaskStatusInReview || got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
+		t.Fatalf("after transition: status=%q meta=%v", got.Status, got.Metadata)
+	}
+	// Task đã completed: không gắn lại marker.
+	if err := f.teams.ApproveTask(f.ctx, task.ID, f.teamID, ""); err != nil {
+		t.Fatalf("ApproveTask: %v", err)
+	}
+	if err := f.teams.TransitionTaskCheckpointPending(f.ctx, task.ID, f.teamID, "user", "lead"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("completed task: err = %v, want conflict", err)
+	}
+}
+
+// CompleteTaskWithMetadata trộn patch vào metadata trong cùng câu hoàn thành;
+// CompleteTask (patch rỗng) không chạm metadata.
+func TestTeamTaskSQLite_CompleteTaskWithMetadata(t *testing.T) {
+	f := newDepFixture(t)
+	withReport, plain := f.create(t, "with report"), f.create(t, "plain")
+	for _, task := range []*store.TeamTaskData{withReport, plain} {
+		if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
+			t.Fatalf("ClaimTask: %v", err)
+		}
+	}
+	report := []any{map[string]any{"index": 1, "met": true}}
+	if err := f.teams.CompleteTaskWithMetadata(f.ctx, withReport.ID, f.teamID, "done", map[string]any{"acceptance_report": report}); err != nil {
+		t.Fatalf("CompleteTaskWithMetadata: %v", err)
+	}
+	got, _ := f.teams.GetTask(f.ctx, withReport.ID)
+	rep, _ := got.Metadata["acceptance_report"].([]any)
+	if got.Status != store.TeamTaskStatusCompleted || len(rep) != 1 || got.Metadata["source"] != "test" {
+		t.Fatalf("with report: status=%q meta=%v", got.Status, got.Metadata)
+	}
+	if err := f.teams.CompleteTask(f.ctx, plain.ID, f.teamID, "done"); err != nil {
+		t.Fatalf("CompleteTask: %v", err)
+	}
+	got, _ = f.teams.GetTask(f.ctx, plain.ID)
+	if got.Status != store.TeamTaskStatusCompleted || len(got.Metadata) != 1 || got.Metadata["source"] != "test" {
+		t.Fatalf("plain: status=%q meta=%v", got.Status, got.Metadata)
+	}
+	// Task không còn in_progress: lỗi, metadata không đổi.
+	if err := f.teams.CompleteTaskWithMetadata(f.ctx, plain.ID, f.teamID, "again", map[string]any{"x": 1}); err == nil {
+		t.Fatal("completing a completed task should fail")
+	}
 }

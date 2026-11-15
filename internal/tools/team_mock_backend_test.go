@@ -457,6 +457,43 @@ func (s *mockTaskStore) CompleteTask(_ context.Context, taskID, _ uuid.UUID, res
 	return nil
 }
 
+// CompleteTaskWithMetadata như store thật: hoàn thành và trộn patch cùng lúc.
+func (s *mockTaskStore) CompleteTaskWithMetadata(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error {
+	if err := s.CompleteTask(ctx, taskID, teamID, result); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(metadataPatch) > 0 {
+		t := s.tasks[taskID]
+		meta := make(map[string]any, len(t.Metadata)+len(metadataPatch))
+		maps.Copy(meta, t.Metadata)
+		maps.Copy(meta, metadataPatch)
+		t.Metadata = meta
+	}
+	return nil
+}
+
+// TransitionTaskCheckpointPending như store thật: chỉ đổi khi task in_review và
+// marker hiện tại đúng là from; còn lại trả ErrTaskCheckpointConflict.
+func (s *mockTaskStore) TransitionTaskCheckpointPending(_ context.Context, taskID, _ uuid.UUID, from, to string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[taskID]
+	if !ok || t.Status != store.TeamTaskStatusInReview {
+		return store.ErrTaskCheckpointConflict
+	}
+	if cur, _ := t.Metadata[TaskMetaCheckpointPending].(string); cur != from {
+		return store.ErrTaskCheckpointConflict
+	}
+	meta := make(map[string]any, len(t.Metadata))
+	maps.Copy(meta, t.Metadata)
+	meta[TaskMetaCheckpointPending] = to
+	t.Metadata = meta
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
 func (s *mockTaskStore) CancelTask(_ context.Context, taskID, _ uuid.UUID, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

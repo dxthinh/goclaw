@@ -2,8 +2,8 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,23 +14,6 @@ import (
 
 // acceptanceCriteriaExample đi kèm lỗi criteria để LLM sửa được ngay.
 const acceptanceCriteriaExample = `Example: criteria=[{"index":1,"met":true,"evidence":"report.md covers North, South, East, West"},{"index":2,"met":false,"evidence":"2 numbers have no source yet"}]`
-
-// saveAcceptanceReport ghi báo cáo tiêu chí vào metadata của task vừa
-// completed. Lỗi chỉ ghi log: task đã hoàn thành, bảng tiêu chí đã nằm trong result.
-func saveAcceptanceReport(ctx context.Context, ts store.TeamStore, task *store.TeamTaskData, extraMeta map[string]any) {
-	if len(extraMeta) == 0 {
-		return
-	}
-	if task.Metadata == nil {
-		task.Metadata = make(map[string]any, len(extraMeta))
-	}
-	for k, v := range extraMeta {
-		task.Metadata[k] = v
-	}
-	if err := ts.UpdateTask(ctx, task.ID, map[string]any{"metadata": task.Metadata}); err != nil {
-		slog.Warn("team_tasks.complete: save acceptance report failed", "task_id", task.ID, "error", err)
-	}
-}
 
 // broadcastLeadReview phát EventTeamTaskReviewed cho task vừa chuyển sang chờ lead xem.
 func (t *TeamTasksTool) broadcastLeadReview(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, agentID uuid.UUID) {
@@ -88,18 +71,21 @@ func joinInts(xs []int) string {
 // forwardLeadReviewToUser xử lý lead approve trên task chờ lead xem mà có
 // checkpoint "result": lead chỉ thông qua phần của mình, task chuyển sang chờ
 // user duyệt (checkpoint_pending = "user") thay vì completed, để cổng duyệt của
-// user không bị bỏ qua. Trạng thái giữ in_review; chỉ marker đổi trong một câu UPDATE.
+// user không bị bỏ qua. Trạng thái giữ in_review; marker đổi bằng một câu
+// UPDATE có điều kiện (in_review và marker vẫn là "lead"), nên task đã được
+// duyệt hoặc huỷ ở đường khác không bị gắn lại marker, metadata khác không mất.
 func (t *TeamTasksTool) forwardLeadReviewToUser(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, agentID uuid.UUID) *Result {
-	if task.Status != store.TeamTaskStatusInReview {
-		return ErrorResult(fmt.Sprintf("task #%d is %s, not in_review", task.TaskNumber, task.Status))
+	err := t.manager.Store().TransitionTaskCheckpointPending(ctx, task.ID, team.ID, CheckpointPendingLead, CheckpointPendingUser)
+	if errors.Is(err, store.ErrTaskCheckpointConflict) {
+		return ErrorResult(fmt.Sprintf("task #%d is no longer waiting for your review (it was approved, rejected or changed elsewhere); check it with team_tasks(action=\"get\")", task.TaskNumber))
+	}
+	if err != nil {
+		return ErrorResult("failed to forward the task to the user's approval: " + err.Error())
 	}
 	if task.Metadata == nil {
 		task.Metadata = make(map[string]any)
 	}
 	task.Metadata[TaskMetaCheckpointPending] = CheckpointPendingUser
-	if err := t.manager.Store().UpdateTask(ctx, task.ID, map[string]any{"metadata": task.Metadata}); err != nil {
-		return ErrorResult("failed to forward the task to the user's approval: " + err.Error())
-	}
 	_ = t.manager.Store().AddTaskComment(ctx, &store.TeamTaskCommentData{
 		TaskID: task.ID, AgentID: &agentID,
 		Content: "Lead accepted the result; waiting for the user's approval.",
