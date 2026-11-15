@@ -42,6 +42,39 @@ func (s *PGTeamStore) SubmitTaskResultForReview(ctx context.Context, taskID, tea
 	return requireOneRow(res, "task not in progress or not found")
 }
 
+// GetTaskByNumberInChat tra đúng một task theo số trong team, giới hạn ở chat
+// gốc (channel, chat_id) để lệnh duyệt trong chat không chạm task của chat
+// khác. Dùng index idx_tt_scope (team_id, channel, chat_id).
+func (s *PGTeamStore) GetTaskByNumberInChat(ctx context.Context, teamID uuid.UUID, taskNumber int, channel, chatID string) (*store.TeamTaskData, error) {
+	args := []any{teamID, channel, chatID, taskNumber}
+	tenantWhere := ""
+	if !store.IsCrossTenant(ctx) {
+		tid := store.TenantIDFromContext(ctx)
+		if tid == uuid.Nil {
+			return nil, fmt.Errorf("tenant_id required")
+		}
+		tenantWhere = fmt.Sprintf(" AND t.tenant_id = $%d", len(args)+1)
+		args = append(args, tid)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+taskSelectCols+`
+		 `+taskJoinClause+`
+		 WHERE t.team_id = $1 AND t.channel = $2 AND t.chat_id = $3 AND t.task_number = $4`+tenantWhere+`
+		 LIMIT 1`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tasks, err := scanTaskRowsJoined(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, store.ErrTaskNotFound
+	}
+	return &tasks[0], nil
+}
+
 // requireOneRow trả lỗi msg khi câu UPDATE không chạm dòng nào.
 func requireOneRow(res interface{ RowsAffected() (int64, error) }, msg string) error {
 	n, err := res.RowsAffected()

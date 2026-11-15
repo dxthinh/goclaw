@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -115,5 +116,33 @@ func TestTeamTask_CheckpointPendingNotStale(t *testing.T) {
 	}
 	if got, _ := ts.GetTask(ctx, legacy.ID); got.Status != store.TeamTaskStatusStale {
 		t.Errorf("legacy in_review status = %q, want stale", got.Status)
+	}
+}
+
+// GetTaskByNumberInChat chỉ trả task đúng số và đúng chat gốc, kể cả khi
+// team có nhiều task hơn một trang danh sách.
+func TestTeamTask_GetTaskByNumberInChat(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, _ := seedTeam(t, db, tenantID, agentID)
+
+	var last *store.TeamTaskData
+	for i := 0; i < 205; i++ {
+		task := makeTask(teamID, "bulk", store.TeamTaskStatusPending)
+		task.Channel, task.ChatID = "tg", "-100"
+		if err := ts.CreateTask(ctx, task); err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		last = task
+	}
+	got, err := ts.GetTaskByNumberInChat(ctx, teamID, last.TaskNumber, "tg", "-100")
+	if err != nil || got.ID != last.ID {
+		t.Fatalf("lookup = %v, %v; want last task", got, err)
+	}
+	if _, err := ts.GetTaskByNumberInChat(ctx, teamID, last.TaskNumber, "tg", "-200"); !errors.Is(err, store.ErrTaskNotFound) {
+		t.Errorf("other chat: err = %v, want ErrTaskNotFound", err)
 	}
 }

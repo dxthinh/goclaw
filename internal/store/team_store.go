@@ -263,6 +263,9 @@ type TaskStore interface {
 	// SubmitTaskResultForReview chuyển task in_progress sang in_review, ghi
 	// result và nhả khóa (task chờ duyệt kết quả).
 	SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string) error
+	// GetTaskByNumberInChat tra đúng một task theo số trong team và chat gốc
+	// (channel, chat_id). Trả ErrTaskNotFound khi không có.
+	GetTaskByNumberInChat(ctx context.Context, teamID uuid.UUID, taskNumber int, channel, chatID string) (*TeamTaskData, error)
 	ListActiveTasksByChatID(ctx context.Context, chatID string) ([]TeamTaskData, error)
 }
 

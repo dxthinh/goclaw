@@ -22,14 +22,14 @@ func (s *approvalTeamStore) GetTeamForAgent(context.Context, uuid.UUID) (*store.
 	return s.team, nil
 }
 
-func (s *approvalTeamStore) ListTasks(_ context.Context, _ uuid.UUID, _, filter, _, _, _ string, _, _ int) ([]store.TeamTaskData, error) {
-	var out []store.TeamTaskData
-	for _, t := range s.tasks {
-		if filter != store.TeamTaskFilterInReview || t.Status == store.TeamTaskStatusInReview {
-			out = append(out, t)
+func (s *approvalTeamStore) GetTaskByNumberInChat(_ context.Context, _ uuid.UUID, num int, channel, chatID string) (*store.TeamTaskData, error) {
+	for i := range s.tasks {
+		t := s.tasks[i]
+		if t.TaskNumber == num && t.Channel == channel && t.ChatID == chatID {
+			return &t, nil
 		}
 	}
-	return out, nil
+	return nil, store.ErrTaskNotFound
 }
 
 type approvalAgentStore struct {
@@ -129,6 +129,18 @@ func TestTaskApprovalCommand_ValidApproveAndChanges(t *testing.T) {
 	}
 }
 
+// Forum group: lệnh gõ trong đúng topic gốc thì được nhận.
+func TestTaskApprovalCommand_SameForumTopicAllowed(t *testing.T) {
+	c := newApprovalCase()
+	c.deps.TeamStore.(*approvalTeamStore).tasks[0].Metadata[tools.TaskMetaLocalKey] = "-100:topic:5"
+	m := approvalMsg(commandTaskApprove, "123456", "-100")
+	m.Metadata["local_key"] = "-100:topic:5"
+	processTaskApprovalCommand(context.Background(), m, commandTaskApprove, c.deps)
+	if len(c.fb.approved) != 1 {
+		t.Fatal("command from the task's own topic must be accepted")
+	}
+}
+
 func TestTaskApprovalCommand_GroupWriterAllowed(t *testing.T) {
 	c := newApprovalCase()
 	processTaskApprovalCommand(context.Background(), approvalMsg(commandTaskApprove, "777", "-100"), commandTaskApprove, c.deps)
@@ -165,6 +177,16 @@ func TestTaskApprovalCommand_Denied(t *testing.T) {
 		}},
 		{"task not in review", func(c *approvalCase) bus.InboundMessage {
 			c.deps.TeamStore.(*approvalTeamStore).tasks[0].Status = store.TeamTaskStatusInProgress
+			return approvalMsg(commandTaskApprove, "123456", "-100")
+		}},
+		{"other forum topic", func(c *approvalCase) bus.InboundMessage {
+			c.deps.TeamStore.(*approvalTeamStore).tasks[0].Metadata[tools.TaskMetaLocalKey] = "-100:topic:5"
+			m := approvalMsg(commandTaskApprove, "123456", "-100")
+			m.Metadata["local_key"] = "-100:topic:9"
+			return m
+		}},
+		{"topic task, command from general chat", func(c *approvalCase) bus.InboundMessage {
+			c.deps.TeamStore.(*approvalTeamStore).tasks[0].Metadata[tools.TaskMetaLocalKey] = "-100:topic:5"
 			return approvalMsg(commandTaskApprove, "123456", "-100")
 		}},
 		{"unknown task number", func(c *approvalCase) bus.InboundMessage {

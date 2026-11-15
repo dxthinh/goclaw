@@ -99,6 +99,26 @@ func TestTeamTaskSQLite_CheckpointPendingNotStale(t *testing.T) {
 	}
 }
 
+// GetTaskByNumberInChat chỉ trả task đúng số và đúng chat gốc.
+func TestTeamTaskSQLite_GetTaskByNumberInChat(t *testing.T) {
+	f := newDepFixture(t)
+	a := f.create(t, "chat one")
+	b := f.create(t, "chat two")
+	mustExec(t, f.db, `UPDATE team_tasks SET channel = 'tg', chat_id = '-100' WHERE id = ?`, a.ID)
+	mustExec(t, f.db, `UPDATE team_tasks SET channel = 'tg', chat_id = '-200' WHERE id = ?`, b.ID)
+
+	got, err := f.teams.GetTaskByNumberInChat(f.ctx, f.teamID, a.TaskNumber, "tg", "-100")
+	if err != nil || got.ID != a.ID {
+		t.Fatalf("lookup = %v, %v; want task A", got, err)
+	}
+	if _, err := f.teams.GetTaskByNumberInChat(f.ctx, f.teamID, b.TaskNumber, "tg", "-100"); err != store.ErrTaskNotFound {
+		t.Errorf("task of another chat: err = %v, want ErrTaskNotFound", err)
+	}
+	if _, err := f.teams.GetTaskByNumberInChat(f.ctx, f.teamID, a.TaskNumber, "other", "-100"); err != store.ErrTaskNotFound {
+		t.Errorf("other channel: err = %v, want ErrTaskNotFound", err)
+	}
+}
+
 func containsTask(tasks []store.TeamTaskData, id interface{ String() string }) bool {
 	for _, t := range tasks {
 		if t.ID.String() == id.String() {

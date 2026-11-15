@@ -579,6 +579,18 @@ func (s *mockTaskStore) AwaitTaskInput(_ context.Context, taskID, _ uuid.UUID) e
 	return nil
 }
 
+func (s *mockTaskStore) GetTaskByNumberInChat(_ context.Context, teamID uuid.UUID, num int, channel, chatID string) (*store.TeamTaskData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.tasks {
+		if t.TeamID == teamID && t.TaskNumber == num && t.Channel == channel && t.ChatID == chatID {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrTaskNotFound
+}
+
 func (s *mockTaskStore) SubmitTaskResultForReview(_ context.Context, taskID, _ uuid.UUID, result string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

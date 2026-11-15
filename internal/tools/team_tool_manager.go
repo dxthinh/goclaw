@@ -45,6 +45,10 @@ type TeamToolManager struct {
 	// lệnh chat (channels.ChannelSupportsTaskApproval). Nối sau khi channel
 	// manager được tạo; nil nghĩa là không kênh nào duyệt được.
 	approvalEnabled atomic.Pointer[func(channelName string) bool]
+
+	// actionPolicy là policy hành động của tool team_tasks (Full hoặc Lite),
+	// để tin dispatch chỉ gợi ý hành động member được phép gọi. Nil = Full.
+	actionPolicy TeamActionPolicy
 }
 
 func NewTeamToolManager(teamStore store.TeamStore, agentStore store.AgentStore, msgBus *bus.MessageBus, dataDir string) *TeamToolManager {
@@ -108,4 +112,16 @@ func (m *TeamToolManager) RequestTaskChanges(ctx context.Context, team *store.Te
 
 func (m *TeamToolManager) ApproveUserCheckpoint(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, actor TaskActor) error {
 	return ApproveUserCheckpoint(ctx, m, team, task, actor)
+}
+
+// SetActionPolicy đặt policy hành động đang áp cho tool team_tasks. Gọi lúc
+// khởi tạo, trước khi có dispatch.
+func (m *TeamToolManager) SetActionPolicy(p TeamActionPolicy) { m.actionPolicy = p }
+
+// actionAllowed cho biết hành động team_tasks có được policy hiện hành cho phép.
+func (m *TeamToolManager) actionAllowed(action string) bool {
+	if m.actionPolicy == nil {
+		return true
+	}
+	return m.actionPolicy.IsAllowed(action)
 }

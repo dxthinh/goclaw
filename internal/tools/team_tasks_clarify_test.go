@@ -335,3 +335,20 @@ func TestRenderTaskContract_UnclearPointsToClarify(t *testing.T) {
 		t.Errorf("If unclear line must point to clarify:\n%s", out)
 	}
 }
+
+// Tin dispatch chỉ gợi ý clarify khi policy cho phép; bản Lite giữ gợi ý blocker cũ.
+func TestDispatchInstructions_FollowActionPolicy(t *testing.T) {
+	m := &TeamToolManager{}
+	if !m.actionAllowed("clarify") {
+		t.Error("nil policy behaves as full policy")
+	}
+	m.SetActionPolicy(LiteTeamPolicy{})
+	lite := memberDispatchInstructions(m.actionAllowed("clarify"))
+	if strings.Contains(lite, "clarify") || !strings.Contains(lite, "when BLOCKED and need leader input") {
+		t.Errorf("lite instructions must not mention clarify:\n%s", lite)
+	}
+	m.SetActionPolicy(FullTeamPolicy{})
+	if full := memberDispatchInstructions(m.actionAllowed("clarify")); !strings.Contains(full, `action=\"clarify\"`) && !strings.Contains(full, `action="clarify"`) {
+		t.Errorf("full instructions must mention clarify:\n%s", full)
+	}
+}

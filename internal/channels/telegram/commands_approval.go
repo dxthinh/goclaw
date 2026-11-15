@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -48,6 +49,27 @@ func parseTaskApprovalArgs(cmd, text string) (int, string, string) {
 	return n, reason, ""
 }
 
+// groupPairingAllowed áp gate pairing của nhóm như đường tin nhắn thường
+// (handlers.go): chỉ khi group policy là "pairing"; lỗi kiểm tra thì từ chối.
+func (c *Channel) groupPairingAllowed(ctx context.Context, chatIDStr string, messageThreadID int) bool {
+	if resolveTopicConfig(c.config, chatIDStr, messageThreadID).groupPolicy != "pairing" || c.PairingService() == nil {
+		return true
+	}
+	if c.IsGroupApproved(chatIDStr) {
+		return true
+	}
+	paired, err := c.PairingService().IsPaired(ctx, "group:"+chatIDStr, c.Name())
+	if err != nil {
+		slog.Warn("security.pairing_check_failed, denying access (fail-closed)",
+			"group_sender", "group:"+chatIDStr, "channel", c.Name(), "error", err)
+		return false
+	}
+	if paired {
+		c.MarkGroupApproved(chatIDStr)
+	}
+	return paired
+}
+
 // handleTaskApprovalCommand xử lý /approve và /changes: kiểm tra kênh đã bật
 // duyệt, phân tích tham số rồi phát InboundMessage có Metadata["command"]
 // theo mẫu /stop. Câu trả lời cho người gửi do consumer gửi sau khi xử lý.
@@ -60,6 +82,13 @@ func (c *Channel) handleTaskApprovalCommand(ctx context.Context, cmd, text, chat
 	}
 	if !c.TaskApprovalEnabled() {
 		reply("Task approval by command is not enabled for this bot.")
+		return
+	}
+	// Lệnh bot được xử lý trước gate pairing của nhóm; lệnh duyệt thay đổi
+	// trạng thái task nên phải qua cùng gate: nhóm chưa pair thì không duyệt được.
+	if isGroup && !c.groupPairingAllowed(ctx, chatIDStr, messageThreadID) {
+		slog.Warn("security.task_approval_denied", "reason", "group_not_paired", "channel", c.Name(), "chat_id", chatIDStr)
+		reply("This group is not paired with the bot.")
 		return
 	}
 	num, reason, usage := parseTaskApprovalArgs(cmd, text)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -20,9 +21,6 @@ const (
 	commandTaskApprove = "task_approve"
 	commandTaskChanges = "task_changes"
 )
-
-// maxApprovalLookup là số task in_review tối đa đọc khi tìm task theo số.
-const maxApprovalLookup = 200
 
 // handleTaskApprovalCommand xử lý /approve và /changes trước agent, không qua
 // LLM. Trả true khi tin nhắn là lệnh duyệt (đã xử lý, kể cả khi bị từ chối).
@@ -85,12 +83,21 @@ func processTaskApprovalCommand(ctx context.Context, msg bus.InboundMessage, cmd
 	if err != nil || team == nil {
 		return denyTaskApproval(msg, cmd, "team_not_found", notWaiting)
 	}
-	task := findInReviewTaskByNumber(ctx, deps.TeamStore, team.ID, num)
-	if task == nil {
+	// Tra đúng một task theo số trong team và chat gốc: task của chat khác
+	// không tìm thấy được từ chat này.
+	task, err := deps.TeamStore.GetTaskByNumberInChat(ctx, team.ID, num, msg.Channel, msg.ChatID)
+	if err != nil || task == nil {
+		if err != nil && !errors.Is(err, store.ErrTaskNotFound) {
+			slog.Warn("task_approval: lookup task failed", "team_id", team.ID, "task_number", num, "error", err)
+		}
+		return denyTaskApproval(msg, cmd, "task_not_found_in_chat", notWaiting)
+	}
+	if task.Status != store.TeamTaskStatusInReview {
 		return denyTaskApproval(msg, cmd, "task_not_in_review", notWaiting)
 	}
-	if task.Channel != msg.Channel || task.ChatID != msg.ChatID {
-		return denyTaskApproval(msg, cmd, "chat_mismatch", notWaiting)
+	// Forum group: lệnh phải gõ trong đúng topic gốc của task.
+	if taskTopicKey(task, task.ChatID) != commandTopicKey(msg) {
+		return denyTaskApproval(msg, cmd, "topic_mismatch", notWaiting)
 	}
 	if tools.TaskCheckpointPending(task) != tools.CheckpointPendingUser {
 		return denyTaskApproval(msg, cmd, "not_user_checkpoint", notWaiting)
@@ -115,19 +122,21 @@ func processTaskApprovalCommand(ctx context.Context, msg bus.InboundMessage, cmd
 	return i18n.T(locale, i18n.MsgTaskApprovalChanges, num, task.Subject)
 }
 
-// findInReviewTaskByNumber tìm task in_review theo số trong team.
-func findInReviewTaskByNumber(ctx context.Context, ts store.TeamStore, teamID uuid.UUID, num int) *store.TeamTaskData {
-	tasks, err := ts.ListTasks(ctx, teamID, "", store.TeamTaskFilterInReview, "", "", "", maxApprovalLookup, 0)
-	if err != nil {
-		slog.Warn("task_approval: list in_review tasks failed", "team_id", teamID, "error", err)
-		return nil
+// taskTopicKey trả local_key (chat + forum topic/thread) lưu trên task; task
+// không lưu local_key thì coi là chat gốc không có topic.
+func taskTopicKey(task *store.TeamTaskData, chatID string) string {
+	if lk, _ := task.Metadata[tools.TaskMetaLocalKey].(string); lk != "" {
+		return lk
 	}
-	for i := range tasks {
-		if tasks[i].TaskNumber == num && tasks[i].Status == store.TeamTaskStatusInReview {
-			return &tasks[i]
-		}
+	return chatID
+}
+
+// commandTopicKey trả local_key của tin lệnh, mặc định là chat.
+func commandTopicKey(msg bus.InboundMessage) string {
+	if lk := msg.Metadata[tools.TaskMetaLocalKey]; lk != "" {
+		return lk
 	}
-	return nil
+	return msg.ChatID
 }
 
 // senderNumericID lấy phần ID số của sender Telegram ("số|username").
