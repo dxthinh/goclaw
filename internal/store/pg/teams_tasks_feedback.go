@@ -49,6 +49,33 @@ func (s *PGTeamStore) SubmitTaskResultForReview(ctx context.Context, taskID, tea
 	return requireOneRow(res, "task not in progress or not found")
 }
 
+// TransitionTaskCheckpointPending đổi checkpoint_pending from → to cho task
+// in_review trong một câu UPDATE có điều kiện (status, marker cũ, team,
+// tenant); metadata được trộn patch nên khóa khác không bị ghi đè.
+func (s *PGTeamStore) TransitionTaskCheckpointPending(ctx context.Context, taskID, teamID uuid.UUID, from, to string) error {
+	patch, err := marshalMetadataPatch(map[string]any{"checkpoint_pending": to})
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE team_tasks SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = $2
+		 WHERE id = $3 AND team_id = $4 AND status = $5 AND tenant_id = $6
+		   AND COALESCE(metadata->>'checkpoint_pending', '') = $7`,
+		patch, time.Now(), taskID, teamID, store.TeamTaskStatusInReview, tenantIDForInsert(ctx), from,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return store.ErrTaskCheckpointConflict
+	}
+	return nil
+}
+
 // GetTaskByNumberInChat tra đúng một task theo số trong team, giới hạn ở chat
 // gốc (channel, chat_id) để lệnh duyệt trong chat không chạm task của chat
 // khác. Dùng index idx_tt_scope (team_id, channel, chat_id).

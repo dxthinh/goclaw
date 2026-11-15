@@ -127,7 +127,9 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 			sb.WriteString("- `acceptance`: criteria anyone can check without asking you (counts, coverage, sources, format)\n")
 			sb.WriteString("- Optional: `scope_in`, `scope_out` (what NOT to do), `inputs` (files, links, facts the member needs), `on_unclear` (`ask` default, or `assume_and_note`)\n")
 			sb.WriteString("- Optional `needs`: tool groups (e.g. `web`, `runtime`, `fs`) or tool names the work requires; assigning to a member that lacks them is rejected with the members that have them\n")
-			sb.WriteString("Put everything the member needs in the contract: the member sees it in its system prompt as the authoritative task definition.\n\n")
+			sb.WriteString("- Optional `limits.max_iterations`: cap on the member's tool iterations for this task (lowered to the member's own limit)\n")
+			sb.WriteString("Put everything the member needs in the contract: the member sees it in its system prompt as the authoritative task definition.\n")
+			sb.WriteString("The member reports each acceptance criterion when it completes. If a criterion is missing or not met, or the member's run ends without `complete`, the task waits for your review in `in_review`: accept with `team_tasks(action=\"approve\", task_id=\"<id>\")` or send it back with `team_tasks(action=\"reject\", task_id=\"<id>\", text=\"<what to fix>\")`.\n\n")
 			sb.WriteString("```\nteam_tasks(action=\"create\", subject=\"Summarize Q3 sales\", description=\"Board meeting brief\", assignee=\"analyst\",\n")
 			sb.WriteString("  contract={\"objective\": \"Give the board a one-page view of Q3 sales\",\n")
 			sb.WriteString("            \"deliverables\": [\"q3-summary.md in the team workspace\"],\n")
@@ -159,9 +161,12 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 		sb.WriteString("- Your final response becomes the task result — make it clear, complete, and actionable\n")
 		sb.WriteString("- For long tasks, report progress: `team_tasks(action=\"progress\", percent=50, text=\"status\")`\n")
 		sb.WriteString("- The task_id is auto-resolved — you don't need to specify it\n")
-		sb.WriteString("- Task completion is automatic when your run finishes\n")
 		if contractEnabled {
 			sb.WriteString("- When your system prompt has a \"Task Contract\" block, it is the authoritative definition of your task: meet every acceptance criterion and stay within its scope, even if the task message or earlier history says otherwise\n")
+			sb.WriteString("- A task with a Task Contract completes only through `team_tasks(action=\"complete\", result=\"...\", criteria=[{\"index\": 1, \"met\": true, \"evidence\": \"...\"}, ...])`, with one entry per acceptance criterion. If a criterion is missing or not met, or your run ends without calling complete, the task is not completed: it waits for the lead's review\n")
+			sb.WriteString("- A task without a Task Contract completes automatically when your run finishes\n")
+		} else {
+			sb.WriteString("- Task completion is automatic when your run finishes\n")
 		}
 
 		memberCfg := tools.ParseMemberRequestConfig(team.Settings)

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -68,20 +69,22 @@ type teammateTaskMeta struct {
 // Returns the resolved team (for announce routing) and dispatches unblocked tasks.
 // failNote is non-empty when this call failed the task and other tasks stay
 // blocked by it; the caller appends it to the announce for the lead.
+// leadNotice khác rỗng khi task có contract đang chờ lead xem (in_review,
+// checkpoint_pending = "lead"); người gọi đặt nó ở đầu tin báo lead.
 func resolveTeamTaskOutcome(
 	ctx context.Context,
 	deps *ConsumerDeps,
 	outcome scheduler.RunOutcome,
 	flags *tools.TaskActionFlags,
 	meta teammateTaskMeta,
-) (cachedTeam *store.TeamData, failNote string) {
+) (cachedTeam *store.TeamData, failNote, leadNotice string) {
 	if meta.TaskID == uuid.Nil || deps.TeamStore == nil {
-		return nil, ""
+		return nil, "", ""
 	}
 
 	cachedTeam, _ = deps.TeamStore.GetTeam(ctx, meta.TeamID)
 	if cachedTeam == nil {
-		return nil, ""
+		return nil, "", ""
 	}
 
 	// Check current task status — agent may have already updated it via tool.
@@ -96,7 +99,7 @@ func resolveTeamTaskOutcome(
 		if deps.PostTurn != nil {
 			deps.PostTurn.DispatchUnblockedTasks(ctx, meta.TeamID)
 		}
-		return cachedTeam, ""
+		return cachedTeam, "", ""
 	}
 
 	toAgent := meta.ToAgent
@@ -139,6 +142,14 @@ func resolveTeamTaskOutcome(
 	// Only error, completed/escalated, and reviewed block auto-complete.
 	runFailure := outcome.Failure()
 	switch {
+	case currentTask != nil && currentTask.Status == store.TeamTaskStatusInReview &&
+		tools.TaskCheckpointPending(currentTask) == tools.CheckpointPendingLead:
+		// complete có tiêu chí thiếu/chưa đạt đã đưa task về chờ lead xem. Xét
+		// trước nhánh lỗi: lượt chạy có thể lỗi ở vòng sau lần complete đó, khi
+		// ấy FailTask không chuyển được task in_review mà lead vẫn phải được báo.
+		leadNotice = tools.LeadReviewNotice(currentTask, false)
+		slog.Info("post-turn: task waits for lead review", "task_id", meta.TaskID, "run_failed", runFailure != nil)
+
 	case runFailure != nil:
 		// Agent errored or the pipeline stopped the run → auto-fail.
 		if err := deps.TeamStore.FailTask(ctx, meta.TaskID, meta.TeamID, runFailure.Error()); err != nil {
@@ -211,12 +222,39 @@ func resolveTeamTaskOutcome(
 		if result == "" {
 			result = "Agent run ended without explicit result"
 		}
-		if len(result) > 100_000 {
-			result = result[:100_000] + "\n[truncated]"
+		result = truncateTaskResult(result)
+		// Không đọc được task (DB lỗi tạm thời): không biết task có contract hay
+		// cần user duyệt không, nên không tự hoàn thành. Task giữ in_progress;
+		// khóa hết hạn thì ticker xử lý như task stale và lead retry được.
+		if currentTask == nil {
+			slog.Warn("post-turn: task lookup failed, not auto-completing", "task_id", meta.TaskID, "error", taskErr)
+			break
+		}
+		// Task có contract (team đã bật) mà lượt chạy không gọi complete: không
+		// tự hoàn thành, chuyển sang chờ lead xem.
+		if contract := tools.GatedTaskContract(cachedTeam, currentTask); contract != nil {
+			if err := tools.SubmitResultForLeadReview(ctx, deps.TeamStore, cachedTeam, currentTask, result, nil); err != nil {
+				slog.Warn("post-turn: submit for lead review failed", "task_id", meta.TaskID, "error", err)
+				break
+			}
+			leadNotice = tools.LeadReviewNotice(currentTask, true)
+			bus.BroadcastForTenant(deps.MsgBus, protocol.EventTeamTaskReviewed, store.TenantIDFromContext(ctx), tools.BuildTaskEventPayload(
+				meta.TeamID.String(), meta.TaskID.String(),
+				store.TeamTaskStatusInReview,
+				"agent", toAgent,
+				tools.WithTaskInfo(taskNumber, taskSubject),
+				tools.WithOwnerAgentKey(toAgent),
+				tools.WithChannel(taskChannel),
+				tools.WithChatID(taskChatID),
+				tools.WithPeerKind(taskPeerKind),
+				tools.WithLocalKey(taskLocalKey),
+				tools.WithTimestamp(now),
+			))
+			break
 		}
 		// Cổng duyệt dùng chung với tool complete: task có checkpoint "result"
 		// được nộp chờ user duyệt thay vì completed.
-		if deps.TaskFeedback != nil && currentTask != nil {
+		if deps.TaskFeedback != nil {
 			submitted, err := deps.TaskFeedback.SubmitResultForUserApproval(ctx, cachedTeam, currentTask, result, tools.TaskActor{AgentKey: toAgent})
 			if submitted {
 				if err != nil {
@@ -250,5 +288,37 @@ func resolveTeamTaskOutcome(
 		deps.PostTurn.DispatchUnblockedTasks(ctx, meta.TeamID)
 	}
 
-	return cachedTeam, failNote
+	return cachedTeam, failNote, leadNotice
+}
+
+// composeLeadAnnounce gắn ghi chú của bước sau lượt chạy vào tin báo lead:
+// failNote (task bị failed còn chặn task khác) nối vào cuối, leadNotice (task
+// có contract đang chờ lead xem) đặt ở dòng đầu. Khi trả lời của member bị
+// nén (rỗng hoặc marker im lặng, ok = false) mà có leadNotice thì vẫn báo lead
+// với nội dung chỉ gồm notice: task chờ lead không bị ticker xử lý, bỏ tin này
+// thì task kẹt mãi.
+func composeLeadAnnounce(content string, ok bool, failNote, leadNotice string) (string, bool) {
+	if !ok {
+		if leadNotice == "" {
+			return "", false
+		}
+		return leadNotice, true
+	}
+	content += failNote
+	if leadNotice != "" {
+		content = leadNotice + "\n\n" + content
+	}
+	return content, true
+}
+
+// taskResultMaxRunes là độ dài tối đa (ký tự) của result tự ghi sau lượt chạy.
+const taskResultMaxRunes = 100_000
+
+// truncateTaskResult cắt result theo ký tự (rune), không theo byte, để không
+// cắt đôi ký tự nhiều byte (tiếng Việt, CJK) và result luôn là UTF-8 hợp lệ.
+func truncateTaskResult(result string) string {
+	if utf8.RuneCountInString(result) <= taskResultMaxRunes {
+		return result
+	}
+	return string([]rune(result)[:taskResultMaxRunes]) + "\n[truncated]"
 }

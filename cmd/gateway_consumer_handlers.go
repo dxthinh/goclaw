@@ -267,7 +267,7 @@ func handleTeammateMessage(
 	// Đọc task lỗi ở team bật contract thì không chạy lượt này: kết quả lỗi đi
 	// qua cùng đường hậu xử lý như lượt chạy lỗi (task bị failed, lead được báo),
 	// không tự retry.
-	contractPrompt, contractErr := teammateContractPrompt(ctx, deps.TeamStore, msg.Metadata[tools.MetaTeamID], taskIDStr)
+	contractPrompt, contractMaxIter, contractErr := teammateContractPrompt(ctx, deps.TeamStore, msg.Metadata[tools.MetaTeamID], taskIDStr)
 
 	var outCh <-chan scheduler.RunOutcome
 	if contractErr != nil {
@@ -310,6 +310,8 @@ func handleTeammateMessage(
 			LinkedTraceID:   linkedTraceID,
 
 			ExtraSystemPrompt: contractPrompt,
+			// Giới hạn vòng lặp của contract; chỉ có hiệu lực khi nhỏ hơn giới hạn của agent.
+			MaxIterations: contractMaxIter,
 		})
 	}
 
@@ -342,7 +344,7 @@ func handleTeammateMessage(
 		// Auto-complete/fail the associated team task (v2 only).
 		// Cache team lookup — reused later for announce routing.
 		var cachedTeam *store.TeamData
-		var failNote string
+		var failNote, leadNotice string
 		if taskIDStr := inMeta[tools.MetaTeamTaskID]; taskIDStr != "" {
 			teamTaskID, _ := uuid.Parse(taskIDStr)
 			teamID, _ := uuid.Parse(inMeta[tools.MetaTeamID])
@@ -355,17 +357,16 @@ func handleTeammateMessage(
 					ChatID:   inMeta[tools.MetaOriginChatID],
 					PeerKind: inMeta[tools.MetaOriginPeerKind],
 				}
-				cachedTeam, failNote = resolveTeamTaskOutcome(ctx, deps, outcome, taskActionFlags, meta)
+				cachedTeam, failNote, leadNotice = resolveTeamTaskOutcome(ctx, deps, outcome, taskActionFlags, meta)
 			}
 		}
 
 		// Build announce content from outcome + task comments/attachments.
 		announceContent, announceMedia, ok := buildTeammateAnnounce(ctx, outcome, senderID, inMeta, taskActionFlags.Deliverables, deps)
+		announceContent, ok = composeLeadAnnounce(announceContent, ok, failNote, leadNotice)
 		if !ok {
 			return
 		}
-		// Task vừa bị đánh failed mà còn task khác bị chặn: nêu chúng cho lead.
-		announceContent += failNote
 
 		// Announce result (or failure) to lead agent via announce queue.
 		// Queue merges concurrent completions into a single batched announce.

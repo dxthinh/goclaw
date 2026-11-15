@@ -18,16 +18,28 @@ import (
 // đã yêu cầu task. Task đó chỉ được duyệt ở chat gốc (/approve, /changes) hoặc
 // trên dashboard. Trả result lỗi khi bị chặn; nil khi cho đi tiếp. Lỗi đọc
 // task được trả nguyên để không đi tiếp khi chưa biết task có chờ user không.
-func denyUserCheckpoint(ctx context.Context, teams store.TeamStore, tool string, teamID, taskID uuid.UUID) (*mcpgo.CallToolResult, error) {
+//
+// approving: lời gọi là approve. Task có checkpoint "result" cũng bị chặn dù
+// marker là "lead" hay chưa có: approve ở đây sẽ hoàn thành
+// task và bỏ qua bước user duyệt kết quả mà contract đòi. Lead thông qua bằng
+// team_tasks(action="approve") (chuyển sang chờ user); reject vẫn được phép.
+func denyUserCheckpoint(ctx context.Context, teams store.TeamStore, tool string, teamID, taskID uuid.UUID, approving bool) (*mcpgo.CallToolResult, error) {
 	task, err := getTaskInTeam(ctx, teams, teamID, taskID)
 	if err != nil {
 		return toolError(tool, err)
 	}
-	if tools.TaskCheckpointPending(task) != tools.CheckpointPendingUser {
+	pending := tools.TaskCheckpointPending(task)
+	// Mọi task checkpoint "result" chưa tới lượt user (chờ lead, hoặc vào
+	// in_review không marker qua action review cũ) đều cần user duyệt.
+	needsUser := approving && tools.TaskCheckpoint(task) == tools.TaskContractCheckpointResult
+	if pending != tools.CheckpointPendingUser && !needsUser {
 		return nil, nil
 	}
 	slog.Warn("security.task_approval_denied",
-		"reason", "user_checkpoint_via_mcp", "tool", tool, "channel", "mcp",
+		"reason", "user_checkpoint_via_mcp", "tool", tool, "channel", "mcp", "pending", pending,
 		"team_id", teamID, "task_id", taskID, "task_number", task.TaskNumber)
+	if needsUser {
+		return mcpgo.NewToolResultError(tool + ": the task's result needs the user's approval; the lead accepts it with team_tasks(action=\"approve\"), which forwards it to the user, or the user approves it from the origin chat or the dashboard"), nil
+	}
 	return mcpgo.NewToolResultError(tool + ": task is waiting for the user's approval; it can only be approved or rejected from the origin chat or the dashboard"), nil
 }

@@ -186,6 +186,12 @@ type userApprovalBackend interface {
 // Trả submitted = false khi task không có checkpoint; người gọi hoàn thành
 // task như cũ.
 func SubmitResultForUserApproval(ctx context.Context, b userApprovalBackend, team *store.TeamData, task *store.TeamTaskData, result string, actor TaskActor) (submitted bool, err error) {
+	return submitResultForUserApproval(ctx, b, team, task, result, actor, nil)
+}
+
+// submitResultForUserApproval là SubmitResultForUserApproval kèm extraMeta
+// (ví dụ acceptance_report) được ghi trong cùng câu UPDATE.
+func submitResultForUserApproval(ctx context.Context, b userApprovalBackend, team *store.TeamData, task *store.TeamTaskData, result string, actor TaskActor, extraMeta map[string]any) (submitted bool, err error) {
 	if TaskCheckpoint(task) != TaskContractCheckpointResult {
 		return false, nil
 	}
@@ -193,14 +199,20 @@ func SubmitResultForUserApproval(ctx context.Context, b userApprovalBackend, tea
 	// một câu UPDATE: lỗi thì task vẫn in_progress, không kẹt in_review thiếu
 	// marker (submit lại được, sweeper không đánh stale nhầm).
 	patch := map[string]any{TaskMetaCheckpointPending: CheckpointPendingUser}
+	for k, v := range extraMeta {
+		patch[k] = v
+	}
 	if err := b.Store().SubmitTaskResultForReview(ctx, task.ID, team.ID, result, patch); err != nil {
 		return true, fmt.Errorf("failed to submit result for the user's approval: %w", err)
 	}
 	if task.Metadata == nil {
-		task.Metadata = make(map[string]any)
+		task.Metadata = make(map[string]any, len(patch))
 	}
-	task.Metadata[TaskMetaCheckpointPending] = CheckpointPendingUser
+	for k, v := range patch {
+		task.Metadata[k] = v
+	}
 	task.Status = store.TeamTaskStatusInReview
+	task.Result = &result
 	b.BroadcastTeamEvent(ctx, protocol.EventTeamTaskReviewed, BuildTaskEventPayload(
 		team.ID.String(), task.ID.String(),
 		store.TeamTaskStatusInReview,

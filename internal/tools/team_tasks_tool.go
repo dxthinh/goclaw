@@ -53,6 +53,19 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 				"items":       map[string]any{"type": "string"},
 				"description": "Exact paths of the final files to deliver to the user (for complete). Include files produced by exec or post-processing. Do not list drafts or intermediate files: listed files are sent as they are, and unlisted files are not sent.",
 			},
+			"criteria": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"index":    map[string]any{"type": "integer", "description": "Number of the acceptance criterion in the Task Contract, starting at 1"},
+						"met":      map[string]any{"type": "boolean"},
+						"evidence": map[string]any{"type": "string", "description": "What shows the criterion is met (file, section, count, source) or what is still missing"},
+					},
+					"required": []string{"index", "met"},
+				},
+				"description": "For complete on a task with a Task Contract: one entry per acceptance criterion. If any criterion is missing or not met, the task waits for the lead's review instead of completing.",
+			},
 			"text": map[string]any{
 				"type":        "string",
 				"description": "Text content: comment text, cancel/reject reason, progress update, clarify question, answer to a clarify question, or ask_user reminder question (must be a question asking the user for input/decision)",
@@ -101,7 +114,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"contract": map[string]any{
 				"type":        "object",
-				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note'), checkpoint ('result' when the user must approve the result before the task completes — use only for output that goes straight to the user or outside, or when the user asked to review it first), needs (array of tool groups such as 'web', 'runtime', 'fs', or tool names the assignee must have; checked when the team enables task contracts).",
+				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note'), checkpoint ('result' when the user must approve the result before the task completes — use only for output that goes straight to the user or outside, or when the user asked to review it first), needs (array of tool groups such as 'web', 'runtime', 'fs', or tool names the assignee must have; checked when the team enables task contracts), limits.max_iterations (cap on the assignee's tool iterations for this task; lowered to the assignee's own limit).",
 				"properties": map[string]any{
 					"objective":    map[string]any{"type": "string"},
 					"deliverables": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -112,6 +125,10 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 					"on_unclear":   map[string]any{"type": "string", "enum": []string{TaskContractOnUnclearAsk, TaskContractOnUnclearAssume}},
 					"needs":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"checkpoint":   map[string]any{"type": "string", "enum": []string{TaskContractCheckpointNone, TaskContractCheckpointResult}},
+					"limits": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{"max_iterations": map[string]any{"type": "integer", "minimum": 0}},
+					},
 				},
 			},
 			"assignee": map[string]any{
@@ -145,7 +162,7 @@ func (t *TeamTasksTool) buildActionDescription() string {
 		"get":            "- get: task_id\n",
 		"create":         "- create: subject, description, assignee, contract?, priority?, blocked_by?, require_approval?, task_type?\n",
 		"claim":          "- claim: task_id\n",
-		"complete":       "- complete: task_id?, result\n",
+		"complete":       "- complete: task_id?, result, criteria? (required when the task has a Task Contract: one {index, met, evidence} per acceptance criterion)\n",
 		"cancel":         "- cancel: task_id, text\n",
 		"search":         "- search: query, page?\n",
 		"review":         "- review: task_id\n",
