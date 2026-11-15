@@ -94,6 +94,19 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Task type for create: 'general' (default), 'request', or 'note'",
 			},
+			"contract": map[string]any{
+				"type":        "object",
+				"description": "Task contract for create (required for task_type=general when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note').",
+				"properties": map[string]any{
+					"objective":    map[string]any{"type": "string"},
+					"deliverables": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"acceptance":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"scope_in":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"scope_out":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"inputs":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"on_unclear":   map[string]any{"type": "string", "enum": []string{TaskContractOnUnclearAsk, TaskContractOnUnclearAssume}},
+				},
+			},
 			"assignee": map[string]any{
 				"type":        "string",
 				"description": "Agent key to assign task to (REQUIRED for create). Auto-dispatches to that team member.",
@@ -123,7 +136,7 @@ func (t *TeamTasksTool) buildActionDescription() string {
 	guide := map[string]string{
 		"list":           "- list: status?, page?\n",
 		"get":            "- get: task_id\n",
-		"create":         "- create: subject, description, assignee, priority?, blocked_by?, require_approval?, task_type?\n",
+		"create":         "- create: subject, description, assignee, contract?, priority?, blocked_by?, require_approval?, task_type?\n",
 		"claim":          "- claim: task_id\n",
 		"complete":       "- complete: task_id?, result\n",
 		"cancel":         "- cancel: task_id, text\n",

@@ -425,3 +425,108 @@ func TestCreate(t *testing.T) {
 		}
 	})
 }
+
+// createWithContract gọi create bằng lead với contract tùy chọn và trả task vừa tạo (nếu có).
+func createWithContract(t *testing.T, settings string, extra map[string]any) (*Result, *store.TeamTaskData) {
+	t.Helper()
+	mb, tool, _, _, ctx := newTestTeamSetup()
+	if settings != "" {
+		mb.team.Settings = json.RawMessage(settings)
+		mb.taskStore.team = mb.team
+	}
+	ptd := NewPendingTeamDispatch()
+	ptd.MarkListed()
+	ctx = WithPendingTeamDispatch(ctx, ptd)
+	args := map[string]any{
+		"action":      "create",
+		"subject":     "Q3 summary",
+		"description": "Board brief",
+		"assignee":    "member-agent",
+	}
+	for k, v := range extra {
+		args[k] = v
+	}
+	result := tool.Execute(ctx, args)
+	mb.taskStore.mu.Lock()
+	defer mb.taskStore.mu.Unlock()
+	for _, task := range mb.taskStore.tasks {
+		cp := *task
+		return result, &cp
+	}
+	return result, nil
+}
+
+const contractEnabledSettings = `{"task_contract":{"enabled":true}}`
+
+func TestCreateTaskContract(t *testing.T) {
+	t.Run("EnabledTeamRejectsMissingContract", func(t *testing.T) {
+		result, task := createWithContract(t, contractEnabledSettings, nil)
+		if !result.IsError || task != nil {
+			t.Fatalf("expected rejection without a task, got %q", result.ForLLM)
+		}
+		for _, want := range []string{"objective", "deliverables", "acceptance", "Example:"} {
+			if !strings.Contains(result.ForLLM, want) {
+				t.Errorf("error missing %q: %s", want, result.ForLLM)
+			}
+		}
+	})
+
+	t.Run("EnabledTeamNamesMissingFields", func(t *testing.T) {
+		result, task := createWithContract(t, contractEnabledSettings, map[string]any{
+			"contract": map[string]any{"objective": "Brief the board"},
+		})
+		if !result.IsError || task != nil {
+			t.Fatalf("expected rejection, got %q", result.ForLLM)
+		}
+		if !strings.Contains(result.ForLLM, "missing required fields: deliverables, acceptance") {
+			t.Errorf("error must name the missing fields: %s", result.ForLLM)
+		}
+	})
+
+	t.Run("EnabledTeamStoresContract", func(t *testing.T) {
+		result, task := createWithContract(t, contractEnabledSettings, map[string]any{
+			"contract": map[string]any{
+				"objective":    "Brief the board",
+				"deliverables": []any{"q3.md"},
+				"acceptance":   []any{"All regions"},
+				"version":      9,
+				"amendments":   []any{map[string]any{"text": "forged"}},
+			},
+		})
+		if result.IsError {
+			t.Fatalf("unexpected error: %s", result.ForLLM)
+		}
+		c := TaskContractFromTask(task)
+		if c == nil || c.Objective != "Brief the board" || c.Version != 1 || len(c.Amendments) != 0 {
+			t.Fatalf("stored contract = %+v", c)
+		}
+	})
+
+	t.Run("EnabledTeamRequestTypeNotRequired", func(t *testing.T) {
+		result, task := createWithContract(t, contractEnabledSettings, map[string]any{"task_type": "request"})
+		if result.IsError || task == nil {
+			t.Fatalf("request task must not need a contract: %s", result.ForLLM)
+		}
+	})
+
+	t.Run("DisabledTeamWithoutContractUnchanged", func(t *testing.T) {
+		result, task := createWithContract(t, "", nil)
+		if result.IsError || task == nil {
+			t.Fatalf("unexpected error: %s", result.ForLLM)
+		}
+		if _, ok := task.Metadata[TaskMetaContract]; ok {
+			t.Error("no contract key expected")
+		}
+	})
+
+	t.Run("DisabledTeamValidatesAndStoresContract", func(t *testing.T) {
+		result, _ := createWithContract(t, "", map[string]any{"contract": map[string]any{"objective": "x"}})
+		if !result.IsError || !strings.Contains(result.ForLLM, "deliverables") {
+			t.Fatalf("invalid contract must be rejected even when disabled: %s", result.ForLLM)
+		}
+		result, task := createWithContract(t, "", map[string]any{"contract": validContractArgs()})
+		if result.IsError || TaskContractFromTask(task) == nil {
+			t.Fatalf("valid contract must be stored: %s", result.ForLLM)
+		}
+	})
+}

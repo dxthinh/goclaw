@@ -125,6 +125,11 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		return ErrorResult("team lead cannot assign tasks to itself — delegate to a team member instead. You are the team lead; handle this work directly or assign to one of your members.")
 	}
 
+	contract, errMsg := resolveCreateContract(team, taskType, args["contract"])
+	if errMsg != "" {
+		return ErrorResult(errMsg)
+	}
+
 	requireApproval, _ := args["require_approval"].(bool)
 	status := store.TeamTaskStatusPending
 	if requireApproval {
@@ -150,6 +155,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		UserChatLayer(chatID, shared),
 	)
 	taskMeta[TaskMetaTeamWorkspace] = teamWsDir
+	if contract != nil {
+		taskMeta[TaskMetaContract] = contract.ToMetadata()
+	}
 	// Auto-collect media files from current run to team workspace.
 	// When leader received files from user and creates a task, copy those
 	// files to the team workspace so members can access them via read_file.
@@ -340,4 +348,29 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		}
 	}
 	return NewResult(msg)
+}
+
+// resolveCreateContract đọc và kiểm tra contract của lệnh create. Team đã bật
+// task contract thì task general bắt buộc có contract hợp lệ; team chưa bật mà
+// lead vẫn gửi contract thì contract vẫn được kiểm tra và lưu. Task request và
+// note không bắt buộc. Trả thông báo lỗi cho LLM (tiếng Anh) khi không hợp lệ.
+func resolveCreateContract(team *store.TeamData, taskType string, raw any) (*TaskContract, string) {
+	contract, err := ParseTaskContract(raw)
+	if err != nil {
+		return nil, "invalid contract: " + err.Error() + ". " + taskContractExample
+	}
+	required := TaskContractRequired(team, taskType)
+	if contract == nil {
+		if required {
+			return nil, "This team requires a task contract for every general task. Add contract={objective, deliverables, acceptance}. " + taskContractExample
+		}
+		return nil, ""
+	}
+	// Amendment và version do hệ thống ghi, không nhận từ tham số tool.
+	contract.Amendments = nil
+	contract.Version = 1
+	if err := contract.Validate(); err != nil {
+		return nil, "invalid contract: " + err.Error()
+	}
+	return contract, ""
 }
