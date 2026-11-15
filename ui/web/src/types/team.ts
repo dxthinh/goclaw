@@ -36,6 +36,9 @@ export interface TeamAccessSettings {
   blocker_escalation?: {
     enabled?: boolean;
   };
+  task_contract?: {
+    enabled?: boolean;
+  };
 }
 
 export interface TeamData {
