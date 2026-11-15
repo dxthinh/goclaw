@@ -89,6 +89,17 @@ func TestMCPTasksApproveReject_UserCheckpointDenied(t *testing.T) {
 	isErr, text = call("goclaw_teams_tasks_reject", needsUser.ID)
 	require.False(t, isErr, text)
 
+	// Task cần user duyệt nằm ở in_review không marker (member gọi review ở
+	// đường cũ): approve qua MCP cũng bị chặn.
+	noMarker := &store.TeamTaskData{TeamID: team.ID, Status: store.TeamTaskStatusInReview, Metadata: map[string]any{
+		tools.TaskMetaCheckpoint: tools.TaskContractCheckpointResult,
+	}}
+	require.NoError(t, ts.CreateTask(context.Background(), noMarker))
+	isErr, text = call("goclaw_teams_tasks_approve", noMarker.ID)
+	assert.True(t, isErr, "approve of a reviewed task that needs the user must fail: %s", text)
+	assert.Contains(t, text, "needs the user's approval")
+	assert.Equal(t, []uuid.UUID{leadTask}, ts.approved)
+
 	// Task không thuộc team: lỗi, không chạm store.
 	other := &store.TeamTaskData{TeamID: uuid.New(), Status: store.TeamTaskStatusInReview}
 	require.NoError(t, ts.CreateTask(context.Background(), other))

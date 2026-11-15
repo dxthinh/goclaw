@@ -62,7 +62,7 @@ func (s *SQLiteTeamStore) TransitionTaskCheckpointPending(ctx context.Context, t
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE team_tasks SET metadata = json_patch(COALESCE(metadata, '{}'), ?), updated_at = ?
 		 WHERE id = ? AND team_id = ? AND status = ? AND tenant_id = ?
-		   AND json_extract(metadata, '$.checkpoint_pending') = ?`,
+		   AND COALESCE(json_extract(metadata, '$.checkpoint_pending'), '') = ?`,
 		patch, time.Now(), taskID, teamID, store.TeamTaskStatusInReview, tenantIDForInsert(ctx), from,
 	)
 	if err != nil {

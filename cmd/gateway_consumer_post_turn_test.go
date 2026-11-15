@@ -376,3 +376,20 @@ func TestTruncateTaskResult_RuneSafe(t *testing.T) {
 		t.Error("auto-complete result must be truncated by rune")
 	}
 }
+
+// Trả lời của member bị nén (rỗng hoặc NO_REPLY, ok = false): có leadNotice thì
+// vẫn báo lead với nội dung chỉ gồm notice; không có thì bỏ như cũ.
+func TestComposeLeadAnnounce(t *testing.T) {
+	if got, ok := composeLeadAnnounce("", false, "", "[Task #1 waits for your review]"); !ok || got != "[Task #1 waits for your review]" {
+		t.Errorf("suppressed reply with notice = %q, %v; want the notice alone", got, ok)
+	}
+	if _, ok := composeLeadAnnounce("", false, "", ""); ok {
+		t.Error("suppressed reply without notice must stay suppressed")
+	}
+	if got, ok := composeLeadAnnounce("result", true, "\nfail", "notice"); !ok || got != "notice\n\nresult\nfail" {
+		t.Errorf("normal announce = %q", got)
+	}
+	if got, _ := composeLeadAnnounce("result", true, "", ""); got != "result" {
+		t.Errorf("plain announce = %q", got)
+	}
+}

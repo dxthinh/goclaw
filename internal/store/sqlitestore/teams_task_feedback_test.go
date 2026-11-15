@@ -203,6 +203,10 @@ func TestTeamTaskSQLite_TransitionCheckpointPending(t *testing.T) {
 	if got.Status != store.TeamTaskStatusInReview || got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
 		t.Fatalf("after transition: status=%q meta=%v", got.Status, got.Metadata)
 	}
+	// from rỗng: chỉ khớp task in_review chưa có marker.
+	if err := f.teams.TransitionTaskCheckpointPending(f.ctx, task.ID, f.teamID, "", "user"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("empty from on marked task: err = %v, want conflict", err)
+	}
 	// Task đã completed: không gắn lại marker.
 	if err := f.teams.ApproveTask(f.ctx, task.ID, f.teamID, ""); err != nil {
 		t.Fatalf("ApproveTask: %v", err)
@@ -241,5 +245,24 @@ func TestTeamTaskSQLite_CompleteTaskWithMetadata(t *testing.T) {
 	// Task không còn in_progress: lỗi, metadata không đổi.
 	if err := f.teams.CompleteTaskWithMetadata(f.ctx, plain.ID, f.teamID, "again", map[string]any{"x": 1}); err == nil {
 		t.Fatal("completing a completed task should fail")
+	}
+}
+
+// from rỗng khớp task in_review chưa có marker (vào in_review qua ReviewTask).
+func TestTeamTaskSQLite_TransitionCheckpointPendingFromNoMarker(t *testing.T) {
+	f := newDepFixture(t)
+	task := f.create(t, "reviewed")
+	if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := f.teams.ReviewTask(f.ctx, task.ID, f.teamID); err != nil {
+		t.Fatalf("ReviewTask: %v", err)
+	}
+	if err := f.teams.TransitionTaskCheckpointPending(f.ctx, task.ID, f.teamID, "", "user"); err != nil {
+		t.Fatalf("TransitionTaskCheckpointPending: %v", err)
+	}
+	got, _ := f.teams.GetTask(f.ctx, task.ID)
+	if got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
+		t.Fatalf("meta = %v", got.Metadata)
 	}
 }

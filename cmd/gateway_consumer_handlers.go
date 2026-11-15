@@ -363,14 +363,9 @@ func handleTeammateMessage(
 
 		// Build announce content from outcome + task comments/attachments.
 		announceContent, announceMedia, ok := buildTeammateAnnounce(ctx, outcome, senderID, inMeta, taskActionFlags.Deliverables, deps)
+		announceContent, ok = composeLeadAnnounce(announceContent, ok, failNote, leadNotice)
 		if !ok {
 			return
-		}
-		// Task vừa bị đánh failed mà còn task khác bị chặn: nêu chúng cho lead.
-		announceContent += failNote
-		// Task có contract đang chờ lead xem: nói rõ ở dòng đầu.
-		if leadNotice != "" {
-			announceContent = leadNotice + "\n\n" + announceContent
 		}
 
 		// Announce result (or failure) to lead agent via announce queue.

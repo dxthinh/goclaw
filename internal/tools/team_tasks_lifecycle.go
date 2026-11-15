@@ -250,6 +250,12 @@ func (t *TeamTasksTool) executeReview(ctx context.Context, args map[string]any) 
 	if task.OwnerAgentID == nil || *task.OwnerAgentID != agentID {
 		return ErrorResult("only the task owner can submit for review")
 	}
+	// review chuyển thẳng sang in_review không marker, không báo cáo tiêu chí:
+	// task có contract (team đã bật) hoặc cần user duyệt kết quả phải đi qua
+	// complete để vào đúng cổng nghiệm thu và cổng duyệt của user.
+	if msg := reviewGateRejection(team, task); msg != "" {
+		return ErrorResult(msg)
+	}
 
 	if err := t.manager.Store().ReviewTask(ctx, taskID, team.ID); err != nil {
 		return ErrorResult("failed to submit for review: " + err.Error())
@@ -298,8 +304,9 @@ func (t *TeamTasksTool) executeApprove(ctx context.Context, args map[string]any)
 		return ErrorResult(err.Error())
 	}
 
-	// Task chờ lead xem mà cần user duyệt kết quả: chuyển tiếp cho user.
-	if TaskCheckpointPending(task) == CheckpointPendingLead && TaskCheckpoint(task) == TaskContractCheckpointResult {
+	// Task cần user duyệt kết quả mà chưa tới lượt user (chờ lead, hoặc vào
+	// in_review không marker qua đường cũ): chuyển tiếp cho user, không hoàn thành.
+	if TaskCheckpoint(task) == TaskContractCheckpointResult {
 		return t.forwardLeadReviewToUser(ctx, team, task, agentID)
 	}
 

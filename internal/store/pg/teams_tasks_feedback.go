@@ -60,7 +60,7 @@ func (s *PGTeamStore) TransitionTaskCheckpointPending(ctx context.Context, taskI
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE team_tasks SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = $2
 		 WHERE id = $3 AND team_id = $4 AND status = $5 AND tenant_id = $6
-		   AND metadata->>'checkpoint_pending' = $7`,
+		   AND COALESCE(metadata->>'checkpoint_pending', '') = $7`,
 		patch, time.Now(), taskID, teamID, store.TeamTaskStatusInReview, tenantIDForInsert(ctx), from,
 	)
 	if err != nil {

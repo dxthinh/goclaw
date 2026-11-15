@@ -165,3 +165,36 @@ func TestTeamTask_CompleteTaskWithMetadata(t *testing.T) {
 		t.Fatal("completing a completed task should fail")
 	}
 }
+
+// from rỗng (PG) khớp task in_review chưa có marker, như task vào in_review qua
+// ReviewTask; task đã có marker thì không khớp.
+func TestTeamTask_TransitionCheckpointPendingFromNoMarker(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, memberID := seedTeam(t, db, tenantID, agentID)
+
+	task := makeTask(teamID, "reviewed", store.TeamTaskStatusPending)
+	task.Metadata = map[string]any{"source": "test"}
+	if err := ts.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := ts.ClaimTask(ctx, task.ID, memberID, teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := ts.ReviewTask(ctx, task.ID, teamID); err != nil {
+		t.Fatalf("ReviewTask: %v", err)
+	}
+	if err := ts.TransitionTaskCheckpointPending(ctx, task.ID, teamID, "", "user"); err != nil {
+		t.Fatalf("TransitionTaskCheckpointPending: %v", err)
+	}
+	got, _ := ts.GetTask(ctx, task.ID)
+	if got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
+		t.Fatalf("meta = %v", got.Metadata)
+	}
+	if err := ts.TransitionTaskCheckpointPending(ctx, task.ID, teamID, "", "user"); !errors.Is(err, store.ErrTaskCheckpointConflict) {
+		t.Fatalf("marked task: err = %v, want conflict", err)
+	}
+}

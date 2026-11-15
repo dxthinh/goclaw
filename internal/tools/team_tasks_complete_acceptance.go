@@ -68,14 +68,14 @@ func joinInts(xs []int) string {
 	return strings.Join(parts, ", ")
 }
 
-// forwardLeadReviewToUser xử lý lead approve trên task chờ lead xem mà có
-// checkpoint "result": lead chỉ thông qua phần của mình, task chuyển sang chờ
+// forwardLeadReviewToUser xử lý lead approve trên task in_review có checkpoint
+// "result" chưa tới lượt user (marker "lead" hoặc không marker): lead chỉ thông qua phần của mình, task chuyển sang chờ
 // user duyệt (checkpoint_pending = "user") thay vì completed, để cổng duyệt của
 // user không bị bỏ qua. Trạng thái giữ in_review; marker đổi bằng một câu
-// UPDATE có điều kiện (in_review và marker vẫn là "lead"), nên task đã được
+// UPDATE có điều kiện (in_review và marker vẫn như đã đọc), nên task đã được
 // duyệt hoặc huỷ ở đường khác không bị gắn lại marker, metadata khác không mất.
 func (t *TeamTasksTool) forwardLeadReviewToUser(ctx context.Context, team *store.TeamData, task *store.TeamTaskData, agentID uuid.UUID) *Result {
-	err := t.manager.Store().TransitionTaskCheckpointPending(ctx, task.ID, team.ID, CheckpointPendingLead, CheckpointPendingUser)
+	err := t.manager.Store().TransitionTaskCheckpointPending(ctx, task.ID, team.ID, TaskCheckpointPending(task), CheckpointPendingUser)
 	if errors.Is(err, store.ErrTaskCheckpointConflict) {
 		return ErrorResult(fmt.Sprintf("task #%d is no longer waiting for your review (it was approved, rejected or changed elsewhere); check it with team_tasks(action=\"get\")", task.TaskNumber))
 	}
@@ -96,4 +96,17 @@ func (t *TeamTasksTool) forwardLeadReviewToUser(ctx context.Context, team *store
 	}
 	return NewResult(fmt.Sprintf("Task #%d needs the user's approval of its result, so it is not completed yet. "+
 		"It now waits for the user: /approve %d in the original chat, or the dashboard.", task.TaskNumber, task.TaskNumber))
+}
+
+// reviewGateRejection trả lỗi (tiếng Anh, cho LLM) khi action review không được
+// dùng cho task: task có contract ở team đã bật, hoặc task có checkpoint
+// "result". Trả "" khi review được phép như cũ.
+func reviewGateRejection(team *store.TeamData, task *store.TeamTaskData) string {
+	switch {
+	case GatedTaskContract(team, task) != nil:
+		return fmt.Sprintf("Task #%d has a Task Contract: finish it with team_tasks(action=\"complete\", result=\"...\", criteria=[{\"index\": 1, \"met\": true, \"evidence\": \"...\"}, ...]) instead of review. If a criterion is not met, report it as met=false; the task then waits for the lead's review.", task.TaskNumber)
+	case TaskCheckpoint(task) == TaskContractCheckpointResult:
+		return fmt.Sprintf("Task #%d needs the user's approval of its result: finish it with team_tasks(action=\"complete\", result=\"...\") instead of review; the result is then sent to the user for approval.", task.TaskNumber)
+	}
+	return ""
 }

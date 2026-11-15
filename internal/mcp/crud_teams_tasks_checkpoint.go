@@ -19,8 +19,8 @@ import (
 // trên dashboard. Trả result lỗi khi bị chặn; nil khi cho đi tiếp. Lỗi đọc
 // task được trả nguyên để không đi tiếp khi chưa biết task có chờ user không.
 //
-// approving: lời gọi là approve. Task chờ lead xem (checkpoint_pending =
-// "lead") mà có checkpoint "result" cũng bị chặn: approve ở đây sẽ hoàn thành
+// approving: lời gọi là approve. Task có checkpoint "result" cũng bị chặn dù
+// marker là "lead" hay chưa có: approve ở đây sẽ hoàn thành
 // task và bỏ qua bước user duyệt kết quả mà contract đòi. Lead thông qua bằng
 // team_tasks(action="approve") (chuyển sang chờ user); reject vẫn được phép.
 func denyUserCheckpoint(ctx context.Context, teams store.TeamStore, tool string, teamID, taskID uuid.UUID, approving bool) (*mcpgo.CallToolResult, error) {
@@ -29,8 +29,9 @@ func denyUserCheckpoint(ctx context.Context, teams store.TeamStore, tool string,
 		return toolError(tool, err)
 	}
 	pending := tools.TaskCheckpointPending(task)
-	needsUser := approving && pending == tools.CheckpointPendingLead &&
-		tools.TaskCheckpoint(task) == tools.TaskContractCheckpointResult
+	// Mọi task checkpoint "result" chưa tới lượt user (chờ lead, hoặc vào
+	// in_review không marker qua action review cũ) đều cần user duyệt.
+	needsUser := approving && tools.TaskCheckpoint(task) == tools.TaskContractCheckpointResult
 	if pending != tools.CheckpointPendingUser && !needsUser {
 		return nil, nil
 	}

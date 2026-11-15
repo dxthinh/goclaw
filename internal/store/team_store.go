@@ -273,7 +273,8 @@ type TaskStore interface {
 	// metadata trong cùng câu UPDATE (ví dụ báo cáo tiêu chí nghiệm thu).
 	CompleteTaskWithMetadata(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error
 	// TransitionTaskCheckpointPending đổi metadata.checkpoint_pending từ from
-	// sang to cho task in_review, chỉ khi marker hiện tại đúng là from; các khóa
+	// sang to cho task in_review, chỉ khi marker hiện tại đúng là from (from rỗng
+	// nghĩa là chưa có marker); các khóa
 	// metadata khác giữ nguyên (trộn patch). Trả ErrTaskCheckpointConflict khi
 	// không dòng nào khớp (task đã được duyệt, huỷ hoặc marker đã đổi).
 	TransitionTaskCheckpointPending(ctx context.Context, taskID, teamID uuid.UUID, from, to string) error

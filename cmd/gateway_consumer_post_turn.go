@@ -281,6 +281,26 @@ func resolveTeamTaskOutcome(
 	return cachedTeam, failNote, leadNotice
 }
 
+// composeLeadAnnounce gắn ghi chú của bước sau lượt chạy vào tin báo lead:
+// failNote (task bị failed còn chặn task khác) nối vào cuối, leadNotice (task
+// có contract đang chờ lead xem) đặt ở dòng đầu. Khi trả lời của member bị
+// nén (rỗng hoặc marker im lặng, ok = false) mà có leadNotice thì vẫn báo lead
+// với nội dung chỉ gồm notice: task chờ lead không bị ticker xử lý, bỏ tin này
+// thì task kẹt mãi.
+func composeLeadAnnounce(content string, ok bool, failNote, leadNotice string) (string, bool) {
+	if !ok {
+		if leadNotice == "" {
+			return "", false
+		}
+		return leadNotice, true
+	}
+	content += failNote
+	if leadNotice != "" {
+		content = leadNotice + "\n\n" + content
+	}
+	return content, true
+}
+
 // taskResultMaxRunes là độ dài tối đa (ký tự) của result tự ghi sau lượt chạy.
 const taskResultMaxRunes = 100_000
 

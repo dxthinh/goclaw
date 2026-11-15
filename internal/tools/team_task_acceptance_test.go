@@ -335,3 +335,55 @@ func TestRenderTaskContract_IterationLimit(t *testing.T) {
 		t.Errorf("unexpected limit line:\n%s", out)
 	}
 }
+
+// Member review rồi lead approve: task có contract hoặc cần user duyệt không
+// được vào in_review qua review; task cần user duyệt đã nằm ở in_review không
+// marker (dữ liệu từ đường cũ) thì lead approve chuyển tiếp cho user.
+func TestReviewThenApprove_CannotBypassUserOrAcceptance(t *testing.T) {
+	t.Run("contract task: review refused", func(t *testing.T) {
+		mb, tool, _, _, ctx := newTestTeamSetup()
+		enableContract(mb)
+		taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInProgress, true, "")
+		res := tool.Execute(memberCtx(ctx), map[string]any{"action": "review", "task_id": taskID.String()})
+		if !res.IsError || !strings.Contains(res.ForLLM, "criteria=") {
+			t.Fatalf("review = %q, want refusal pointing to complete with criteria", res.ForLLM)
+		}
+		if got := readTask(mb, taskID); got.Status != store.TeamTaskStatusInProgress {
+			t.Fatalf("status = %q, want in_progress", got.Status)
+		}
+	})
+	t.Run("checkpoint task without contract: review refused", func(t *testing.T) {
+		mb, tool, _, _, ctx := newTestTeamSetup()
+		taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInProgress, false, "")
+		readTask(mb, taskID).Metadata[TaskMetaCheckpoint] = TaskContractCheckpointResult
+		res := tool.Execute(memberCtx(ctx), map[string]any{"action": "review", "task_id": taskID.String()})
+		if !res.IsError || !strings.Contains(res.ForLLM, "user's approval") {
+			t.Fatalf("review = %q, want refusal", res.ForLLM)
+		}
+	})
+	t.Run("plain task: review unchanged", func(t *testing.T) {
+		mb, tool, _, _, ctx := newTestTeamSetup()
+		taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInProgress, false, "")
+		res := tool.Execute(memberCtx(ctx), map[string]any{"action": "review", "task_id": taskID.String()})
+		if res.IsError || readTask(mb, taskID).Status != store.TeamTaskStatusInReview {
+			t.Fatalf("review = %q, want in_review", res.ForLLM)
+		}
+	})
+	t.Run("in_review without marker: lead approve forwards to user", func(t *testing.T) {
+		mb, tool, _, _, ctx := newTestTeamSetup()
+		mb.approvalChannels = map[string]bool{"telegram": true}
+		taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInReview, false, "")
+		readTask(mb, taskID).Metadata[TaskMetaCheckpoint] = TaskContractCheckpointResult
+		res := tool.Execute(ctx, map[string]any{"action": "approve", "task_id": taskID.String()})
+		if res.IsError || !strings.Contains(res.ForLLM, "/approve 7") {
+			t.Fatalf("approve = %q", res.ForLLM)
+		}
+		got := readTask(mb, taskID)
+		if got.Status != store.TeamTaskStatusInReview || TaskCheckpointPending(got) != CheckpointPendingUser {
+			t.Fatalf("status=%q pending=%q, want waiting for user", got.Status, TaskCheckpointPending(got))
+		}
+		if len(mb.approvalNotices) != 1 {
+			t.Errorf("approval notices = %v, want 1", mb.approvalNotices)
+		}
+	})
+}

@@ -483,10 +483,10 @@ func (s *mockTaskStore) TransitionTaskCheckpointPending(_ context.Context, taskI
 	if !ok || t.Status != store.TeamTaskStatusInReview {
 		return store.ErrTaskCheckpointConflict
 	}
-	if cur, _ := t.Metadata[TaskMetaCheckpointPending].(string); cur != from {
+	if cur, _ := t.Metadata[TaskMetaCheckpointPending].(string); cur != from { // from "" = chưa có marker
 		return store.ErrTaskCheckpointConflict
 	}
-	meta := make(map[string]any, len(t.Metadata))
+	meta := make(map[string]any, len(t.Metadata)+1)
 	maps.Copy(meta, t.Metadata)
 	meta[TaskMetaCheckpointPending] = to
 	t.Metadata = meta
