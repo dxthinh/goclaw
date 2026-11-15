@@ -21,33 +21,32 @@ func (m *TeamToolManager) ToolCapabilities() *TeamCapabilityChecker { return m.c
 // teamTaskNeedsChecker là phần mở rộng tùy chọn của TeamToolBackend; backend
 // không cài (mock trong test) thì tool bỏ qua kiểm tra needs.
 type teamTaskNeedsChecker interface {
-	CheckTaskNeeds(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) error
-	AssigneeToolWarning(ctx context.Context, team *store.TeamData, assigneeID uuid.UUID) string
+	// CheckAssignee áp cổng needs; warnHidden=true thì còn trả cảnh báo khi
+	// assignee không dùng được team_tasks. Hai việc dùng chung một lần đọc
+	// assignee và tool bị tắt theo tenant.
+	CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, warnHidden bool) (string, error)
 }
 
 var _ teamTaskNeedsChecker = (*TeamToolManager)(nil)
 
-// CheckTaskNeeds áp cổng needs (xem TeamCapabilityChecker.CheckTaskNeeds) với
-// agent store của manager.
-func (m *TeamToolManager) CheckTaskNeeds(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) error {
-	return m.capabilities.CheckTaskNeeds(ctx, m.agentStore, team, members, contract, assigneeID)
-}
-
-// AssigneeToolWarning trả cảnh báo (tiếng Anh, cho LLM) khi policy của
-// assignee ẩn team_tasks: member đó không báo tiến độ hay bình luận được trên
-// task. Chỉ kiểm ở team đã bật task_contract; rỗng khi không có gì cần báo.
-func (m *TeamToolManager) AssigneeToolWarning(ctx context.Context, team *store.TeamData, assigneeID uuid.UUID) string {
-	if m.capabilities == nil || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
-		return ""
+// CheckAssignee áp cổng needs (xem TeamCapabilityChecker.CheckTaskNeeds) với
+// agent store của manager, và khi warnHidden thì trả thêm cảnh báo team_tasks
+// bị ẩn. Chỉ làm ở team đã bật task_contract. Danh sách tool bị tắt theo
+// tenant được đọc tối đa một lần cho cả hai việc.
+func (m *TeamToolManager) CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, warnHidden bool) (string, error) {
+	assignee, disabled, err := m.capabilities.checkTaskNeeds(ctx, m.agentStore, team, members, contract, assigneeID)
+	if err != nil || !warnHidden || m.capabilities == nil || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
+		return "", err
 	}
-	ag, err := m.cachedGetAgentByID(ctx, assigneeID)
-	if err != nil || ag == nil {
-		return ""
+	if assignee == nil {
+		// Không có needs nên cổng chưa đọc gì: lấy assignee từ cache, đọc tool bị tắt một lần.
+		ag, err := m.cachedGetAgentByID(ctx, assigneeID)
+		if err != nil || ag == nil {
+			return "", nil
+		}
+		assignee, disabled = ag, m.capabilities.TenantDisabledTools(ctx, ag.TenantID)
 	}
-	if m.capabilities.EffectiveTools(ag, m.capabilities.TenantDisabledTools(ctx, ag.TenantID))["team_tasks"] {
-		return ""
-	}
-	return "Warning: the assignee's tool policy hides team_tasks, so it cannot report progress or comment on this task. Ask an admin to allow team_tasks for " + ag.AgentKey + "."
+	return m.capabilities.HiddenTeamTasksWarning(assignee, disabled), nil
 }
 
 // checkTaskNeedsFromBackend gọi cổng needs khi backend hỗ trợ.
@@ -56,5 +55,6 @@ func checkTaskNeedsFromBackend(ctx context.Context, backend TeamToolBackend, tea
 	if !ok {
 		return nil
 	}
-	return c.CheckTaskNeeds(ctx, team, members, contract, assigneeID)
+	_, err := c.CheckAssignee(ctx, team, members, contract, assigneeID, false)
+	return err
 }

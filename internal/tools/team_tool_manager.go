@@ -31,11 +31,11 @@ type TeamToolManager struct {
 	teamStore     store.TeamStore
 	agentStore    store.AgentStore
 	msgBus        *bus.MessageBus
-	dataDir       string   // base data directory for workspace path resolution
-	teamCache     sync.Map // agentID (uuid.UUID) → *teamCacheEntry
-	agentCache    sync.Map // agentID (uuid.UUID) → *agentCacheEntry
-	agentKeyCache sync.Map // agentKey (string) → *agentCacheEntry
-	dispatchLocks sync.Map // teamID (uuid.UUID) → *sync.Mutex; tuần tự hóa dispatch theo team
+	dataDir       string                 // base data directory for workspace path resolution
+	teamCache     sync.Map               // agentID (uuid.UUID) → *teamCacheEntry
+	agentCache    sync.Map               // agentID (uuid.UUID) → *agentCacheEntry
+	agentKeyCache sync.Map               // agentKey (string) → *agentCacheEntry
+	dispatchLocks sync.Map               // teamID (uuid.UUID) → *sync.Mutex; tuần tự hóa dispatch theo team
 	capabilities  *TeamCapabilityChecker // nil: bỏ qua kiểm tra needs của contract (xem SetToolPolicy)
 }
 
@@ -50,8 +50,8 @@ func NewTeamToolManager(teamStore store.TeamStore, agentStore store.AgentStore, 
 // (WorkspaceInterceptor, PostTurnProcessor, etc.).
 // ============================================================
 
-func (m *TeamToolManager) Store() store.TeamStore                { return m.teamStore }
-func (m *TeamToolManager) DataDir() string                       { return m.dataDir }
+func (m *TeamToolManager) Store() store.TeamStore { return m.teamStore }
+func (m *TeamToolManager) DataDir() string        { return m.dataDir }
 func (m *TeamToolManager) TryPublishInbound(msg bus.InboundMessage) bool {
 	if m.msgBus == nil {
 		return false

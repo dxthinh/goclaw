@@ -246,12 +246,8 @@ type capabilityBackend struct {
 	agents  store.AgentStore
 }
 
-func (b *capabilityBackend) CheckTaskNeeds(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) error {
-	return b.checker.CheckTaskNeeds(ctx, b.agents, team, members, contract, assigneeID)
-}
-
-func (b *capabilityBackend) AssigneeToolWarning(context.Context, *store.TeamData, uuid.UUID) string {
-	return ""
+func (b *capabilityBackend) CheckAssignee(ctx context.Context, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID, _ bool) (string, error) {
+	return "", b.checker.CheckTaskNeeds(ctx, b.agents, team, members, contract, assigneeID)
 }
 
 func TestCreateTaskNeeds(t *testing.T) {
@@ -367,5 +363,55 @@ func TestCapabilityTenantDisabledTools(t *testing.T) {
 	}
 	if diff := c.MemberToolGroupDiff(agents.agents[1:], map[string]bool{"web_fetch": true}); slices.Contains(diff[capWebID], "web") {
 		t.Errorf("web must not be listed for anyone once web_fetch is disabled, got %v", diff)
+	}
+}
+
+func (s *capAgentStore) GetByID(_ context.Context, id uuid.UUID) (*store.AgentData, error) {
+	for i := range s.agents {
+		if s.agents[i].ID == id {
+			a := s.agents[i]
+			return &a, nil
+		}
+	}
+	return nil, errors.New("agent not found")
+}
+
+// TestManagerCheckAssigneeReadsTenantConfigOnce: cổng needs và cảnh báo
+// team_tasks dùng chung một lần đọc tool bị tắt theo tenant.
+func TestManagerCheckAssigneeReadsTenantConfigOnce(t *testing.T) {
+	ctx := context.Background()
+	team, members, agents := capTeam(contractEnabledSettings)
+	for i := range agents.agents {
+		agents.agents[i].TenantID = testTenantID
+	}
+	cfgs := &capTenantCfgs{}
+	c := newCapabilityChecker(t)
+	m := NewTeamToolManager(nil, agents, nil, t.TempDir())
+	m.SetToolPolicy(c.pe, c.reg, cfgs)
+
+	// Có needs: writer đủ read_file nhưng không có team_tasks nên bị cảnh báo.
+	w, err := m.CheckAssignee(ctx, team, members, &TaskContract{Needs: []string{"read_file"}}, capNarrowID, true)
+	if err != nil || !strings.Contains(w, "hides team_tasks") || cfgs.calls != 1 {
+		t.Fatalf("with needs: warning=%q err=%v calls=%d, want warning and 1 read", w, err, cfgs.calls)
+	}
+	// Không có needs: vẫn cảnh báo, vẫn chỉ một lần đọc.
+	cfgs.calls = 0
+	w, err = m.CheckAssignee(ctx, team, members, nil, capNarrowID, true)
+	if err != nil || w == "" || cfgs.calls != 1 {
+		t.Fatalf("without needs: warning=%q err=%v calls=%d", w, err, cfgs.calls)
+	}
+	// Tenant tắt team_tasks: researcher cũng bị cảnh báo.
+	cfgs.calls, cfgs.disabled = 0, []string{"team_tasks"}
+	if w, _ := m.CheckAssignee(ctx, team, members, &TaskContract{Needs: []string{"web"}}, capWebID, true); w == "" || cfgs.calls != 1 {
+		t.Errorf("tenant-disabled team_tasks must warn with one read, warning=%q calls=%d", w, cfgs.calls)
+	}
+	// Retry (không cảnh báo) và team chưa bật: không đọc thừa.
+	cfgs.calls = 0
+	if _, err := m.CheckAssignee(ctx, team, members, nil, capWebID, false); err != nil || cfgs.calls != 0 {
+		t.Errorf("no needs and no warning must not read tenant config, calls=%d", cfgs.calls)
+	}
+	disabledTeam, _, _ := capTeam("")
+	if w, err := m.CheckAssignee(ctx, disabledTeam, members, &TaskContract{Needs: []string{"web"}}, capNoWebID, true); w != "" || err != nil || cfgs.calls != 0 {
+		t.Errorf("disabled team must be untouched, w=%q err=%v calls=%d", w, err, cfgs.calls)
 	}
 }

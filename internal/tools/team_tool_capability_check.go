@@ -33,15 +33,24 @@ func (e *TaskNeedsError) Error() string {
 // có needs; ngoài ra trả nil, không truy vấn gì. Trả lỗi của ValidateNeeds khi
 // needs có tên lạ, *TaskNeedsError khi assignee thiếu tool.
 func (c *TeamCapabilityChecker) CheckTaskNeeds(ctx context.Context, agents store.AgentStore, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) error {
+	_, _, err := c.checkTaskNeeds(ctx, agents, team, members, contract, assigneeID)
+	return err
+}
+
+// checkTaskNeeds là phần thân của CheckTaskNeeds. Khi đã thật sự kiểm (có
+// needs, assignee tồn tại), trả thêm dữ liệu assignee và tập tool tenant đã
+// tắt vừa đọc, để người gọi dùng lại thay vì query lần nữa; ngoài ra assignee
+// là nil.
+func (c *TeamCapabilityChecker) checkTaskNeeds(ctx context.Context, agents store.AgentStore, team *store.TeamData, members []store.TeamMemberData, contract *TaskContract, assigneeID uuid.UUID) (*store.AgentData, map[string]bool, error) {
 	if contract == nil || len(contract.Needs) == 0 || team == nil || !ParseTaskContractConfig(team.Settings).Enabled {
-		return nil
+		return nil, nil, nil
 	}
 	if c == nil || agents == nil {
 		slog.Warn("team.task_needs_check_skipped", "team_id", team.ID, "reason", "tool policy not wired")
-		return nil
+		return nil, nil, nil
 	}
 	if err := c.ValidateNeeds(contract.Needs); err != nil {
-		return err
+		return nil, nil, err
 	}
 	ids := []uuid.UUID{assigneeID}
 	for _, m := range members {
@@ -51,24 +60,35 @@ func (c *TeamCapabilityChecker) CheckTaskNeeds(ctx context.Context, agents store
 	}
 	data, err := agents.GetByIDs(ctx, ids)
 	if err != nil {
-		return fmt.Errorf("failed to load member tool settings: %w", err)
+		return nil, nil, fmt.Errorf("failed to load member tool settings: %w", err)
 	}
 	idx := slices.IndexFunc(data, func(a store.AgentData) bool { return a.ID == assigneeID })
 	if idx < 0 {
-		return nil // assignee không tồn tại: các kiểm tra khác đã/ sẽ báo lỗi
+		return nil, nil, nil // assignee không tồn tại: các kiểm tra khác đã/ sẽ báo lỗi
 	}
 	// Tool bị tắt ở tenant bị bỏ lúc chạy, nên cũng bị bỏ ở đây. Mọi member
 	// cùng tenant với assignee; chỉ đọc khi đã chắc phải kiểm needs.
-	disabled := c.TenantDisabledTools(ctx, data[idx].TenantID)
-	missing := c.MissingNeeds(&data[idx], contract.Needs, disabled)
+	assignee := &data[idx]
+	disabled := c.TenantDisabledTools(ctx, assignee.TenantID)
+	missing := c.MissingNeeds(assignee, contract.Needs, disabled)
 	if len(missing) == 0 {
-		return nil
+		return assignee, disabled, nil
 	}
-	return &TaskNeedsError{
-		Assignee:   data[idx].AgentKey,
+	return assignee, disabled, &TaskNeedsError{
+		Assignee:   assignee.AgentKey,
 		Missing:    missing,
 		Satisfying: c.MembersSatisfying(data, contract.Needs, disabled, assigneeID, team.LeadAgentID),
 	}
+}
+
+// HiddenTeamTasksWarning trả cảnh báo (tiếng Anh, cho LLM) khi policy của
+// agent, sau khi bỏ tool tenant đã tắt, ẩn team_tasks: member đó không báo
+// tiến độ hay bình luận được trên task. Rỗng khi team_tasks vẫn dùng được.
+func (c *TeamCapabilityChecker) HiddenTeamTasksWarning(agent *store.AgentData, disabled map[string]bool) string {
+	if c == nil || agent == nil || c.EffectiveTools(agent, disabled)["team_tasks"] {
+		return ""
+	}
+	return "Warning: the assignee's tool policy hides team_tasks, so it cannot report progress or comment on this task. Ask an admin to allow team_tasks for " + agent.AgentKey + "."
 }
 
 // CheckTaskNeedsInTeam giống CheckTaskNeeds nhưng tự đọc danh sách member từ

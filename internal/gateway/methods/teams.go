@@ -24,7 +24,7 @@ type TeamsMethods struct {
 	agentRouter *agent.Router        // for cache invalidation
 	msgBus      *bus.MessageBus      // for pub/sub cache invalidation
 	eventBus    bus.EventPublisher
-	dataDir string // workspace data directory for resolving file paths
+	dataDir     string                       // workspace data directory for resolving file paths
 	toolCaps    *tools.TeamCapabilityChecker // nil: bỏ qua kiểm tra contract.needs
 }
 

@@ -57,7 +57,7 @@ type CRUDDeps struct {
 	RunTimeline       store.RunTimelineStore
 
 	// Phase 2: subsystem-backed tool families.
-	Teams            store.TeamStore
+	Teams store.TeamStore
 	// TeamCapabilities kiểm tra contract.needs khi giao task (nil: bỏ qua).
 	TeamCapabilities *tools.TeamCapabilityChecker
 	ChannelInstances store.ChannelInstanceStore
