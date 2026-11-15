@@ -29,7 +29,7 @@ func resolveTaskCreateContract(locale string, team *store.TeamData, raw map[stri
 }
 
 // taskAssignContractError trả lỗi đã dịch khi team bật task_contract mà task
-// general sắp được giao hoặc retry chưa có contract hợp lệ. Rỗng khi được phép.
+// thuộc loại bắt buộc (mọi loại trừ request, note) sắp được giao hoặc retry chưa có contract hợp lệ. Rỗng khi được phép.
 func taskAssignContractError(locale string, team *store.TeamData, task *store.TeamTaskData) string {
 	err := tools.CheckTaskContractForAssign(team, task)
 	switch {

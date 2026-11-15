@@ -115,7 +115,7 @@ func (t *TeamTasksTool) executeRetry(ctx context.Context, args map[string]any) *
 	if *task.OwnerAgentID == team.LeadAgentID {
 		return ErrorResult("cannot retry task assigned to the team lead — reassign to a team member first via update")
 	}
-	// Team bắt buộc contract: không dispatch lại task general chưa có contract hợp lệ.
+	// Team bắt buộc contract: không dispatch lại task loại bắt buộc chưa có contract hợp lệ.
 	if err := CheckTaskContractForAssign(team, task); err != nil {
 		return ErrorResult("cannot retry: " + err.Error())
 	}

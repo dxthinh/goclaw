@@ -509,10 +509,10 @@ func TestCreateTaskContract(t *testing.T) {
 		}
 	})
 
-	t.Run("EnabledTeamEscalationTypeNotRequired", func(t *testing.T) {
+	t.Run("EnabledTeamAssignedEscalationRequired", func(t *testing.T) {
 		result, task := createWithContract(t, contractEnabledSettings, map[string]any{"task_type": "escalation"})
-		if result.IsError || task == nil {
-			t.Fatalf("escalation task must not need a contract: %s", result.ForLLM)
+		if !result.IsError || task != nil {
+			t.Fatalf("assigned escalation task must need a contract, got %q", result.ForLLM)
 		}
 	})
 

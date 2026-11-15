@@ -9,8 +9,8 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
-// TaskContractConfig bật Task Contract cho một team. Khi bật, task loại
-// general phải kèm contract hợp lệ mới được tạo hoặc giao cho member.
+// TaskContractConfig bật Task Contract cho một team. Khi bật, mọi task trừ
+// loại request và note phải kèm contract hợp lệ mới được giao cho member.
 type TaskContractConfig struct {
 	Enabled bool `json:"enabled"` // mặc định: false
 }
@@ -63,16 +63,14 @@ func NormalizeCreateTaskType(taskType string) (string, error) {
 }
 
 // TaskContractRequired cho biết task loại taskType của team có bắt buộc
-// contract hay không khi team đã bật task_contract. Được miễn: request, note
-// và escalation (task duyệt của người, không phải việc giao cho member). Mọi
-// loại khác, gồm general, delegation, rỗng và giá trị lạ từ dữ liệu cũ, đều
-// bắt buộc để cổng không bị né bằng một task_type gõ sai.
+// contract hay không khi team đã bật task_contract. Chỉ request và note được
+// miễn. Mọi loại khác (general, delegation, escalation, rỗng và giá trị lạ từ
+// dữ liệu cũ) đều bắt buộc, để cổng không bị né bằng cách đổi task_type rồi
+// giao cho member. Task escalation do createEscalationTask tạo không có
+// assignee và chỉ đi qua approve/reject, không qua cổng giao, nên luồng duyệt
+// không bị ảnh hưởng.
 func TaskContractRequired(team *store.TeamData, taskType string) bool {
-	if team == nil {
-		return false
-	}
-	switch taskType {
-	case TaskTypeRequest, TaskTypeNote, TaskTypeEscalation:
+	if team == nil || taskType == TaskTypeRequest || taskType == TaskTypeNote {
 		return false
 	}
 	return ParseTaskContractConfig(team.Settings).Enabled
@@ -82,8 +80,8 @@ func TaskContractRequired(team *store.TeamData, taskType string) bool {
 var ErrTaskContractMissing = errors.New("this team requires a task contract (objective, deliverables, acceptance) before the task can be assigned or dispatched")
 
 // CheckTaskContractForAssign kiểm tra task sắp được giao hoặc dispatch lại có
-// chủ ý (assign, retry) ở team đã bật task_contract: task general phải có
-// contract hợp lệ. Trả ErrTaskContractMissing khi chưa có, lỗi Validate khi
+// chủ ý (assign, retry) ở team đã bật task_contract: task thuộc loại bắt
+// buộc (xem TaskContractRequired) phải có contract hợp lệ. Trả ErrTaskContractMissing khi chưa có, lỗi Validate khi
 // contract sai, nil khi được phép hoặc team không bắt buộc.
 func CheckTaskContractForAssign(team *store.TeamData, task *store.TeamTaskData) error {
 	if task == nil || !TaskContractRequired(team, task.TaskType) {

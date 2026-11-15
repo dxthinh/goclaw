@@ -221,11 +221,8 @@ func TestParseTaskContractConfig(t *testing.T) {
 	if TaskContractRequired(team, "request") || TaskContractRequired(team, "note") || TaskContractRequired(nil, "general") {
 		t.Error("request/note tasks and nil team must not require a contract")
 	}
-	if TaskContractRequired(team, "escalation") {
-		t.Error("escalation (human review) tasks must not require a contract")
-	}
-	// delegation, task_type gõ sai hoặc loại lạ không được né cổng contract.
-	for _, typ := range []string{"delegation", "generl", "General", "request "} {
+	// delegation, escalation, task_type gõ sai hoặc loại lạ không được né cổng contract.
+	for _, typ := range []string{"delegation", "escalation", "generl", "General", "request "} {
 		if !TaskContractRequired(team, typ) {
 			t.Errorf("task_type %q must require a contract on an enabled team", typ)
 		}
