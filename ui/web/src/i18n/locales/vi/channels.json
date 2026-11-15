@@ -109,6 +109,8 @@
     "behaviorDesc": "Cấu hình hành vi phản hồi",
     "accessControl": "Kiểm soát truy cập",
     "accessControlDesc": "Giới hạn truy cập người dùng",
+    "teamTaskApproval": "Duyệt task của team",
+    "teamTaskApprovalDesc": "Cho user duyệt kết quả task của team bằng /approve và /changes ngay trong chat đã yêu cầu",
     "telegramManagement": "Quản trị Telegram",
     "telegramManagementDesc": "Bật tool ẩn và chọn quyền thao tác Telegram cho agent chạy qua channel này",
     "discordMetadata": "Metadata Discord",

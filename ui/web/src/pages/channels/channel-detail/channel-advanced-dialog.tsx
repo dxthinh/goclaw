@@ -32,6 +32,8 @@ const STREAMING_KEYS = new Set(["dm_stream", "group_stream", "draft_transport", 
 const BEHAVIOR_KEYS = new Set(["reaction_level", "link_preview", "render_mode", "topic_session_mode"]);
 const ACCESS_KEYS = new Set(["allow_from", "group_allow_from"]);
 const TELEGRAM_MANAGEMENT_KEYS = new Set(["telegram_manager.enabled", "telegram_manager.allowed_actions"]);
+// Duyệt kết quả task của team bằng /approve, /changes (chỉ kênh Telegram có field này).
+const TEAM_TASK_APPROVAL_KEYS = new Set(["task_approval.enabled"]);
 
 export function getAdvancedFields(channelType: string) {
   const allFields = configSchema[channelType] ?? [];
@@ -43,6 +45,7 @@ export function getAdvancedFields(channelType: string) {
     behavior: advanced.filter((f) => BEHAVIOR_KEYS.has(f.key) || f.key.startsWith("chat_behavior.")),
     access: advanced.filter((f) => ACCESS_KEYS.has(f.key)),
     telegramManagement: advanced.filter((f) => TELEGRAM_MANAGEMENT_KEYS.has(f.key)),
+    teamTaskApproval: advanced.filter((f) => TEAM_TASK_APPROVAL_KEYS.has(f.key)),
   };
 }
 
@@ -218,6 +221,21 @@ export function ChannelAdvancedDialog({
                 values={values}
                 onChange={handleChange}
                 idPrefix="adv-tgm"
+              />
+            </>
+          )}
+
+          {groups.teamTaskApproval.length > 0 && (
+            <>
+              <ConfigGroupHeader
+                title={t("detail.teamTaskApproval")}
+                description={t("detail.teamTaskApprovalDesc")}
+              />
+              <ChannelFields
+                fields={groups.teamTaskApproval}
+                values={values}
+                onChange={handleChange}
+                idPrefix="adv-tta"
               />
             </>
           )}

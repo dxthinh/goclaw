@@ -110,6 +110,8 @@
     "behaviorDesc": "Response behavior configuration",
     "accessControl": "Access Control",
     "accessControlDesc": "User access restrictions",
+    "teamTaskApproval": "Team task approval",
+    "teamTaskApprovalDesc": "Let the user approve team task results with /approve and /changes in the chat where they asked",
     "telegramManagement": "Telegram Management",
     "telegramManagementDesc": "Enable the hidden tool and choose Telegram actions for agents using this channel",
     "discordMetadata": "Discord Metadata",

@@ -109,6 +109,8 @@
     "behaviorDesc": "响应行为配置",
     "accessControl": "访问控制",
     "accessControlDesc": "用户访问限制",
+    "teamTaskApproval": "团队任务审批",
+    "teamTaskApprovalDesc": "允许用户在发起请求的聊天中用 /approve 和 /changes 审批团队任务结果",
     "telegramManagement": "Telegram 管理",
     "telegramManagementDesc": "为使用此频道的 Agent 启用隐藏工具并选择 Telegram 操作权限",
     "discordMetadata": "Discord 元数据",
