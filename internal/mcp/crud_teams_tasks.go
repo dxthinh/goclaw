@@ -10,6 +10,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/nextlevelbuilder/goclaw/internal/store"
+	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
 // maxTaskCommentLength mirrors internal/gateway/methods/teams_tasks_mutations.go's
@@ -49,6 +50,7 @@ func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore
 		mcpgo.WithNumber("priority", mcpgo.Description("Task priority.")),
 		mcpgo.WithString("task_type", mcpgo.Description("Task type; defaults to \"general\".")),
 		mcpgo.WithString("assign_to", mcpgo.Description("Agent UUID to assign immediately after creation.")),
+		mcpgo.WithObject("contract", mcpgo.Description("Task contract: objective (string), deliverables (array), acceptance (array), optional scope_in, scope_out, inputs, on_unclear. Required with assign_to for general tasks when the team enables task_contract.")),
 		mcpgo.WithString("channel", mcpgo.Description("Origin channel; defaults to \"dashboard\".")),
 		mcpgo.WithString("chat_id", mcpgo.Description("Origin chat ID; defaults to the team ID.")),
 	), handleTeamsTasksCreate(teams))
@@ -221,6 +223,22 @@ func handleTeamsTasksCreate(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		taskType := req.GetString("task_type", "general")
 		channel := req.GetString("channel", "dashboard")
 		chatID := req.GetString("chat_id", teamID.String())
+		assignTo := req.GetString("assign_to", "")
+
+		contract, err := tools.NewTaskContractFromInput(req.GetArguments()["contract"])
+		if err != nil {
+			return toolError("teams.tasks.create", fmt.Errorf("invalid contract: %w", err))
+		}
+		// Cùng cổng với teams.tasks.create của dashboard: chỉ bắt buộc khi giao ngay.
+		if contract == nil && assignTo != "" {
+			team, err := getTeamForContract(ctx, teams, teamID)
+			if err != nil {
+				return toolError("teams.tasks.create", err)
+			}
+			if tools.TaskContractRequired(team, taskType) {
+				return toolError("teams.tasks.create", tools.ErrTaskContractMissing)
+			}
+		}
 
 		task := &store.TeamTaskData{
 			TeamID:      teamID,
@@ -232,11 +250,14 @@ func handleTeamsTasksCreate(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 			Channel:     channel,
 			ChatID:      chatID,
 		}
+		if contract != nil {
+			task.Metadata = map[string]any{tools.TaskMetaContract: contract.ToMetadata()}
+		}
 		if err := teams.CreateTask(ctx, task); err != nil {
 			return toolError("teams.tasks.create", err)
 		}
 
-		if assignTo := req.GetString("assign_to", ""); assignTo != "" {
+		if assignTo != "" {
 			if agentID, err := uuid.Parse(assignTo); err == nil {
 				if err := teams.AssignTask(ctx, task.ID, agentID, teamID); err == nil {
 					task.Status = store.TeamTaskStatusInProgress
@@ -305,7 +326,15 @@ func handleTeamsTasksAssign(teams store.TeamStore, agents store.AgentStore) mcps
 		if err != nil {
 			return toolError("teams.tasks.assign", fmt.Errorf("invalid agent_id: %w", err))
 		}
-		if _, err := getTaskInTeam(ctx, teams, teamID, taskID); err != nil {
+		task, err := getTaskInTeam(ctx, teams, teamID, taskID)
+		if err != nil {
+			return toolError("teams.tasks.assign", err)
+		}
+		team, err := getTeamForContract(ctx, teams, teamID)
+		if err != nil {
+			return toolError("teams.tasks.assign", err)
+		}
+		if err := tools.CheckTaskContractForAssign(team, task); err != nil {
 			return toolError("teams.tasks.assign", err)
 		}
 		if err := teams.AssignTask(ctx, taskID, agentID, teamID); err != nil {
@@ -427,4 +456,17 @@ func handleTeamsTasksComments(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		}
 		return jsonToolResult(map[string]any{"comments": comments})
 	}
+}
+
+// getTeamForContract đọc team để áp cổng contract. Store trả nil không kèm lỗi
+// thì coi là team không tồn tại, để không tạo hay giao task mà bỏ qua kiểm tra.
+func getTeamForContract(ctx context.Context, teams store.TeamStore, teamID uuid.UUID) (*store.TeamData, error) {
+	team, err := teams.GetTeam(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	if team == nil {
+		return nil, fmt.Errorf("team not found")
+	}
+	return team, nil
 }

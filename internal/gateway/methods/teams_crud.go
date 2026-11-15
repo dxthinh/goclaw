@@ -297,53 +297,17 @@ func (m *TeamsMethods) handleUpdate(ctx context.Context, client *gateway.Client,
 		return
 	}
 
-	// Validate settings against teamAccessSettings schema (strip unknown fields).
-	// CRITICAL: version field MUST be here — otherwise it gets stripped on save.
-	type teamAccessSettings struct {
-		Version               *int     `json:"version,omitempty"`
-		AllowUserIDs          []string `json:"allow_user_ids"`
-		DenyUserIDs           []string `json:"deny_user_ids"`
-		AllowChannels         []string `json:"allow_channels"`
-		DenyChannels          []string `json:"deny_channels"`
-		ProgressNotifications *bool    `json:"progress_notifications,omitempty"`
-		FollowupIntervalMins  *int     `json:"followup_interval_minutes,omitempty"`
-		FollowupMaxReminders  *int     `json:"followup_max_reminders,omitempty"`
-		EscalationMode        string   `json:"escalation_mode,omitempty"`
-		EscalationActions     []string `json:"escalation_actions,omitempty"`
-		WorkspaceScope        string   `json:"workspace_scope,omitempty"`
-		WorkspaceQuotaMB      *int     `json:"workspace_quota_mb,omitempty"`
-		Notifications *struct {
-			Dispatched *bool  `json:"dispatched,omitempty"`
-			Progress   *bool  `json:"progress,omitempty"`
-			Failed     *bool  `json:"failed,omitempty"`
-			Completed  *bool  `json:"completed,omitempty"`
-			Commented  *bool  `json:"commented,omitempty"`
-			NewTask    *bool  `json:"new_task,omitempty"`
-			SlowTool   *bool  `json:"slow_tool,omitempty"`
-			Mode       string `json:"mode,omitempty"`
-		} `json:"notifications,omitempty"`
-		MemberRequests *struct {
-			Enabled      *bool `json:"enabled,omitempty"`
-			AutoDispatch *bool `json:"auto_dispatch,omitempty"`
-		} `json:"member_requests,omitempty"`
-		BlockerEscalation *struct {
-			Enabled *bool `json:"enabled,omitempty"`
-		} `json:"blocker_escalation,omitempty"`
-	}
-
 	updates := map[string]any{}
 
 	// Only touch settings when client actually sent the field. Otherwise partial
 	// updates (e.g. rename-only via inline edit) would wipe existing settings.
 	if params.Settings != nil {
-		raw, _ := json.Marshal(*params.Settings)
-		var access teamAccessSettings
-		if err := json.Unmarshal(raw, &access); err != nil {
+		cleaned, err := cleanTeamSettings(*params.Settings)
+		if err != nil {
 			client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, i18n.T(locale, i18n.MsgInvalidRequest, err.Error())))
 			return
 		}
-		cleaned, _ := json.Marshal(access)
-		updates["settings"] = json.RawMessage(cleaned)
+		updates["settings"] = cleaned
 	}
 
 	if params.Name != "" {
@@ -528,4 +492,53 @@ func (m *TeamsMethods) invalidateTeamCaches(ctx context.Context, teamID uuid.UUI
 		}
 	}
 	m.emitTeamCacheInvalidate()
+}
+
+// Validate settings against teamAccessSettings schema (strip unknown fields).
+// CRITICAL: version field MUST be here — otherwise it gets stripped on save.
+type teamAccessSettings struct {
+	Version               *int     `json:"version,omitempty"`
+	AllowUserIDs          []string `json:"allow_user_ids"`
+	DenyUserIDs           []string `json:"deny_user_ids"`
+	AllowChannels         []string `json:"allow_channels"`
+	DenyChannels          []string `json:"deny_channels"`
+	ProgressNotifications *bool    `json:"progress_notifications,omitempty"`
+	FollowupIntervalMins  *int     `json:"followup_interval_minutes,omitempty"`
+	FollowupMaxReminders  *int     `json:"followup_max_reminders,omitempty"`
+	EscalationMode        string   `json:"escalation_mode,omitempty"`
+	EscalationActions     []string `json:"escalation_actions,omitempty"`
+	WorkspaceScope        string   `json:"workspace_scope,omitempty"`
+	WorkspaceQuotaMB      *int     `json:"workspace_quota_mb,omitempty"`
+	Notifications         *struct {
+		Dispatched *bool  `json:"dispatched,omitempty"`
+		Progress   *bool  `json:"progress,omitempty"`
+		Failed     *bool  `json:"failed,omitempty"`
+		Completed  *bool  `json:"completed,omitempty"`
+		Commented  *bool  `json:"commented,omitempty"`
+		NewTask    *bool  `json:"new_task,omitempty"`
+		SlowTool   *bool  `json:"slow_tool,omitempty"`
+		Mode       string `json:"mode,omitempty"`
+	} `json:"notifications,omitempty"`
+	MemberRequests *struct {
+		Enabled      *bool `json:"enabled,omitempty"`
+		AutoDispatch *bool `json:"auto_dispatch,omitempty"`
+	} `json:"member_requests,omitempty"`
+	BlockerEscalation *struct {
+		Enabled *bool `json:"enabled,omitempty"`
+	} `json:"blocker_escalation,omitempty"`
+	TaskContract *struct {
+		Enabled *bool `json:"enabled,omitempty"`
+	} `json:"task_contract,omitempty"`
+}
+
+// cleanTeamSettings lọc settings của team qua teamAccessSettings, bỏ mọi khóa
+// không khai báo trước khi lưu.
+func cleanTeamSettings(settings map[string]any) (json.RawMessage, error) {
+	raw, _ := json.Marshal(settings)
+	var access teamAccessSettings
+	if err := json.Unmarshal(raw, &access); err != nil {
+		return nil, err
+	}
+	cleaned, _ := json.Marshal(access)
+	return json.RawMessage(cleaned), nil
 }

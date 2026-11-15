@@ -199,6 +199,11 @@ func (m *TeamsMethods) handleTaskRetry(ctx context.Context, client *gateway.Clie
 			"cannot retry a task assigned to the team lead — pass a team member as agentId"))
 		return
 	}
+	// Retry là dispatch có chủ ý: cùng cổng contract như teams.tasks.assign.
+	if msg := taskAssignContractError(locale, team, task); msg != "" {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
+		return
+	}
 
 	// Comment first, so it is already on the task when the assignee reads it.
 	if err := m.teamStore.AddTaskComment(ctx, &store.TeamTaskCommentData{

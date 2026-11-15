@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { CHANNEL_TYPES } from "@/constants/channels";
 import type { TeamData, TeamAccessSettings, TeamNotifyConfig, EscalationMode, EscalationAction } from "@/types/team";
 import { useTeams } from "./hooks/use-teams";
+import { preserveServerOnlyTeamSettings } from "./preserve-server-only-team-settings";
 import { TeamNotificationsSection } from "./team-notifications-section";
 import { TeamAccessControlSection } from "./team-access-control-section";
 import { TeamOrchestrationSection } from "./team-orchestration-section";
@@ -94,8 +95,6 @@ export function TeamSettingsTab({ teamId, team, onSaved }: TeamSettingsTabProps)
     try {
       const data = form.getValues();
       const settings: TeamAccessSettings = {};
-      // Preserve version from existing settings to prevent v2→v1 downgrade
-      if (initial.version !== undefined) settings.version = initial.version;
       if (data.allowUserIds.length > 0) settings.allow_user_ids = data.allowUserIds;
       if (data.denyUserIds.length > 0) settings.deny_user_ids = data.denyUserIds;
       if (data.allowChannels.length > 0) settings.allow_channels = data.allowChannels;
@@ -120,7 +119,8 @@ export function TeamSettingsTab({ teamId, team, onSaved }: TeamSettingsTabProps)
       settings.followup_interval_minutes = data.followupInterval;
       settings.followup_max_reminders = data.followupMaxReminders;
       settings.workspace_scope = data.workspaceScope || "isolated";
-      await updateTeam(teamId, { settings });
+      // Giữ version (tránh hạ v2→v1) và task_contract: form không chỉnh hai khóa này.
+      await updateTeam(teamId, { settings: preserveServerOnlyTeamSettings(initial, settings) });
       onSaved();
     } catch { // toast shown by hook
     } finally {

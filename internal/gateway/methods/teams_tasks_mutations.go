@@ -12,6 +12,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/gateway"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
+	"github.com/nextlevelbuilder/goclaw/internal/tools"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -46,6 +47,21 @@ func (m *TeamsMethods) handleTaskCreate(ctx context.Context, client *gateway.Cli
 		taskType = "general"
 	}
 
+	// Chỉ cần team khi task được giao ngay: để biết team có bắt buộc contract.
+	var team *store.TeamData
+	if params.AssignTo != "" {
+		team, err = m.teamStore.GetTeam(ctx, teamID)
+		if err != nil || team == nil {
+			client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrNotFound, i18n.T(locale, i18n.MsgNotFound, "team", "")))
+			return
+		}
+	}
+	contract, contractErr := resolveTaskCreateContract(locale, team, params.Contract, taskType, params.AssignTo != "")
+	if contractErr != "" {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, contractErr))
+		return
+	}
+
 	ch := params.Channel
 	if ch == "" {
 		ch = "dashboard"
@@ -65,6 +81,9 @@ func (m *TeamsMethods) handleTaskCreate(ctx context.Context, client *gateway.Cli
 		UserID:      client.UserID(),
 		Channel:     ch,
 		ChatID:      cid,
+	}
+	if contract != nil {
+		task.Metadata = map[string]any{tools.TaskMetaContract: contract.ToMetadata()}
 	}
 
 	if err := m.teamStore.CreateTask(ctx, task); err != nil {
@@ -171,6 +190,17 @@ func (m *TeamsMethods) handleTaskAssign(ctx context.Context, client *gateway.Cli
 	}
 	if task.TeamID != teamID {
 		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrNotFound, i18n.T(locale, i18n.MsgNotFound, "task", "")))
+		return
+	}
+
+	team, err := m.teamStore.GetTeam(ctx, teamID)
+	if err != nil || team == nil {
+		slog.Warn("teams.tasks.assign get team failed", "team_id", teamID, "error", err)
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInternal, i18n.T(locale, i18n.MsgInternalError, "")))
+		return
+	}
+	if msg := taskAssignContractError(locale, team, task); msg != "" {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
 		return
 	}
 

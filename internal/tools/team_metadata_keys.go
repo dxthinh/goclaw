@@ -64,4 +64,6 @@ const (
 	TaskMetaOriginTrace    = "origin_trace_id"
 	TaskMetaOriginRootSpan = "origin_root_span_id"
 	TaskMetaTeamWorkspace  = "team_workspace"
+	// TaskMetaContract lưu Task Contract (xem TaskContract).
+	TaskMetaContract = "contract"
 )

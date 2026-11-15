@@ -429,3 +429,141 @@ func TestListBlockedDependents_ReadsAllPages(t *testing.T) {
 		t.Fatalf("dependents = %d, want task ở trang thứ ba", len(got))
 	}
 }
+
+// leadToolCtx là ngữ cảnh lượt chạy của lead khi gọi tool team_tasks trên harness thật.
+func (h *dispatchHarness) leadToolCtx() context.Context {
+	ctx := store.WithAgentID(h.ctx(), testLeadID)
+	ctx = WithToolTeamID(ctx, testTeamID.String())
+	return WithTaskActionFlags(ctx, &TaskActionFlags{})
+}
+
+func (h *dispatchHarness) memberDispatches() []bus.InboundMessage {
+	var out []bus.InboundMessage
+	for _, m := range h.drainInbound() {
+		if m.AgentID == "member-agent" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// Sau reject, lý do phải nằm trong tin dispatch lại cho member.
+func TestDispatchAfterReject_CarriesReason(t *testing.T) {
+	h := newDispatchHarness(t)
+	member := testMemberID
+	task := h.addTask(&store.TeamTaskData{
+		Subject: "write report", Status: store.TeamTaskStatusInReview, OwnerAgentID: &member,
+	})
+	tool := NewTeamTasksTool(h.mgr, FullTeamPolicy{})
+
+	res := tool.Execute(h.leadToolCtx(), map[string]any{
+		"action": "reject", "task_id": task.ID.String(), "text": "missing the EU region",
+	})
+	if res.IsError {
+		t.Fatalf("reject: %s", res.ForLLM)
+	}
+	msgs := h.memberDispatches()
+	if len(msgs) != 1 {
+		t.Fatalf("member dispatches = %d, want 1", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "[Recent comments]") || !strings.Contains(msgs[0].Content, "missing the EU region") {
+		t.Errorf("dispatch must carry the reject reason:\n%s", msgs[0].Content)
+	}
+}
+
+// Sau retry, comment gần nhất của lead phải nằm trong tin dispatch lại.
+func TestDispatchAfterRetry_CarriesRecentComment(t *testing.T) {
+	h := newDispatchHarness(t)
+	member := testMemberID
+	task := h.addTask(&store.TeamTaskData{
+		Subject: "write report", Status: store.TeamTaskStatusFailed, OwnerAgentID: &member,
+	})
+	lead := testLeadID
+	_ = h.tasks.AddTaskComment(h.ctx(), &store.TeamTaskCommentData{TaskID: task.ID, AgentID: &lead, Content: "use the 2026 dataset"})
+	tool := NewTeamTasksTool(h.mgr, FullTeamPolicy{})
+
+	res := tool.Execute(h.leadToolCtx(), map[string]any{"action": "retry", "task_id": task.ID.String()})
+	if res.IsError {
+		t.Fatalf("retry: %s", res.ForLLM)
+	}
+	msgs := h.memberDispatches()
+	if len(msgs) != 1 {
+		t.Fatalf("member dispatches = %d, want 1", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "use the 2026 dataset") {
+		t.Errorf("dispatch must carry the recent comment:\n%s", msgs[0].Content)
+	}
+}
+
+// Dispatch qua DispatchUnblockedTasks chỉ chèn comment một lần.
+func TestDispatchUnblocked_CommentsNotDuplicated(t *testing.T) {
+	h := newDispatchHarness(t)
+	member := testMemberID
+	task := h.addTask(&store.TeamTaskData{Subject: "s", Status: store.TeamTaskStatusPending, OwnerAgentID: &member})
+	_ = h.tasks.AddTaskComment(h.ctx(), &store.TeamTaskCommentData{TaskID: task.ID, Content: "note once"})
+
+	h.mgr.DispatchUnblockedTasks(h.ctx(), testTeamID)
+
+	msgs := h.memberDispatches()
+	if len(msgs) != 1 {
+		t.Fatalf("member dispatches = %d, want 1", len(msgs))
+	}
+	if n := strings.Count(msgs[0].Content, "note once"); n != 1 {
+		t.Errorf("comment appears %d times, want 1:\n%s", n, msgs[0].Content)
+	}
+}
+
+// Task có contract: tin dispatch trỏ tới khối Task Contract trong system prompt.
+func TestDispatchMessage_PointsToContract(t *testing.T) {
+	h := newDispatchHarness(t)
+	member := testMemberID
+	c, _ := ParseTaskContract(validContractArgs())
+	withContract := h.addTask(&store.TeamTaskData{
+		Subject: "s", TaskNumber: 5, Status: store.TeamTaskStatusInProgress, OwnerAgentID: &member,
+		Metadata: map[string]any{TaskMetaContract: c.ToMetadata()},
+	})
+	plain := h.addTask(&store.TeamTaskData{Subject: "p", Status: store.TeamTaskStatusInProgress, OwnerAgentID: &member})
+
+	h.mgr.dispatchTaskToAgent(h.ctx(), withContract, h.team, testMemberID)
+	h.mgr.dispatchTaskToAgent(h.ctx(), plain, h.team, testMemberID)
+
+	msgs := h.memberDispatches()
+	if len(msgs) != 2 {
+		t.Fatalf("member dispatches = %d, want 2", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, `"Task Contract — task #5" block in your system prompt`) {
+		t.Errorf("contract pointer missing:\n%s", msgs[0].Content)
+	}
+	if strings.Contains(msgs[1].Content, "Task Contract") {
+		t.Errorf("task without contract must not mention it:\n%s", msgs[1].Content)
+	}
+}
+
+// Team bắt buộc contract: tool retry không dispatch lại task general chưa có contract.
+func TestRetry_EnabledTeamRequiresContract(t *testing.T) {
+	h := newDispatchHarness(t)
+	h.team.Settings = []byte(`{"task_contract":{"enabled":true}}`)
+	member := testMemberID
+	task := h.addTask(&store.TeamTaskData{
+		Subject: "write report", Status: store.TeamTaskStatusFailed, OwnerAgentID: &member, TaskType: "general",
+	})
+	tool := NewTeamTasksTool(h.mgr, FullTeamPolicy{})
+
+	res := tool.Execute(h.leadToolCtx(), map[string]any{"action": "retry", "task_id": task.ID.String()})
+	if !res.IsError || !strings.Contains(res.ForLLM, "task contract") {
+		t.Fatalf("expected contract error, got %q", res.ForLLM)
+	}
+	if len(h.memberDispatches()) != 0 || h.status(task.ID) != store.TeamTaskStatusFailed {
+		t.Fatal("task must stay failed and undispatched")
+	}
+
+	c, _ := NewTaskContractFromInput(validContractArgs())
+	h.tasks.tasks[task.ID].Metadata = map[string]any{TaskMetaContract: c.ToMetadata()}
+	res = tool.Execute(h.leadToolCtx(), map[string]any{"action": "retry", "task_id": task.ID.String()})
+	if res.IsError {
+		t.Fatalf("retry with contract: %s", res.ForLLM)
+	}
+	if len(h.memberDispatches()) != 1 {
+		t.Fatal("task with contract must be dispatched")
+	}
+}

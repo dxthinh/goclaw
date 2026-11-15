@@ -263,6 +263,9 @@ func handleTeammateMessage(
 	taskActionFlags := &tools.TaskActionFlags{}
 	schedCtx := tools.WithTaskActionFlags(ctx, taskActionFlags)
 
+	// Contract của task đi vào system prompt để member luôn thấy bản hiện hành.
+	contractPrompt := teammateContractPrompt(ctx, deps.TeamStore, taskIDStr)
+
 	outCh := deps.Sched.Schedule(schedCtx, scheduler.LaneTeam, agent.RunRequest{
 		SessionKey:      sessionKey,
 		Message:         msg.Content,
@@ -293,6 +296,8 @@ func handleTeammateMessage(
 		WorkspaceChatID: origChatID,
 		TeamID:          msg.Metadata[tools.MetaTeamID],
 		LinkedTraceID:   linkedTraceID,
+
+		ExtraSystemPrompt: contractPrompt,
 	})
 
 	deps.BgWg.Add(1)

@@ -458,5 +458,8 @@ type taskCreateParams struct {
 	AssignTo    string `json:"assignTo"` // optional agent UUID — assign immediately after creation
 	Channel     string `json:"channel"`  // optional scope — defaults to "dashboard"
 	ChatID      string `json:"chatId"`   // optional scope — defaults to teamID
+	// Contract tùy chọn theo tools.TaskContract. Bắt buộc khi team bật
+	// task_contract và task được giao ngay qua assignTo.
+	Contract map[string]any `json:"contract,omitempty"`
 }
 

@@ -30,6 +30,7 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 		}
 	}
 	sb.WriteString(fmt.Sprintf("Role: %s\n\n", selfRole))
+	contractEnabled := tools.ParseTaskContractConfig(team.Settings).Enabled
 
 	// Members (including self)
 	sb.WriteString("## Members\n")
@@ -113,6 +114,21 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 		sb.WriteString("→ WRONG: 1 task \"analyze and report\"\n")
 		sb.WriteString("→ RIGHT: task 1: \"Analyze data\" (analyst) → task 2: \"Write report\" (writer, blocked_by=[task1.id])\n")
 
+		if contractEnabled {
+			sb.WriteString("\n## Task Contract (required)\n\n")
+			sb.WriteString("This team requires a `contract` on every general task you create. Tasks without `objective`, `deliverables` and `acceptance` are rejected.\n")
+			sb.WriteString("- `objective`: why the work matters, tied to the user's actual request\n")
+			sb.WriteString("- `deliverables`: what to produce, in which format, and where to put it\n")
+			sb.WriteString("- `acceptance`: criteria anyone can check without asking you (counts, coverage, sources, format)\n")
+			sb.WriteString("- Optional: `scope_in`, `scope_out` (what NOT to do), `inputs` (files, links, facts the member needs), `on_unclear` (`ask` default, or `assume_and_note`)\n")
+			sb.WriteString("Put everything the member needs in the contract: the member sees it in its system prompt as the authoritative task definition.\n\n")
+			sb.WriteString("```\nteam_tasks(action=\"create\", subject=\"Summarize Q3 sales\", description=\"Board meeting brief\", assignee=\"analyst\",\n")
+			sb.WriteString("  contract={\"objective\": \"Give the board a one-page view of Q3 sales\",\n")
+			sb.WriteString("            \"deliverables\": [\"q3-summary.md in the team workspace\"],\n")
+			sb.WriteString("            \"acceptance\": [\"Covers all 4 regions\", \"Every number cites its source file\", \"Under 400 words\"],\n")
+			sb.WriteString("            \"scope_out\": [\"No forecasts\"]})\n```\n")
+		}
+
 		sb.WriteString("\n## Follow-up Reminders\n\n")
 		sb.WriteString("When you need user input/decision: create+claim task, then `ask_user` with text=<question>. ONLY use when you have a question for the user — NOT for waiting on teammates or status updates.\n")
 		sb.WriteString("IMPORTANT: Present the question directly to the user in your response. `ask_user` only sets up periodic REMINDERS in case they don't reply — it does NOT present the question for you.\n")
@@ -130,6 +146,9 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 		sb.WriteString("- For long tasks, report progress: `team_tasks(action=\"progress\", percent=50, text=\"status\")`\n")
 		sb.WriteString("- The task_id is auto-resolved — you don't need to specify it\n")
 		sb.WriteString("- Task completion is automatic when your run finishes\n")
+		if contractEnabled {
+			sb.WriteString("- When your system prompt has a \"Task Contract\" block, it is the authoritative definition of your task: meet every acceptance criterion and stay within its scope, even if the task message or earlier history says otherwise\n")
+		}
 
 		memberCfg := tools.ParseMemberRequestConfig(team.Settings)
 		if memberCfg.Enabled {
