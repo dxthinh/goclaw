@@ -37,10 +37,6 @@ type ChannelToolFilter struct {
 	}
 	Type                       string
 	TelegramManagerPermissions []string
-	// IgnoreTelegramManagerPermissions bỏ điều kiện quyền theo kênh của
-	// telegram_manager, chỉ xét loại kênh. Dùng khi giao task, lúc chưa biết
-	// quyền mà kênh sẽ cấp cho lượt chạy.
-	IgnoreTelegramManagerPermissions bool
 }
 
 // AgentSkillEvolveEnabled cho biết agent có được dùng skill_manage không:
@@ -72,7 +68,7 @@ func (f RunToolFilter) Apply(defs []providers.ToolDefinition, allowed map[string
 	}
 	if ch := f.Channel; ch != nil {
 		defs = dropTools(defs[:0:0], defs, allowed, func(name string) bool {
-			return !ToolVisibleForChannel(ch.Registry, name, ch.Type, ch.TelegramManagerPermissions, ch.IgnoreTelegramManagerPermissions)
+			return !ToolVisibleForChannel(ch.Registry, name, ch.Type, ch.TelegramManagerPermissions)
 		})
 	}
 	return defs
@@ -93,14 +89,14 @@ func dropTools(dst, defs []providers.ToolDefinition, allowed map[string]bool, dr
 }
 
 // ToolVisibleForChannel quyết định tool có hiện trên loại kênh hay không:
-// telegram_manager chỉ hiện trên telegram và (trừ khi ignorePerms) khi kênh
-// cấp quyền; tool cài ChannelAware chỉ hiện trên các loại kênh nó khai báo và
-// bị ẩn khi không có loại kênh; tool khác luôn hiện.
+// telegram_manager chỉ hiện trên telegram khi kênh cấp quyền; tool cài
+// ChannelAware chỉ hiện trên các loại kênh nó khai báo và bị ẩn khi không có
+// loại kênh; tool khác luôn hiện.
 func ToolVisibleForChannel(reg interface {
 	Get(name string) (Tool, bool)
-}, name, channelType string, telegramManagerPermissions []string, ignorePerms bool) bool {
+}, name, channelType string, telegramManagerPermissions []string) bool {
 	if name == "telegram_manager" {
-		return channelType == "telegram" && (ignorePerms || len(telegramManagerPermissions) > 0)
+		return channelType == "telegram" && len(telegramManagerPermissions) > 0
 	}
 	if reg == nil {
 		return true

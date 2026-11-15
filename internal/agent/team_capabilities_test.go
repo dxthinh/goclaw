@@ -235,9 +235,8 @@ func TestCapabilityParityWithRunFilter(t *testing.T) {
 				agentType:       ag.AgentType,
 				orchMode:        ModeTeam,
 			}
-			// Lúc giao chưa biết quyền telegram_manager nên phép kiểm chỉ xét
-			// loại kênh; cấp quyền cho lượt chạy để hai bên cùng điều kiện.
-			req := &RunRequest{ChannelType: tc.channel, TelegramManagerPermissions: []string{"topic"}}
+			// Như lượt teammate thật (handleTeammateMessage): không có quyền telegram_manager.
+			req := &RunRequest{ChannelType: tc.channel}
 			defs, _, _ := l.buildFilteredTools(req, false, 1, 10, nil, nil)
 			want := map[string]bool{}
 			for _, d := range defs {

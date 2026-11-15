@@ -579,3 +579,23 @@ func TestCapabilitySkillEvolveHidesSkillManage(t *testing.T) {
 		t.Errorf("open agent never gets skill_manage, got %v", got)
 	}
 }
+
+// TestCapabilityTelegramManagerUnavailableToMembers: lượt teammate không có
+// TelegramManagerPermissions nên lúc chạy telegram_manager luôn bị ẩn với
+// member; needs nêu tool này phải bị chặn, kể cả trên telegram.
+func TestCapabilityTelegramManagerUnavailableToMembers(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(NewTelegramManagerTool())
+	reg.Register(capStubTool{name: "message"})
+	c := NewTeamCapabilityChecker(NewPolicyEngine(&config.ToolsConfig{}), reg)
+	ag := capAgent(uuid.New(), "member", "")
+	needs := []string{"telegram_manager"}
+	for _, ch := range []string{"telegram", "feishu", ""} {
+		if got := c.MissingNeeds(&ag, needs, nil, ch); !slices.Equal(got, needs) {
+			t.Errorf("channel %q: telegram_manager must be missing for members, got %v", ch, got)
+		}
+	}
+	if got := c.MissingNeeds(&ag, []string{"message"}, nil, "telegram"); len(got) != 0 {
+		t.Errorf("other tools stay available, got %v", got)
+	}
+}

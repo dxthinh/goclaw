@@ -7,14 +7,14 @@ import (
 )
 
 // visibleOn áp phần lọc kênh của lúc chạy (ToolVisibleForChannel) cho loại
-// kênh của task, chỉ xét loại kênh vì quyền telegram_manager chưa biết lúc
-// giao. channelType rỗng là không biết kênh (dashboard RPC, MCP, lượt được ủy
+// kênh của task, với quyền telegram_manager rỗng như lượt teammate thật.
+// channelType rỗng là không biết kênh (dashboard RPC, MCP, lượt được ủy
 // quyền): khi đó không lọc theo kênh.
 func (c *TeamCapabilityChecker) visibleOn(name, channelType string) bool {
 	if channelType == "" {
 		return true
 	}
-	return ToolVisibleForChannel(c.reg, name, channelType, nil, true)
+	return ToolVisibleForChannel(c.reg, name, channelType, nil)
 }
 
 // needTools đổi một tên trong needs thành danh sách tool phải có. Tên nhóm

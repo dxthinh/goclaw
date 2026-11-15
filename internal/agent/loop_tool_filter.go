@@ -18,7 +18,7 @@ var imageGenToolDef = providers.ToolDefinition{
 }
 
 func (l *Loop) toolVisibleForChannel(name, channelType string, telegramManagerPermissions []string) bool {
-	return tools.ToolVisibleForChannel(l.tools, name, channelType, telegramManagerPermissions, false)
+	return tools.ToolVisibleForChannel(l.tools, name, channelType, telegramManagerPermissions)
 }
 
 // buildFilteredTools resolves the per-iteration tool definitions based on policy,

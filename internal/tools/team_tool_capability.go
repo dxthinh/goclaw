@@ -95,8 +95,11 @@ func teamMemberToolPolicy(policy *config.ToolPolicySpec) *config.ToolPolicySpec 
 //   - bootstrap: chỉ áp cho lượt đầu của agent open còn BOOTSTRAP.md, không
 //     biết trước được nên bỏ qua (không ẩn).
 //   - kênh: channelType rỗng là không biết kênh (task từ dashboard RPC, MCP,
-//     lượt được ủy quyền) nên bỏ qua bước lọc kênh; quyền theo kênh của
-//     telegram_manager cũng chưa biết nên chỉ xét loại kênh.
+//     lượt được ủy quyền) nên bỏ qua bước lọc kênh.
+//   - quyền telegram_manager: lượt teammate không bao giờ có
+//     TelegramManagerPermissions (handleTeammateMessage không đặt), nên với
+//     member telegram_manager luôn bị ẩn; ở đây cũng coi là không có, kể cả
+//     khi không biết kênh.
 //
 // Bỏ qua theo hướng không chặn: lúc chạy member vẫn báo lại được qua clarify.
 // Tool MCP cấp riêng theo agent hoặc user không nằm trong registry chung nên
@@ -112,12 +115,13 @@ func (c *TeamCapabilityChecker) EffectiveTools(agent *store.AgentData, disabled 
 		HideSkillManage: !AgentSkillEvolveEnabled(agent),
 	}
 	if channelType != "" {
-		filter.Channel = &ChannelToolFilter{Registry: c.reg, Type: channelType, IgnoreTelegramManagerPermissions: true}
+		// Quyền rỗng như lượt teammate thật.
+		filter.Channel = &ChannelToolFilter{Registry: c.reg, Type: channelType}
 	}
 	defs = filter.Apply(defs, nil)
 	set := make(map[string]bool, len(defs))
 	for _, d := range defs {
-		if d.Function != nil {
+		if d.Function != nil && d.Function.Name != "telegram_manager" {
 			set[d.Function.Name] = true
 		}
 	}
