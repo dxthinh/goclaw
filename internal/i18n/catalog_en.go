@@ -384,6 +384,6 @@ func init() {
 		MsgSnapshotRepairRange:                     "repair requires complete UTC hours within [%s, %s)",
 		MsgTaskContractInvalid:                     "invalid task contract: %s",
 		MsgTaskContractRequired:                    "this team requires a task contract (objective, deliverables, acceptance) before a task can be assigned",
-		MsgTaskTypeInvalid:                         "invalid task type %q: must be general, request or note",
+		MsgTaskTypeInvalid:                         "invalid task type %q: must be general, request, note, delegation or escalation",
 	})
 }

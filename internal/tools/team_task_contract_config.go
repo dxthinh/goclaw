@@ -34,25 +34,28 @@ func ParseTaskContractConfig(settings json.RawMessage) TaskContractConfig {
 	return cfg
 }
 
-// Các loại task người dùng, lead hoặc client được phép tạo. Loại nội bộ như
-// escalation do hệ thống tự tạo, không đi qua các bề mặt create.
+// Các loại task hợp lệ. escalation còn do hệ thống tự tạo (task chờ người
+// duyệt, xem createEscalationTask); delegation và escalation cũng được tạo từ
+// dialog của web UI.
 const (
-	TaskTypeGeneral = "general"
-	TaskTypeRequest = "request"
-	TaskTypeNote    = "note"
+	TaskTypeGeneral    = "general"
+	TaskTypeRequest    = "request"
+	TaskTypeNote       = "note"
+	TaskTypeDelegation = "delegation"
+	TaskTypeEscalation = "escalation"
 )
 
-// ErrTaskTypeInvalid: task_type gửi vào create không thuộc general, request, note.
-var ErrTaskTypeInvalid = errors.New("invalid task_type: must be general, request or note")
+// ErrTaskTypeInvalid: task_type gửi vào create không thuộc tập hợp lệ.
+var ErrTaskTypeInvalid = errors.New("invalid task_type: must be general, request, note, delegation or escalation")
 
-// NormalizeCreateTaskType chuẩn hoá task_type của lệnh create: rỗng thành
-// general; giá trị ngoài general, request, note trả ErrTaskTypeInvalid để lỗi
-// gõ (vd "generl") không âm thầm tạo task lạ né được cổng contract.
+// NormalizeCreateTaskType chuẩn hoá task_type của lệnh create (tool, RPC,
+// MCP): rỗng thành general; giá trị ngoài tập hợp lệ trả ErrTaskTypeInvalid
+// để lỗi gõ (vd "generl") không âm thầm tạo task loại lạ.
 func NormalizeCreateTaskType(taskType string) (string, error) {
 	switch taskType {
 	case "":
 		return TaskTypeGeneral, nil
-	case TaskTypeGeneral, TaskTypeRequest, TaskTypeNote:
+	case TaskTypeGeneral, TaskTypeRequest, TaskTypeNote, TaskTypeDelegation, TaskTypeEscalation:
 		return taskType, nil
 	default:
 		return "", fmt.Errorf("%w (got %q)", ErrTaskTypeInvalid, taskType)
@@ -60,11 +63,16 @@ func NormalizeCreateTaskType(taskType string) (string, error) {
 }
 
 // TaskContractRequired cho biết task loại taskType của team có bắt buộc
-// contract hay không khi team đã bật task_contract. Chỉ request và note được
-// miễn; mọi loại khác, kể cả rỗng hay giá trị lạ, đều bị coi như general để
-// cổng không bị né bằng một task_type gõ sai.
+// contract hay không khi team đã bật task_contract. Được miễn: request, note
+// và escalation (task duyệt của người, không phải việc giao cho member). Mọi
+// loại khác, gồm general, delegation, rỗng và giá trị lạ từ dữ liệu cũ, đều
+// bắt buộc để cổng không bị né bằng một task_type gõ sai.
 func TaskContractRequired(team *store.TeamData, taskType string) bool {
-	if team == nil || taskType == TaskTypeRequest || taskType == TaskTypeNote {
+	if team == nil {
+		return false
+	}
+	switch taskType {
+	case TaskTypeRequest, TaskTypeNote, TaskTypeEscalation:
 		return false
 	}
 	return ParseTaskContractConfig(team.Settings).Enabled

@@ -92,7 +92,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"task_type": map[string]any{
 				"type":        "string",
-				"description": "Task type for create: 'general' (default), 'request', or 'note'",
+				"description": "Task type for create: 'general' (default), 'request', 'note', 'delegation' or 'escalation'",
 			},
 			"contract": map[string]any{
 				"type":        "object",

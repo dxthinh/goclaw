@@ -48,7 +48,7 @@ func registerTeamsTasksCRUDTools(srv *mcpserver.MCPServer, teams store.TeamStore
 		mcpgo.WithString("subject", mcpgo.Required(), mcpgo.Description("Task subject (max 500 chars).")),
 		mcpgo.WithString("description", mcpgo.Description("Task description.")),
 		mcpgo.WithNumber("priority", mcpgo.Description("Task priority.")),
-		mcpgo.WithString("task_type", mcpgo.Description("Task type: \"general\" (default), \"request\" or \"note\".")),
+		mcpgo.WithString("task_type", mcpgo.Description("Task type: \"general\" (default), \"request\", \"note\", \"delegation\" or \"escalation\".")),
 		mcpgo.WithString("assign_to", mcpgo.Description("Agent UUID to assign immediately after creation.")),
 		mcpgo.WithObject("contract", mcpgo.Description("Task contract: objective (string), deliverables (array), acceptance (array), optional scope_in, scope_out, inputs, on_unclear. Required with assign_to for general tasks when the team enables task_contract.")),
 		mcpgo.WithString("channel", mcpgo.Description("Origin channel; defaults to \"dashboard\".")),

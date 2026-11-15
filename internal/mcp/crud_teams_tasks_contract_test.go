@@ -165,7 +165,7 @@ func TestMCPTasksCreate_UnknownTaskTypeRejected(t *testing.T) {
 			"team_id": teamID.String(), "subject": "Q3", "task_type": "generl",
 		})
 		assert.True(t, isErr, text)
-		assert.Contains(t, text, "must be general, request or note")
+		assert.Contains(t, text, "must be general, request, note, delegation or escalation")
 		assert.Empty(t, ts.tasks)
 
 		isErr, text = call("goclaw_teams_tasks_create", map[string]any{
@@ -174,4 +174,20 @@ func TestMCPTasksCreate_UnknownTaskTypeRejected(t *testing.T) {
 		require.False(t, isErr, text)
 		assert.Len(t, ts.tasks, 1)
 	}
+}
+
+func TestMCPTasksCreate_EnabledTeamContractByTaskType(t *testing.T) {
+	ts, teamID, memberID, call := newContractMCPFixture(t, true)
+	isErr, text := call("goclaw_teams_tasks_create", map[string]any{
+		"team_id": teamID.String(), "subject": "Review", "task_type": "escalation", "assign_to": memberID.String(),
+	})
+	require.False(t, isErr, text)
+	require.Len(t, ts.tasks, 1)
+
+	isErr, text = call("goclaw_teams_tasks_create", map[string]any{
+		"team_id": teamID.String(), "subject": "Q3", "task_type": "delegation", "assign_to": memberID.String(),
+	})
+	assert.True(t, isErr, text)
+	assert.Contains(t, text, "task contract")
+	assert.Len(t, ts.tasks, 1)
 }

@@ -509,13 +509,27 @@ func TestCreateTaskContract(t *testing.T) {
 		}
 	})
 
+	t.Run("EnabledTeamEscalationTypeNotRequired", func(t *testing.T) {
+		result, task := createWithContract(t, contractEnabledSettings, map[string]any{"task_type": "escalation"})
+		if result.IsError || task == nil {
+			t.Fatalf("escalation task must not need a contract: %s", result.ForLLM)
+		}
+	})
+
+	t.Run("EnabledTeamDelegationTypeRequired", func(t *testing.T) {
+		result, task := createWithContract(t, contractEnabledSettings, map[string]any{"task_type": "delegation"})
+		if !result.IsError || task != nil {
+			t.Fatalf("delegation task must need a contract, got %q", result.ForLLM)
+		}
+	})
+
 	t.Run("UnknownTaskTypeRejected", func(t *testing.T) {
 		for _, settings := range []string{contractEnabledSettings, ""} {
 			result, task := createWithContract(t, settings, map[string]any{"task_type": "generl"})
 			if !result.IsError || task != nil {
 				t.Fatalf("settings %q: unknown task_type must be rejected, got %q", settings, result.ForLLM)
 			}
-			if !strings.Contains(result.ForLLM, "must be general, request or note") {
+			if !strings.Contains(result.ForLLM, "must be general, request, note, delegation or escalation") {
 				t.Errorf("error must list valid types: %s", result.ForLLM)
 			}
 		}
