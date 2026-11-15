@@ -265,6 +265,9 @@ func (s *PGTeamStore) ApproveTask(ctx context.Context, taskID, teamID uuid.UUID,
 	return tx.Commit()
 }
 
+// RejectTask huỷ task in_review (cancelled), mở khoá task phụ thuộc và xoá
+// metadata.checkpoint_pending trong cùng câu UPDATE: task đã huỷ không còn
+// chờ ai duyệt.
 func (s *PGTeamStore) RejectTask(ctx context.Context, taskID, teamID uuid.UUID, reason string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -278,6 +281,7 @@ func (s *PGTeamStore) RejectTask(ctx context.Context, taskID, teamID uuid.UUID, 
 		`UPDATE team_tasks SET status = $1, result = $2, locked_at = NULL, lock_expires_at = NULL,
 		 followup_at = NULL, followup_count = 0, followup_message = NULL, followup_channel = NULL, followup_chat_id = NULL,
 		 progress_percent = NULL,
+		 metadata = COALESCE(metadata, '{}'::jsonb) - 'checkpoint_pending',
 		 updated_at = $3
 		 WHERE id = $4 AND status = $5 AND team_id = $6 AND tenant_id = $7`,
 		store.TeamTaskStatusCancelled, reason, now,

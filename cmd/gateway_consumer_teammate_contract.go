@@ -32,7 +32,7 @@ func teammateContractPrompt(ctx context.Context, teamStore store.TeamStore, team
 	task, err := teamStore.GetTask(ctx, id)
 	switch {
 	case err == nil && task != nil:
-		return tools.RenderTaskContract(task, tools.TaskContractFromTask(task)), nil
+		return tools.RenderTaskContract(task, tools.TaskContractFromTask(task), tools.EditionTeamPolicy()), nil
 	case err == nil, errors.Is(err, store.ErrTaskNotFound):
 		return "", nil
 	}

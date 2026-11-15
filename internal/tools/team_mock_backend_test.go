@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -240,7 +241,10 @@ type mockTaskStore struct {
 	team        *store.TeamData
 	members     []store.TeamMemberData
 	taskSeq     int
-	mu          sync.Mutex
+	// submitReviewErr giả lỗi DB ở SubmitTaskResultForReview: trả lỗi và không
+	// ghi gì, như câu UPDATE nguyên tử thật.
+	submitReviewErr error
+	mu              sync.Mutex
 }
 
 func newMockTaskStore(team *store.TeamData, members []store.TeamMemberData) *mockTaskStore {
@@ -545,6 +549,12 @@ func (s *mockTaskStore) RejectTask(_ context.Context, taskID, _ uuid.UUID, reaso
 	t.Status = store.TeamTaskStatusCancelled
 	t.Result = &reason
 	t.UpdatedAt = time.Now()
+	// Như store thật: RejectTask xoá checkpoint_pending cùng lúc huỷ task.
+	if _, ok := t.Metadata[TaskMetaCheckpointPending]; ok {
+		meta := maps.Clone(t.Metadata)
+		delete(meta, TaskMetaCheckpointPending)
+		t.Metadata = meta
+	}
 	return nil
 }
 
@@ -591,9 +601,12 @@ func (s *mockTaskStore) GetTaskByNumberInChat(_ context.Context, teamID uuid.UUI
 	return nil, store.ErrTaskNotFound
 }
 
-func (s *mockTaskStore) SubmitTaskResultForReview(_ context.Context, taskID, _ uuid.UUID, result string) error {
+func (s *mockTaskStore) SubmitTaskResultForReview(_ context.Context, taskID, _ uuid.UUID, result string, metadataPatch map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.submitReviewErr != nil {
+		return s.submitReviewErr
+	}
 	t, ok := s.tasks[taskID]
 	if !ok {
 		return store.ErrTaskNotFound
@@ -606,6 +619,12 @@ func (s *mockTaskStore) SubmitTaskResultForReview(_ context.Context, taskID, _ u
 	t.LockedAt = nil
 	t.LockExpiresAt = nil
 	t.UpdatedAt = time.Now()
+	if len(metadataPatch) > 0 {
+		meta := make(map[string]any, len(t.Metadata)+len(metadataPatch))
+		maps.Copy(meta, t.Metadata)
+		maps.Copy(meta, metadataPatch)
+		t.Metadata = meta
+	}
 	return nil
 }
 

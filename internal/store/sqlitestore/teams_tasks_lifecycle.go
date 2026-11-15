@@ -247,6 +247,9 @@ func (s *SQLiteTeamStore) ApproveTask(ctx context.Context, taskID, teamID uuid.U
 	return tx.Commit()
 }
 
+// RejectTask huỷ task in_review (cancelled), mở khoá task phụ thuộc và xoá
+// metadata.checkpoint_pending trong cùng câu UPDATE: task đã huỷ không còn
+// chờ ai duyệt.
 func (s *SQLiteTeamStore) RejectTask(ctx context.Context, taskID, teamID uuid.UUID, reason string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -259,7 +262,8 @@ func (s *SQLiteTeamStore) RejectTask(ctx context.Context, taskID, teamID uuid.UU
 	res, err := tx.ExecContext(ctx,
 		`UPDATE team_tasks SET status = ?, result = ?, locked_at = NULL, lock_expires_at = NULL,
 		 followup_at = NULL, followup_count = 0, followup_message = NULL, followup_channel = NULL, followup_chat_id = NULL,
-		 progress_percent = NULL, updated_at = ?
+		 progress_percent = NULL, metadata = json_remove(COALESCE(metadata, '{}'), '$.checkpoint_pending'),
+		 updated_at = ?
 		 WHERE id = ? AND status = ? AND team_id = ? AND tenant_id = ?`,
 		store.TeamTaskStatusCancelled, reason, now,
 		taskID, store.TeamTaskStatusInReview, teamID, tid,

@@ -405,6 +405,9 @@ func handleTeamsTasksApprove(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		if len(comment) > maxTaskCommentLength {
 			return mcpgo.NewToolResultError("teams.tasks.approve: comment too long"), nil
 		}
+		if res, err := denyUserCheckpoint(ctx, teams, "teams.tasks.approve", teamID, taskID); res != nil || err != nil {
+			return res, err
+		}
 		if err := teams.ApproveTask(ctx, taskID, teamID, comment); err != nil {
 			return toolError("teams.tasks.approve", err)
 		}
@@ -424,6 +427,9 @@ func handleTeamsTasksReject(teams store.TeamStore) mcpserver.ToolHandlerFunc {
 		reason := req.GetString("reason", "Rejected by human")
 		if len(reason) > maxTaskCommentLength {
 			return mcpgo.NewToolResultError("teams.tasks.reject: reason too long"), nil
+		}
+		if res, err := denyUserCheckpoint(ctx, teams, "teams.tasks.reject", teamID, taskID); res != nil || err != nil {
+			return res, err
 		}
 		if err := teams.RejectTask(ctx, taskID, teamID, reason); err != nil {
 			return toolError("teams.tasks.reject", err)

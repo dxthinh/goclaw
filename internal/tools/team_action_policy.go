@@ -1,5 +1,7 @@
 package tools
 
+import "github.com/nextlevelbuilder/goclaw/internal/edition"
+
 // TeamActionPolicy controls which team_tasks actions are available.
 // Injected into TeamTasksTool at construction — no scattered if/else.
 type TeamActionPolicy interface {
@@ -9,6 +11,16 @@ type TeamActionPolicy interface {
 	AllowedActions() []string
 	// MemberGuidance returns system-prompt text for team members.
 	MemberGuidance() string
+}
+
+// EditionTeamPolicy trả policy hành động team_tasks theo edition đang chạy:
+// Full khi edition bật TeamFullMode, Lite khi không. Tool team_tasks và mọi
+// văn bản hướng dẫn member (tin dispatch, khối contract) dùng chung policy này.
+func EditionTeamPolicy() TeamActionPolicy {
+	if edition.Current().TeamFullMode {
+		return FullTeamPolicy{}
+	}
+	return LiteTeamPolicy{}
 }
 
 // FullTeamPolicy allows all team task actions (standard/PG edition).

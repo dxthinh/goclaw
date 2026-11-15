@@ -189,16 +189,17 @@ func SubmitResultForUserApproval(ctx context.Context, b userApprovalBackend, tea
 	if TaskCheckpoint(task) != TaskContractCheckpointResult {
 		return false, nil
 	}
-	if err := b.Store().SubmitTaskResultForReview(ctx, task.ID, team.ID, result); err != nil {
+	// Trạng thái in_review, result và marker checkpoint_pending ghi trong cùng
+	// một câu UPDATE: lỗi thì task vẫn in_progress, không kẹt in_review thiếu
+	// marker (submit lại được, sweeper không đánh stale nhầm).
+	patch := map[string]any{TaskMetaCheckpointPending: CheckpointPendingUser}
+	if err := b.Store().SubmitTaskResultForReview(ctx, task.ID, team.ID, result, patch); err != nil {
 		return true, fmt.Errorf("failed to submit result for the user's approval: %w", err)
 	}
 	if task.Metadata == nil {
 		task.Metadata = make(map[string]any)
 	}
 	task.Metadata[TaskMetaCheckpointPending] = CheckpointPendingUser
-	if err := b.Store().UpdateTask(ctx, task.ID, map[string]any{"metadata": task.Metadata}); err != nil {
-		return true, fmt.Errorf("failed to mark task as waiting for the user: %w", err)
-	}
 	task.Status = store.TeamTaskStatusInReview
 	b.BroadcastTeamEvent(ctx, protocol.EventTeamTaskReviewed, BuildTaskEventPayload(
 		team.ID.String(), task.ID.String(),

@@ -77,11 +77,14 @@ func TestTeamTaskSQLite_CheckpointPendingNotStale(t *testing.T) {
 		if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
 			t.Fatalf("ClaimTask: %v", err)
 		}
-		if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft"); err != nil {
+		var patch map[string]any
+		if task == waiting {
+			patch = map[string]any{"checkpoint_pending": "user"}
+		}
+		if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft", patch); err != nil {
 			t.Fatalf("SubmitTaskResultForReview: %v", err)
 		}
 	}
-	mustExec(t, f.db, `UPDATE team_tasks SET metadata = json_set(metadata, '$.checkpoint_pending', 'user') WHERE id = ?`, waiting.ID)
 
 	got, _ := f.teams.GetTask(f.ctx, legacy.ID)
 	if got.Status != store.TeamTaskStatusInReview || got.Result == nil || *got.Result != "draft" {
@@ -96,6 +99,56 @@ func TestTeamTaskSQLite_CheckpointPendingNotStale(t *testing.T) {
 	}
 	if got, _ := f.teams.GetTask(f.ctx, legacy.ID); got.Status != store.TeamTaskStatusStale {
 		t.Errorf("legacy in_review status = %q, want stale", got.Status)
+	}
+}
+
+// SubmitTaskResultForReview ghi trạng thái, result và patch metadata cùng lúc:
+// patch được trộn vào metadata sẵn có; task không ở in_progress thì không phần
+// nào được ghi.
+func TestTeamTaskSQLite_SubmitForReviewWritesMetadataAtomically(t *testing.T) {
+	f := newDepFixture(t)
+	task := f.create(t, "needs approval")
+	patch := map[string]any{"checkpoint_pending": "user"}
+
+	// Task còn pending: lỗi, metadata giữ nguyên.
+	if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft", patch); err == nil {
+		t.Fatal("submit from pending should fail")
+	}
+	got, _ := f.teams.GetTask(f.ctx, task.ID)
+	if got.Status != store.TeamTaskStatusPending || got.Metadata["checkpoint_pending"] != nil || got.Result != nil {
+		t.Fatalf("failed submit wrote state: status=%q meta=%v result=%v", got.Status, got.Metadata, got.Result)
+	}
+
+	if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft", patch); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+	got, _ = f.teams.GetTask(f.ctx, task.ID)
+	if got.Status != store.TeamTaskStatusInReview || got.Result == nil || *got.Result != "draft" ||
+		got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
+		t.Fatalf("submit: status=%q result=%v meta=%v, want in_review with merged metadata", got.Status, got.Result, got.Metadata)
+	}
+}
+
+// RejectTask huỷ task đang chờ user duyệt và xoá checkpoint_pending trong cùng
+// thao tác; metadata khác giữ nguyên.
+func TestTeamTaskSQLite_RejectClearsCheckpointPending(t *testing.T) {
+	f := newDepFixture(t)
+	task := f.create(t, "waiting for user")
+	if err := f.teams.ClaimTask(f.ctx, task.ID, f.memberID, f.teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	if err := f.teams.SubmitTaskResultForReview(f.ctx, task.ID, f.teamID, "draft", map[string]any{"checkpoint_pending": "user"}); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+	if err := f.teams.RejectTask(f.ctx, task.ID, f.teamID, "not needed"); err != nil {
+		t.Fatalf("RejectTask: %v", err)
+	}
+	got, _ := f.teams.GetTask(f.ctx, task.ID)
+	if _, has := got.Metadata["checkpoint_pending"]; got.Status != store.TeamTaskStatusCancelled || has || got.Metadata["source"] != "test" {
+		t.Fatalf("after reject: status=%q meta=%v, want cancelled without checkpoint_pending", got.Status, got.Metadata)
 	}
 }
 

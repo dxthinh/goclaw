@@ -2,6 +2,7 @@ package pg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,13 +28,19 @@ func (s *PGTeamStore) AwaitTaskInput(ctx context.Context, taskID, teamID uuid.UU
 }
 
 // SubmitTaskResultForReview chuyển task in_progress sang in_review, ghi
-// result và nhả khóa. Task chờ người duyệt kết quả thay vì thành completed.
-func (s *PGTeamStore) SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string) error {
+// result, nhả khóa và trộn metadataPatch vào metadata (khóa ở cấp trên cùng)
+// trong cùng một câu UPDATE. Task chờ người duyệt kết quả thay vì thành
+// completed; trạng thái và marker chờ duyệt không thể ghi lệch nhau.
+func (s *PGTeamStore) SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error {
+	patch, err := marshalMetadataPatch(metadataPatch)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE team_tasks SET status = $1, result = $2, locked_at = NULL, lock_expires_at = NULL,
-		 progress_percent = NULL, updated_at = $3
-		 WHERE id = $4 AND team_id = $5 AND status = $6 AND tenant_id = $7`,
-		store.TeamTaskStatusInReview, result, time.Now(),
+		 progress_percent = NULL, updated_at = $3, metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb
+		 WHERE id = $5 AND team_id = $6 AND status = $7 AND tenant_id = $8`,
+		store.TeamTaskStatusInReview, result, time.Now(), patch,
 		taskID, teamID, store.TeamTaskStatusInProgress, tenantIDForInsert(ctx),
 	)
 	if err != nil {
@@ -85,4 +92,16 @@ func requireOneRow(res interface{ RowsAffected() (int64, error) }, msg string) e
 		return fmt.Errorf("%s", msg)
 	}
 	return nil
+}
+
+// marshalMetadataPatch mã hóa patch metadata thành JSON object; nil thành "{}".
+func marshalMetadataPatch(patch map[string]any) (string, error) {
+	if len(patch) == 0 {
+		return "{}", nil
+	}
+	b, err := json.Marshal(patch)
+	if err != nil {
+		return "", fmt.Errorf("encode metadata patch: %w", err)
+	}
+	return string(b), nil
 }
