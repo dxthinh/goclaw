@@ -261,8 +261,9 @@ type TaskStore interface {
 	// AwaitTaskInput chuyển task in_progress sang awaiting_input và nhả khóa.
 	AwaitTaskInput(ctx context.Context, taskID, teamID uuid.UUID) error
 	// SubmitTaskResultForReview chuyển task in_progress sang in_review, ghi
-	// result và nhả khóa (task chờ duyệt kết quả).
-	SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string) error
+	// result, nhả khóa và trộn metadataPatch vào metadata trong cùng một câu
+	// UPDATE (task chờ duyệt kết quả). Lỗi thì không phần nào được ghi.
+	SubmitTaskResultForReview(ctx context.Context, taskID, teamID uuid.UUID, result string, metadataPatch map[string]any) error
 	// GetTaskByNumberInChat tra đúng một task theo số trong team và chat gốc
 	// (channel, chat_id). Trả ErrTaskNotFound khi không có.
 	GetTaskByNumberInChat(ctx context.Context, teamID uuid.UUID, taskNumber int, channel, chatID string) (*TeamTaskData, error)

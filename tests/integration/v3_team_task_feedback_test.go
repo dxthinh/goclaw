@@ -97,12 +97,13 @@ func TestTeamTask_CheckpointPendingNotStale(t *testing.T) {
 		if err := ts.ClaimTask(ctx, task.ID, memberID, teamID); err != nil {
 			t.Fatalf("ClaimTask: %v", err)
 		}
-		if err := ts.SubmitTaskResultForReview(ctx, task.ID, teamID, "draft"); err != nil {
+		var patch map[string]any
+		if task == waiting {
+			patch = map[string]any{"checkpoint_pending": "user"}
+		}
+		if err := ts.SubmitTaskResultForReview(ctx, task.ID, teamID, "draft", patch); err != nil {
 			t.Fatalf("SubmitTaskResultForReview: %v", err)
 		}
-	}
-	if _, err := db.Exec(`UPDATE team_tasks SET metadata = metadata || '{"checkpoint_pending":"user"}'::jsonb WHERE id = $1`, waiting.ID); err != nil {
-		t.Fatalf("set checkpoint_pending: %v", err)
 	}
 	if got, _ := ts.GetTask(ctx, legacy.ID); got.Status != store.TeamTaskStatusInReview || got.Result == nil || *got.Result != "draft" {
 		t.Fatalf("submitted task = %q %v, want in_review with result", got.Status, got.Result)
@@ -116,6 +117,49 @@ func TestTeamTask_CheckpointPendingNotStale(t *testing.T) {
 	}
 	if got, _ := ts.GetTask(ctx, legacy.ID); got.Status != store.TeamTaskStatusStale {
 		t.Errorf("legacy in_review status = %q, want stale", got.Status)
+	}
+}
+
+// SubmitTaskResultForReview ghi trạng thái, result và patch metadata trong một
+// câu UPDATE: patch trộn vào metadata sẵn có; task không ở in_progress (hoặc
+// sai tenant) thì không phần nào được ghi.
+func TestTeamTask_SubmitForReviewWritesMetadataAtomically(t *testing.T) {
+	db := testDB(t)
+	pg.InitSqlx(db)
+	tenantID, agentID := seedTenantAgent(t, db)
+	ctx := tenantCtx(tenantID)
+	ts := pg.NewPGTeamStore(db)
+	teamID, memberID := seedTeam(t, db, tenantID, agentID)
+
+	task := makeTask(teamID, "needs approval", store.TeamTaskStatusPending)
+	task.Metadata = map[string]any{"source": "test"}
+	if err := ts.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	patch := map[string]any{"checkpoint_pending": "user"}
+
+	if err := ts.SubmitTaskResultForReview(ctx, task.ID, teamID, "draft", patch); err == nil {
+		t.Fatal("submit from pending should fail")
+	}
+	if err := ts.ClaimTask(ctx, task.ID, memberID, teamID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+	otherTenant, _ := seedTenantAgent(t, db)
+	if err := ts.SubmitTaskResultForReview(tenantCtx(otherTenant), task.ID, teamID, "draft", patch); err == nil {
+		t.Fatal("submit from another tenant should fail")
+	}
+	got, _ := ts.GetTask(ctx, task.ID)
+	if got.Status != store.TeamTaskStatusInProgress || got.Metadata["checkpoint_pending"] != nil || got.Result != nil {
+		t.Fatalf("failed submit wrote state: status=%q meta=%v result=%v", got.Status, got.Metadata, got.Result)
+	}
+
+	if err := ts.SubmitTaskResultForReview(ctx, task.ID, teamID, "draft", patch); err != nil {
+		t.Fatalf("SubmitTaskResultForReview: %v", err)
+	}
+	got, _ = ts.GetTask(ctx, task.ID)
+	if got.Status != store.TeamTaskStatusInReview || got.Result == nil || *got.Result != "draft" ||
+		got.Metadata["checkpoint_pending"] != "user" || got.Metadata["source"] != "test" {
+		t.Fatalf("submit: status=%q result=%v meta=%v, want in_review with merged metadata", got.Status, got.Result, got.Metadata)
 	}
 }
 
