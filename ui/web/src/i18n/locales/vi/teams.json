@@ -74,6 +74,7 @@
       "pending": "Chờ xử lý",
       "inProgress": "Đang chạy",
       "inReview": "Chờ duyệt",
+      "awaitingInput": "Chờ trả lời",
       "completed": "Đã hoàn thành",
       "all": "Tất cả"
     },

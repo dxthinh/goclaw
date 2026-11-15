@@ -74,6 +74,7 @@
       "pending": "Pending",
       "inProgress": "In Progress",
       "inReview": "In Review",
+      "awaitingInput": "Awaiting Input",
       "completed": "Completed",
       "all": "All"
     },

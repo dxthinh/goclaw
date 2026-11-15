@@ -195,6 +195,8 @@ func (s *PGTeamStore) MarkAllStaleTasks(ctx context.Context, olderThan time.Time
 }
 
 // MarkInReviewStaleTasks marks in_review tasks older than olderThan as stale across all active teams.
+// Bỏ qua task đang chờ duyệt checkpoint (metadata.checkpoint_pending khác rỗng):
+// task đó chờ user hoặc lead, không phải bị bỏ quên.
 func (s *PGTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan time.Time) ([]store.RecoveredTaskInfo, error) {
 	now := time.Now()
 	rows, err := s.db.QueryContext(ctx,
@@ -203,6 +205,7 @@ func (s *PGTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan time
 		 FROM agent_teams tm
 		 WHERE t.team_id = tm.id AND tm.status = 'active'
 		   AND t.status = $3 AND t.updated_at < $4
+		   AND COALESCE(t.metadata->>'checkpoint_pending', '') = ''
 		 RETURNING t.id, t.team_id, t.tenant_id, t.task_number, t.subject, COALESCE(t.channel, ''), COALESCE(t.chat_id, '')`,
 		store.TeamTaskStatusStale, now, store.TeamTaskStatusInReview, olderThan,
 	)
@@ -266,10 +269,11 @@ func (s *PGTeamStore) ResetTaskStatus(ctx context.Context, taskID, teamID uuid.U
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE team_tasks SET status = $1, locked_at = NULL, lock_expires_at = NULL, result = NULL,
 		 progress_percent = NULL, progress_step = NULL, updated_at = $2
-		 WHERE id = $3 AND team_id = $4 AND status IN ($5, $6, $7, $8, $9) AND tenant_id = $10`,
+		 WHERE id = $3 AND team_id = $4 AND status IN ($5, $6, $7, $8, $9, $11) AND tenant_id = $10`,
 		store.TeamTaskStatusPending, now,
 		taskID, teamID, store.TeamTaskStatusStale, store.TeamTaskStatusFailed,
 		store.TeamTaskStatusCancelled, store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked, tid,
+		store.TeamTaskStatusAwaitingInput,
 	)
 	if err != nil {
 		return err
@@ -279,7 +283,7 @@ func (s *PGTeamStore) ResetTaskStatus(ctx context.Context, taskID, teamID uuid.U
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("task not available for reset (not stale/failed/cancelled/in_review or wrong team)")
+		return fmt.Errorf("task not available for reset (not stale/failed/cancelled/in_review/awaiting_input or wrong team)")
 	}
 	return nil
 }

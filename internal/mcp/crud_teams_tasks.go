@@ -233,6 +233,11 @@ func handleTeamsTasksCreate(teams store.TeamStore, agents store.AgentStore, caps
 		if err != nil {
 			return toolError("teams.tasks.create", fmt.Errorf("invalid contract: %w", err))
 		}
+		// Task tạo qua MCP không đi từ kênh chat đã bật duyệt qua lệnh, nên
+		// checkpoint bị bỏ (contract.md: checkpoint bị bỏ khi kênh gốc chưa bật duyệt).
+		if contract != nil {
+			contract.Checkpoint = tools.TaskContractCheckpointNone
+		}
 		// Cùng cổng với teams.tasks.create của dashboard: chỉ bắt buộc khi giao
 		// ngay, và assignee phải có đủ tool trong contract.needs.
 		if assignTo != "" && (contract == nil || len(contract.Needs) > 0) {

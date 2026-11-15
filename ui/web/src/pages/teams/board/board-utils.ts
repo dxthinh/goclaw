@@ -5,6 +5,8 @@ export const KANBAN_STATUSES = [
   "pending",
   "blocked",
   "in_progress",
+  "awaiting_input",
+  "in_review",
   "completed",
   "failed",
   "cancelled",
@@ -16,10 +18,21 @@ export type KanbanStatus = (typeof KANBAN_STATUSES)[number];
 export const STATUS_COLORS: Record<string, string> = {
   pending: "bg-slate-400",
   in_progress: "bg-blue-500",
+  awaiting_input: "bg-violet-500",
+  in_review: "bg-cyan-500",
   completed: "bg-green-500",
   blocked: "bg-amber-500",
   failed: "bg-red-500",
   cancelled: "bg-gray-400",
+};
+
+/** i18n keys for status column titles; statuses without a key show the raw value */
+export const STATUS_LABEL_KEYS: Record<string, string> = {
+  pending: "tasks.filters.pending",
+  in_progress: "tasks.filters.inProgress",
+  awaiting_input: "tasks.filters.awaitingInput",
+  in_review: "tasks.filters.inReview",
+  completed: "tasks.filters.completed",
 };
 
 /** Group tasks by a field for kanban columns */

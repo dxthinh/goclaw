@@ -26,6 +26,8 @@ type TeamsMethods struct {
 	eventBus    bus.EventPublisher
 	dataDir     string                       // workspace data directory for resolving file paths
 	toolCaps    *tools.TeamCapabilityChecker // nil: bỏ qua kiểm tra contract.needs
+	// taskFeedback: trả lời clarify, yêu cầu sửa, duyệt checkpoint (nil khi chưa nối).
+	taskFeedback tools.TaskFeedbackService
 }
 
 func NewTeamsMethods(teamStore store.TeamStore, agentStore store.AgentStore, linkStore store.AgentLinkStore, agentRouter *agent.Router, msgBus *bus.MessageBus, eventBus bus.EventPublisher, dataDir string) *TeamsMethods {

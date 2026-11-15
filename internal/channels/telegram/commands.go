@@ -88,6 +88,8 @@ func (c *Channel) handleBotCommand(ctx context.Context, message *telego.Message,
 			"/reactions — Show reaction emoji legend\n" +
 			"/tasks — List team tasks\n" +
 			"/task_detail <id> — View task detail\n" +
+			"/approve <number> — Approve a task result waiting for you\n" +
+			"/changes <number> <reason> — Request changes to a task result\n" +
 			"/subagents — List subagent tasks\n" +
 			"/subagent <id> — View subagent task detail\n" +
 			"/writers — List file writers for this group\n" +
@@ -209,6 +211,10 @@ func (c *Channel) handleBotCommand(ctx context.Context, message *telego.Message,
 
 	case "/task_detail":
 		c.handleTaskDetail(ctx, chatID, text, isGroup, setThread)
+		return true
+
+	case "/approve", "/changes":
+		c.handleTaskApprovalCommand(ctx, cmd, text, chatIDStr, localKey, senderID, chatIDObj, isGroup, isForum, messageThreadID, setThread)
 		return true
 
 	case "/subagents":

@@ -15,6 +15,9 @@ type TaskActionFlags struct {
 	Progressed bool // team_tasks(action="progress")
 	Commented  bool // team_tasks(action="comment")
 	Claimed    bool // team_tasks(action="claim")
+	// AwaitingInput: team_tasks(action="clarify") — task chờ câu trả lời, bước
+	// sau lượt chạy không được tự hoàn thành hay đánh failed.
+	AwaitingInput bool
 
 	// Deliverables holds the canonical paths this run declared as final files for
 	// its own task. The run's announce sends these and nothing else, so files
@@ -24,7 +27,7 @@ type TaskActionFlags struct {
 
 // HasAny returns true if the member interacted with the task system at all.
 func (f *TaskActionFlags) HasAny() bool {
-	return f.Completed || f.Reviewed || f.Escalated || f.Progressed || f.Commented || f.Claimed
+	return f.Completed || f.Reviewed || f.Escalated || f.Progressed || f.Commented || f.Claimed || f.AwaitingInput
 }
 
 const ctxTaskActionFlags toolContextKey = "tool_task_action_flags"

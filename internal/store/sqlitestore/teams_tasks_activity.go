@@ -546,6 +546,7 @@ func (s *SQLiteTeamStore) MarkInReviewStaleTasks(ctx context.Context, olderThan 
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE team_tasks SET status = ?, updated_at = ?
 		 WHERE status = ? AND updated_at < ?
+		   AND COALESCE(json_extract(metadata, '$.checkpoint_pending'), '') = ''
 		   AND team_id IN (
 		     SELECT id FROM agent_teams WHERE status = 'active'
 		   )`,
@@ -642,11 +643,12 @@ func (s *SQLiteTeamStore) ResetTaskStatus(ctx context.Context, taskID, teamID uu
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE team_tasks SET status = ?, locked_at = NULL, lock_expires_at = NULL, result = NULL,
 		 progress_percent = NULL, progress_step = NULL, updated_at = ?
-		 WHERE id = ? AND team_id = ? AND status IN (?, ?, ?, ?, ?) AND tenant_id = ?`,
+		 WHERE id = ? AND team_id = ? AND status IN (?, ?, ?, ?, ?, ?) AND tenant_id = ?`,
 		store.TeamTaskStatusPending, now,
 		taskID, teamID,
 		store.TeamTaskStatusStale, store.TeamTaskStatusFailed,
-		store.TeamTaskStatusCancelled, store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked, tid,
+		store.TeamTaskStatusCancelled, store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked,
+		store.TeamTaskStatusAwaitingInput, tid,
 	)
 	if err != nil {
 		return err
@@ -656,7 +658,7 @@ func (s *SQLiteTeamStore) ResetTaskStatus(ctx context.Context, taskID, teamID uu
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("task not available for reset (not stale/failed/cancelled/in_review or wrong team)")
+		return fmt.Errorf("task not available for reset (not stale/failed/cancelled/in_review/awaiting_input or wrong team)")
 	}
 	return nil
 }
@@ -705,11 +707,11 @@ func (s *SQLiteTeamStore) ListAllFollowupDueTasks(ctx context.Context) ([]store.
 		 `+activeTeamJoin+`
 		 WHERE t.followup_at IS NOT NULL
 		   AND t.followup_at <= ?
-		   AND t.status = ?
+		   AND t.status IN (?, ?)
 		   AND (t.followup_max = 0 OR t.followup_count < t.followup_max)
 		 ORDER BY t.followup_at
 		 LIMIT 100`,
-		now, store.TeamTaskStatusInProgress,
+		now, store.TeamTaskStatusInProgress, store.TeamTaskStatusAwaitingInput,
 	)
 	if err != nil {
 		return nil, err
@@ -780,11 +782,12 @@ func (s *SQLiteTeamStore) HasActiveMemberTasks(ctx context.Context, teamID uuid.
 			WHERE team_id = ?
 			  AND owner_agent_id IS NOT NULL
 			  AND owner_agent_id != ?
-			  AND status IN (?, ?, ?)
+			  AND status IN (?, ?, ?, ?)
 			  AND tenant_id = ?
 		)`,
 		teamID, excludeAgentID,
-		store.TeamTaskStatusPending, store.TeamTaskStatusInProgress, store.TeamTaskStatusBlocked, tid,
+		store.TeamTaskStatusPending, store.TeamTaskStatusInProgress, store.TeamTaskStatusBlocked,
+		store.TeamTaskStatusAwaitingInput, tid,
 	).Scan(&exists)
 	return exists, err
 }

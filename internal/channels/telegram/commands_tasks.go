@@ -25,6 +25,10 @@ func taskStatusIcon(status string) string {
 		return "🔄"
 	case "blocked":
 		return "⛔"
+	case "in_review":
+		return "👀"
+	case "awaiting_input":
+		return "❓"
 	default: // pending
 		return "⏳"
 	}

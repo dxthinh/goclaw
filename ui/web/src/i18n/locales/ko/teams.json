@@ -74,6 +74,7 @@
       "pending": "대기 중",
       "inProgress": "진행 중",
       "inReview": "검토 중",
+      "awaitingInput": "답변 대기",
       "completed": "완료됨",
       "all": "전체"
     },

@@ -59,6 +59,13 @@ type TelegramManagerConfig struct {
 	AllowedActions []string `json:"allowed_actions,omitempty"`
 }
 
+// TaskApprovalConfig bật duyệt kết quả task của team qua lệnh chat (/approve,
+// /changes) cho một instance kênh. Mặc định tắt. Chỉ cho phép checkpoint;
+// task nào cần duyệt vẫn do lead đánh dấu checkpoint "result".
+type TaskApprovalConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
 // ChannelsConfig contains per-channel configuration.
 type ChannelsConfig struct {
 	Telegram          TelegramConfig           `json:"telegram"`
@@ -94,6 +101,7 @@ type TelegramConfig struct {
 	ChatBehavior      *ChatBehaviorConfig    `json:"chat_behavior,omitempty"`      // override gateway chat behavior (nil = inherit)
 	ForceIPv4         bool                   `json:"force_ipv4,omitempty"`         // force IPv4 for all Telegram API requests (use when IPv6 routing is broken)
 	TelegramManager   *TelegramManagerConfig `json:"telegram_manager,omitempty"`   // hidden Telegram-only management tool permissions
+	TaskApproval      *TaskApprovalConfig    `json:"task_approval,omitempty"`      // user approves team task results via /approve, /changes (default off)
 
 	// Optional STT (Speech-to-Text) pipeline for voice/audio inbound messages.
 	// When stt_proxy_url is set, audio/voice messages are transcribed before being forwarded to the agent.

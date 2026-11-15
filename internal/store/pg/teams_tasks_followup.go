@@ -55,11 +55,11 @@ func (s *PGTeamStore) ListAllFollowupDueTasks(ctx context.Context) ([]store.Team
 		 `+activeTeamJoin+`
 		 WHERE t.followup_at IS NOT NULL
 		   AND t.followup_at <= $1
-		   AND t.status = $2
+		   AND t.status IN ($2, $3)
 		   AND (t.followup_max = 0 OR t.followup_count < t.followup_max)
 		 ORDER BY t.followup_at
 		 LIMIT 100`,
-		now, store.TeamTaskStatusInProgress,
+		now, store.TeamTaskStatusInProgress, store.TeamTaskStatusAwaitingInput,
 	)
 	if err != nil {
 		return nil, err
@@ -128,11 +128,12 @@ func (s *PGTeamStore) HasActiveMemberTasks(ctx context.Context, teamID uuid.UUID
 			WHERE team_id = $1
 			  AND owner_agent_id IS NOT NULL
 			  AND owner_agent_id != $2
-			  AND status IN ($3, $4, $5)
+			  AND status IN ($3, $4, $5, $7)
 			  AND tenant_id = $6
 		)`,
 		teamID, excludeAgentID,
 		store.TeamTaskStatusPending, store.TeamTaskStatusInProgress, store.TeamTaskStatusBlocked, tid,
+		store.TeamTaskStatusAwaitingInput,
 	).Scan(&exists)
 	return exists, err
 }

@@ -819,6 +819,16 @@ func runGateway() {
 	server.SetChannelManager(channelMgr)
 	channelMgr.SetDeliveryRecorder(newDeliveryRecorder(pgStores.RunTimeline, traceCollector, pgStores.Sessions))
 
+	// Duyệt task qua lệnh chat: team tool hỏi channel manager kênh gốc đã bật
+	// task_approval chưa. Nối ở đây vì channel manager tạo sau team tool manager.
+	var taskFeedback tools.TaskFeedbackService
+	if tm, ok := postTurn.(*tools.TeamToolManager); ok {
+		tm.SetTaskApprovalChecker(func(name string) bool {
+			return channels.ChannelSupportsTaskApproval(channelMgr, name)
+		})
+		taskFeedback = tm
+	}
+
 	// Wire channel member resolver into permission grant paths (WS + HTTP) so
 	// file_writer grants coming from the Web UI auto-enrich their metadata.
 	cfgPermsMethods.SetMemberResolver(channelMgr)
@@ -977,7 +987,7 @@ func runGateway() {
 	registerConfigChannels(cfg, channelMgr, msgBus, pgStores, instanceLoader, audioMgr)
 
 	// Register channels/instances/links/teams RPC methods
-	chInstancesM := wireChannelRPCMethods(server, pgStores, channelMgr, instanceLoader, agentRouter, msgBus, cfg, workspace)
+	chInstancesM := wireChannelRPCMethods(server, pgStores, channelMgr, instanceLoader, agentRouter, msgBus, cfg, workspace, taskFeedback)
 
 	// Bitrix24 orphan-bot cleaner. Fires from channel_instances delete handler
 	// when the channel is no longer loaded in the Manager (typical scenario:

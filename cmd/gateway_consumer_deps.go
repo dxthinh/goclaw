@@ -37,4 +37,8 @@ type ConsumerDeps struct {
 	TeamWorkEmbedder memory.EmbeddingProvider
 	BgWg             sync.WaitGroup
 	GetAnnounceMu    func(string) *sync.Mutex
+	// ConfigPermStore kiểm tra file writer của nhóm khi duyệt task bằng lệnh chat.
+	ConfigPermStore store.ConfigPermissionStore
+	// TaskFeedback xử lý lệnh duyệt /approve, /changes (nil khi không bật team).
+	TaskFeedback tools.TaskFeedbackService
 }

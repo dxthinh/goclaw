@@ -159,10 +159,11 @@ func resolveTeamTaskOutcome(
 			))
 		}
 
-	case flags.Completed || flags.Escalated:
-		// Tool already completed/failed the task — skip auto-complete.
+	case flags.Completed || flags.Escalated || flags.AwaitingInput:
+		// Tool already completed/failed the task, or the member asked for
+		// clarification (task is awaiting_input) — skip auto-complete.
 		slog.Info("post-turn: tool handled task", "task_id", meta.TaskID,
-			"completed", flags.Completed, "escalated", flags.Escalated)
+			"completed", flags.Completed, "escalated", flags.Escalated, "awaiting_input", flags.AwaitingInput)
 
 	case flags.Reviewed:
 		// Task submitted for review — skip auto-complete, renew lock.
@@ -212,6 +213,17 @@ func resolveTeamTaskOutcome(
 		}
 		if len(result) > 100_000 {
 			result = result[:100_000] + "\n[truncated]"
+		}
+		// Cổng duyệt dùng chung với tool complete: task có checkpoint "result"
+		// được nộp chờ user duyệt thay vì completed.
+		if deps.TaskFeedback != nil && currentTask != nil {
+			submitted, err := deps.TaskFeedback.SubmitResultForUserApproval(ctx, cachedTeam, currentTask, result, tools.TaskActor{AgentKey: toAgent})
+			if submitted {
+				if err != nil {
+					slog.Warn("post-turn: submit for user approval failed", "task_id", meta.TaskID, "error", err)
+				}
+				break
+			}
 		}
 		if err := deps.TeamStore.CompleteTask(ctx, meta.TaskID, meta.TeamID, result); err != nil {
 			slog.Warn("auto-complete: CompleteTask error", "task_id", meta.TaskID, "error", err)

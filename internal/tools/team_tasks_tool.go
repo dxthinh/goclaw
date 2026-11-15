@@ -55,15 +55,20 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"text": map[string]any{
 				"type":        "string",
-				"description": "Text content: comment text, cancel/reject reason, progress update, or ask_user reminder question (must be a question asking the user for input/decision)",
+				"description": "Text content: comment text, cancel/reject reason, progress update, clarify question, answer to a clarify question, or ask_user reminder question (must be a question asking the user for input/decision)",
 			},
 			"type": map[string]any{
 				"type":        "string",
-				"description": "Comment type for action=comment: 'note' (default, share findings) or 'blocker' (you are BLOCKED and need leader input — auto-fails task and notifies leader)",
+				"description": "Comment type for action=comment: 'note' (default, share findings) or 'blocker' (you cannot continue even with an answer — auto-fails task and notifies leader). To ask the leader a question use action=clarify instead.",
+			},
+			"kind": map[string]any{
+				"type":        "string",
+				"enum":        []string{ClarifyKindQuestion, ClarifyKindMissingTool},
+				"description": "For clarify: 'question' (default, information is missing or unclear) or 'missing_tool' (you lack a tool the task needs)",
 			},
 			"status": map[string]any{
 				"type":        "string",
-				"description": "Filter for list: '' (all, default), 'active', 'completed', 'in_review'",
+				"description": "Filter for list: '' (all, default), 'active' (includes awaiting_input), 'completed', 'in_review'",
 			},
 			"query": map[string]any{
 				"type":        "string",
@@ -80,7 +85,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"require_approval": map[string]any{
 				"type":        "boolean",
-				"description": "Require user approval before claim (for create, default false)",
+				"description": "Same as contract.checkpoint='result': the user approves the result in the original chat before the task completes (for create, default false). Only applies when the origin chat channel has task approval enabled; otherwise it is dropped and you review the result.",
 			},
 			"percent": map[string]any{
 				"type":        "integer",
@@ -96,7 +101,7 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 			},
 			"contract": map[string]any{
 				"type":        "object",
-				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note'), needs (array of tool groups such as 'web', 'runtime', 'fs', or tool names the assignee must have; checked when the team enables task contracts).",
+				"description": "Task contract for create (required for every task_type except 'request' and 'note' when the team enables task contracts). Fields: objective (string, the purpose tied to the user's request), deliverables (array: what to produce, format, where to put it), acceptance (array: verifiable criteria), optional scope_in, scope_out, inputs (arrays), on_unclear ('ask' default, or 'assume_and_note'), checkpoint ('result' when the user must approve the result before the task completes — use only for output that goes straight to the user or outside, or when the user asked to review it first), needs (array of tool groups such as 'web', 'runtime', 'fs', or tool names the assignee must have; checked when the team enables task contracts).",
 				"properties": map[string]any{
 					"objective":    map[string]any{"type": "string"},
 					"deliverables": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -106,11 +111,12 @@ func (t *TeamTasksTool) Parameters() map[string]any {
 					"inputs":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"on_unclear":   map[string]any{"type": "string", "enum": []string{TaskContractOnUnclearAsk, TaskContractOnUnclearAssume}},
 					"needs":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"checkpoint":   map[string]any{"type": "string", "enum": []string{TaskContractCheckpointNone, TaskContractCheckpointResult}},
 				},
 			},
 			"assignee": map[string]any{
 				"type":        "string",
-				"description": "Agent key to assign task to (REQUIRED for create). Auto-dispatches to that team member.",
+				"description": "Agent key to assign task to (REQUIRED for create; optional for answer, to give the task to another member). Auto-dispatches to that team member.",
 			},
 			"page": map[string]any{
 				"type":        "number",
@@ -152,6 +158,8 @@ func (t *TeamTasksTool) buildActionDescription() string {
 		"ask_user":       "- ask_user: task_id, text\n",
 		"clear_ask_user": "- clear_ask_user: task_id\n",
 		"retry":          "- retry: task_id\n",
+		"clarify":        "- clarify: task_id?, text, kind? (task owner: ask the lead; the task waits for the answer)\n",
+		"answer":         "- answer: task_id, text, assignee? (lead: answer a clarify question and re-dispatch)\n",
 	}
 	for _, action := range t.policy.AllowedActions() {
 		if line, ok := guide[action]; ok {
@@ -214,7 +222,11 @@ func (t *TeamTasksTool) Execute(ctx context.Context, args map[string]any) *Resul
 		return t.executeClearAskUser(ctx, args)
 	case "retry":
 		return t.executeRetry(ctx, args)
+	case "clarify":
+		return t.executeClarify(ctx, args)
+	case "answer":
+		return t.executeAnswer(ctx, args)
 	default:
-		return ErrorResult(fmt.Sprintf("unknown action: %s (use list, get, create, claim, complete, cancel, search, review, comment, progress, attach, update, ask_user, clear_ask_user, or retry)", action))
+		return ErrorResult(fmt.Sprintf("unknown action: %s (use list, get, create, claim, complete, cancel, search, review, comment, progress, attach, update, ask_user, clear_ask_user, retry, clarify, or answer)", action))
 	}
 }

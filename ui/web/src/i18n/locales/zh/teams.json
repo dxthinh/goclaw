@@ -74,6 +74,7 @@
       "pending": "待处理",
       "inProgress": "处理中",
       "inReview": "待审核",
+      "awaitingInput": "等待回复",
       "completed": "已完成",
       "all": "全部"
     },

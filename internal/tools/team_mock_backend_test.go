@@ -562,6 +562,53 @@ func (s *mockTaskStore) ResetTaskStatus(_ context.Context, taskID, _ uuid.UUID) 
 	return nil
 }
 
+func (s *mockTaskStore) AwaitTaskInput(_ context.Context, taskID, _ uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[taskID]
+	if !ok {
+		return store.ErrTaskNotFound
+	}
+	if t.Status != store.TeamTaskStatusInProgress {
+		return fmt.Errorf("cannot await input on task with status %q", t.Status)
+	}
+	t.Status = store.TeamTaskStatusAwaitingInput
+	t.LockedAt = nil
+	t.LockExpiresAt = nil
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *mockTaskStore) GetTaskByNumberInChat(_ context.Context, teamID uuid.UUID, num int, channel, chatID string) (*store.TeamTaskData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.tasks {
+		if t.TeamID == teamID && t.TaskNumber == num && t.Channel == channel && t.ChatID == chatID {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrTaskNotFound
+}
+
+func (s *mockTaskStore) SubmitTaskResultForReview(_ context.Context, taskID, _ uuid.UUID, result string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[taskID]
+	if !ok {
+		return store.ErrTaskNotFound
+	}
+	if t.Status != store.TeamTaskStatusInProgress {
+		return fmt.Errorf("cannot submit task with status %q", t.Status)
+	}
+	t.Status = store.TeamTaskStatusInReview
+	t.Result = &result
+	t.LockedAt = nil
+	t.LockExpiresAt = nil
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
 func (s *mockTaskStore) UpdateTaskProgress(_ context.Context, taskID, _ uuid.UUID, percent int, step string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -779,7 +826,13 @@ type mockBackend struct {
 	events     []capturedEvent
 	dispatches []capturedDispatch
 	inbound    []bus.InboundMessage
-	mu         sync.Mutex
+	// approvalChannels: kênh đã bật task_approval (xem ChannelTaskApprovalEnabled).
+	approvalChannels map[string]bool
+	// approvalNotices: task đã được gửi tin chờ user duyệt.
+	approvalNotices []uuid.UUID
+	// unblockedDispatches đếm số lần DispatchUnblockedTasks được gọi.
+	unblockedDispatches int
+	mu                  sync.Mutex
 }
 
 func newMockBackend(team *store.TeamData, members []store.TeamMemberData, agents []*store.AgentData) *mockBackend {
@@ -850,8 +903,8 @@ func (mb *mockBackend) CachedGetAgentByID(_ context.Context, id uuid.UUID) (*sto
 	return nil, fmt.Errorf("agent not found: %s", id)
 }
 
-func (mb *mockBackend) PreWarmAgentKeyCache(_ context.Context, _ []string)    {}
-func (mb *mockBackend) PreWarmAgentIDCache(_ context.Context, _ []uuid.UUID)  {}
+func (mb *mockBackend) PreWarmAgentKeyCache(_ context.Context, _ []string)   {}
+func (mb *mockBackend) PreWarmAgentIDCache(_ context.Context, _ []uuid.UUID) {}
 
 func (mb *mockBackend) BroadcastTeamEvent(_ context.Context, name string, payload any) {
 	mb.mu.Lock()
@@ -869,6 +922,12 @@ func (mb *mockBackend) DispatchTaskToAgent(_ context.Context, task *store.TeamTa
 	mb.mu.Unlock()
 }
 
+func (mb *mockBackend) DispatchUnblockedTasks(_ context.Context, _ uuid.UUID) {
+	mb.mu.Lock()
+	mb.unblockedDispatches++
+	mb.mu.Unlock()
+}
+
 func (mb *mockBackend) TryPublishInbound(msg bus.InboundMessage) bool {
 	mb.mu.Lock()
 	mb.inbound = append(mb.inbound, msg)
@@ -876,25 +935,41 @@ func (mb *mockBackend) TryPublishInbound(msg bus.InboundMessage) bool {
 	return true
 }
 
-func (mb *mockBackend) BuildBlockerResultsSummary(_ context.Context, _ *store.TeamTaskData) string { return "" }
-func (mb *mockBackend) BuildRecentCommentsSummary(_ context.Context, _ uuid.UUID) string           { return "" }
+func (mb *mockBackend) BuildBlockerResultsSummary(_ context.Context, _ *store.TeamTaskData) string {
+	return ""
+}
+func (mb *mockBackend) BuildRecentCommentsSummary(_ context.Context, _ uuid.UUID) string { return "" }
 func (mb *mockBackend) RestoreTraceContext(ctx context.Context, _ *store.TeamTaskData) context.Context {
 	return ctx
 }
-func (mb *mockBackend) FollowupDelayMinutes(_ *store.TeamData) int  { return 30 }
-func (mb *mockBackend) FollowupMaxReminders(_ *store.TeamData) int  { return 0 }
-func (mb *mockBackend) DataDir() string                             { return "/tmp/test" }
+func (mb *mockBackend) FollowupDelayMinutes(_ *store.TeamData) int { return 30 }
+func (mb *mockBackend) FollowupMaxReminders(_ *store.TeamData) int { return 0 }
+func (mb *mockBackend) DataDir() string                            { return "/tmp/test" }
+
+// NotifyUserApproval ghi lại task được báo chờ user duyệt.
+func (mb *mockBackend) NotifyUserApproval(_ context.Context, task *store.TeamTaskData) {
+	mb.mu.Lock()
+	mb.approvalNotices = append(mb.approvalNotices, task.ID)
+	mb.mu.Unlock()
+}
+
+// approvalChannels: các kênh coi như đã bật duyệt task qua lệnh chat.
+func (mb *mockBackend) ChannelTaskApprovalEnabled(channel string) bool {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	return mb.approvalChannels[channel]
+}
 
 // ============================================================
 // newTestTeamSetup — standard test fixture
 // ============================================================
 
 var (
-	testTeamID   = uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	testLeadID   = uuid.MustParse("00000000-0000-0000-0000-000000000002")
-	testMemberID = uuid.MustParse("00000000-0000-0000-0000-000000000003")
+	testTeamID    = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	testLeadID    = uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	testMemberID  = uuid.MustParse("00000000-0000-0000-0000-000000000003")
 	testMember2ID = uuid.MustParse("00000000-0000-0000-0000-000000000004")
-	testTenantID = uuid.MustParse("00000000-0000-0000-0000-000000000099")
+	testTenantID  = uuid.MustParse("00000000-0000-0000-0000-000000000099")
 )
 
 func newTestTeamSetup() (*mockBackend, *TeamTasksTool, uuid.UUID, uuid.UUID, context.Context) {

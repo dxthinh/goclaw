@@ -90,7 +90,20 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 		}
 	}
 
-	if err := t.manager.Store().CompleteTask(ctx, taskID, team.ID, result); err != nil {
+	// Mọi lần hoàn thành đi qua cổng duyệt của user: task có checkpoint
+	// "result" được nộp chờ duyệt (in_review) thay vì completed.
+	actor := TaskActor{AgentID: &agentID, AgentKey: t.manager.AgentKeyFromID(ctx, agentID)}
+	submitted := false
+	finish := func() error {
+		ok, err := SubmitResultForUserApproval(ctx, t.manager, team, task, result, actor)
+		if ok {
+			submitted = err == nil
+			return err
+		}
+		return t.manager.Store().CompleteTask(ctx, taskID, team.ID, result)
+	}
+
+	if err := finish(); err != nil {
 		// Fast path: check in-memory turn flags before hitting DB again.
 		if flags := TaskActionFlagsFromCtx(ctx); flags != nil && flags.Completed {
 			return NewResult(fmt.Sprintf("Task %s already completed.%s", taskID, t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)))
@@ -103,10 +116,15 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 				return NewResult(fmt.Sprintf("Task %s already completed.%s", taskID, t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)))
 			case store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled:
 				return NewResult(fmt.Sprintf("Task %s is %s — cannot complete.", taskID, current.Status))
+			case store.TeamTaskStatusInReview:
+				if TaskCheckpointPending(current) == CheckpointPendingUser {
+					recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
+					return NewResult(fmt.Sprintf("Task %s is already waiting for the user's approval.", taskID))
+				}
 			case store.TeamTaskStatusPending:
 				// Task was reset by stale recovery — re-assign and retry once.
 				if t.manager.Store().AssignTask(ctx, taskID, agentID, team.ID) == nil {
-					if t.manager.Store().CompleteTask(ctx, taskID, team.ID, result) == nil {
+					if finish() == nil {
 						slog.Info("executeComplete: re-assigned stale-recovered task", "task_id", taskID)
 						err = nil
 					}
@@ -117,9 +135,13 @@ func (t *TeamTasksTool) executeComplete(ctx context.Context, args map[string]any
 			return ErrorResult("failed to complete task: " + err.Error())
 		}
 	}
-	// Record action flag after successful store operation.
+	// Record action flag after successful store operation (cả khi nộp chờ duyệt:
+	// bước sau lượt chạy không được tự hoàn thành task).
 	recordTaskAction(ctx, func(f *TaskActionFlags) { f.Completed = true })
 	registered := t.registerDeliverables(ctx, team.ID, taskID, agentID, deliverables)
+	if submitted {
+		return NewResult(fmt.Sprintf("Task #%d result submitted for the user's approval.%s The task completes only when the user approves it; dependent tasks wait until then. Your work on it is done — end your turn.", task.TaskNumber, registered))
+	}
 
 	ownerKey := t.manager.AgentKeyFromID(ctx, agentID)
 	// TaskNumber/Subject/local_key cho subscriber thông báo lấy từ task đã đọc ở trên.
@@ -219,13 +241,6 @@ func (t *TeamTasksTool) executeApprove(ctx context.Context, args map[string]any)
 		return ErrorResult(err.Error())
 	}
 
-	// Only lead can approve tasks via tool. Không bỏ qua theo tên kênh: task tạo
-	// từ dashboard chạy ở kênh "dashboard", nên member sẽ tự duyệt được. Người
-	// duyệt trên Web UI đi qua RPC teams.tasks.approve, không qua tool này.
-	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
-		return ErrorResult(err.Error())
-	}
-
 	// Fetch task for subject (used in lead message) and team ownership check
 	task, err := t.manager.Store().GetTask(ctx, taskID)
 	if err != nil {
@@ -234,10 +249,27 @@ func (t *TeamTasksTool) executeApprove(ctx context.Context, args map[string]any)
 	if task.TeamID != team.ID {
 		return ErrorResult("task does not belong to your team")
 	}
+	// Lớp chặn: task chờ user duyệt thì không agent nào duyệt thay được, bất
+	// kể agent nào gọi và lượt chạy ở kênh nào.
+	if TaskCheckpointPending(task) == CheckpointPendingUser {
+		return ErrorResult(userCheckpointRejection(task))
+	}
+
+	// Only lead can approve tasks via tool. Không bỏ qua theo tên kênh: task tạo
+	// từ dashboard chạy ở kênh "dashboard", nên member sẽ tự duyệt được. Người
+	// duyệt trên Web UI đi qua RPC teams.tasks.approve, không qua tool này.
+	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
+		return ErrorResult(err.Error())
+	}
 
 	// Atomic transition: in_review -> completed
 	if err := t.manager.Store().ApproveTask(ctx, taskID, team.ID, ""); err != nil {
 		return ErrorResult("failed to approve task: " + err.Error())
+	}
+	// Task chờ lead duyệt: xóa checkpoint_pending sau khi đã completed.
+	if TaskCheckpointPending(task) != "" {
+		clearCheckpointPending(task)
+		_ = t.manager.Store().UpdateTask(ctx, taskID, map[string]any{"metadata": task.Metadata})
 	}
 
 	// Re-fetch to get the actual post-approval status (pending or blocked)
@@ -274,12 +306,6 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 		return ErrorResult(err.Error())
 	}
 
-	// Only lead can reject tasks via tool (cùng lý do như approve: không bỏ qua
-	// theo tên kênh; Web UI dùng RPC teams.tasks.reject).
-	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
-		return ErrorResult(err.Error())
-	}
-
 	reason, _ := args["text"].(string)
 	if reason == "" {
 		reason = "Rejected by user"
@@ -292,6 +318,16 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 	}
 	if task.TeamID != team.ID {
 		return ErrorResult("task does not belong to your team")
+	}
+	// Lớp chặn như approve: task chờ user duyệt thì agent không reject được.
+	if TaskCheckpointPending(task) == CheckpointPendingUser {
+		return ErrorResult(userCheckpointRejection(task))
+	}
+
+	// Only lead can reject tasks via tool (cùng lý do như approve: không bỏ qua
+	// theo tên kênh; Web UI dùng RPC teams.tasks.reject).
+	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
+		return ErrorResult(err.Error())
 	}
 
 	// Record rejection as a task comment for audit trail (before status change).
@@ -306,6 +342,22 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 	// and instead reset in_review → pending → in_progress → dispatch.
 	// Dependents stay blocked until this task actually completes or circuit breaker fails it.
 	if task.OwnerAgentID != nil {
+		// Lý do reject thành amendment changes_requested của contract, để member
+		// thấy yêu cầu sửa trong khối contract của lượt chạy sau.
+		if c := TaskContractFromTask(task); c != nil {
+			if err := validateFeedbackText(reason); err != nil {
+				return ErrorResult("reject: " + err.Error())
+			}
+			if err := appendTaskAmendment(task, c, AmendmentKindChangesRequested, reason, t.manager.AgentKeyFromID(ctx, agentID)); err != nil {
+				return ErrorResult(err.Error())
+			}
+		}
+		clearCheckpointPending(task)
+		if task.Metadata != nil {
+			if err := t.manager.Store().UpdateTask(ctx, taskID, map[string]any{"metadata": task.Metadata}); err != nil {
+				return ErrorResult("failed to save task metadata: " + err.Error())
+			}
+		}
 		// Reset in_review → pending (ResetTaskStatus accepts in_review via store guard).
 		if err := t.manager.Store().ResetTaskStatus(ctx, taskID, team.ID); err != nil {
 			// Fallback: use RejectTask (cancels + unblocks) if reset fails.

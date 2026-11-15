@@ -74,6 +74,7 @@
       "pending": "Ожидающие",
       "inProgress": "В работе",
       "inReview": "На проверке",
+      "awaitingInput": "Ожидает ответа",
       "completed": "Завершённые",
       "all": "Все"
     },

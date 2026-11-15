@@ -38,7 +38,7 @@ func RenderTaskContract(task *store.TeamTaskData, c *TaskContract) string {
 	if c.OnUnclear == TaskContractOnUnclearAssume {
 		sb.WriteString("If unclear: make the most reasonable assumption, continue, and state every assumption in your result\n")
 	} else {
-		sb.WriteString("If unclear: ask the lead via team_tasks(action=\"comment\", type=\"blocker\", text=\"<your question>\") instead of guessing\n")
+		sb.WriteString("If unclear: ask via team_tasks(action=\"clarify\", text=\"<your question>\") instead of guessing; the task waits for the answer\n")
 	}
 	if len(c.Amendments) > 0 {
 		sb.WriteString("Amendments:\n")

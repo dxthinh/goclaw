@@ -3,6 +3,7 @@ export function taskStatusBadgeVariant(status: string) {
     case "pending": return "outline" as const;
     case "pending_approval": return "default" as const;
     case "in_progress": return "info" as const;
+    case "awaiting_input": return "warning" as const;
     case "completed": return "success" as const;
     case "blocked": return "warning" as const;
     case "failed": return "destructive" as const;

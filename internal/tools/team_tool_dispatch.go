@@ -118,14 +118,9 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 		}
 	}
 
-	// Hint: guide member on available team_tasks actions.
-	content.WriteString("\n\n[Instructions]\n" +
-		"- Use team_tasks(action=\"progress\", percent=N, text=\"...\") to report progress\n" +
-		"- Use team_tasks(action=\"comment\", text=\"...\") to share findings\n" +
-		"- Use team_tasks(action=\"comment\", type=\"blocker\", text=\"...\") when BLOCKED and need leader input — auto-fails task and notifies leader\n" +
-		"- When done: team_tasks(action=\"complete\", result=\"summary of your work\", deliverables=[\"exact path of each final file\"])\n" +
-		"- deliverables is how files reach the user: list every final file, including ones made by exec or post-processing, and leave out drafts. Unlisted files are not sent.\n" +
-		"- Write output files to team workspace so lead can review")
+	// Hint: guide member on available team_tasks actions (theo policy: Lite
+	// không có clarify nên giữ hướng dẫn blocker cũ).
+	content.WriteString("\n\n" + memberDispatchInstructions(m.actionAllowed("clarify")))
 
 	// Use task's stored channel/chat as primary source for routing.
 	// Falls back to ctx values for initial dispatch (task just created, fields match ctx).
@@ -173,15 +168,15 @@ func (m *TeamToolManager) dispatchTaskToAgent(ctx context.Context, task *store.T
 	}
 
 	meta := map[string]string{
-		MetaOriginChannel:   originChannel,
-		MetaOriginPeerKind:  originPeerKind,
-		MetaOriginChatID:    originChatID,
-		MetaOriginUserID:    originUserID,
-		MetaFromAgent:       fromAgent,
-		MetaToAgent:         ag.AgentKey,
-		MetaToAgentDisplay:  ag.DisplayName,
-		MetaTeamTaskID:      task.ID.String(),
-		MetaTeamID:          teamID.String(),
+		MetaOriginChannel:  originChannel,
+		MetaOriginPeerKind: originPeerKind,
+		MetaOriginChatID:   originChatID,
+		MetaOriginUserID:   originUserID,
+		MetaFromAgent:      fromAgent,
+		MetaToAgent:        ag.AgentKey,
+		MetaToAgentDisplay: ag.DisplayName,
+		MetaTeamTaskID:     task.ID.String(),
+		MetaTeamID:         teamID.String(),
 	}
 	if originSenderID != "" {
 		meta[MetaOriginSenderID] = originSenderID
@@ -481,4 +476,23 @@ func (m *TeamToolManager) dispatchPendingTasks(ctx context.Context, teamID uuid.
 		dispatchCtx := m.restoreTraceContext(ctx, task)
 		m.dispatchTaskToAgent(dispatchCtx, task, team, ownerID)
 	}
+}
+
+// memberDispatchInstructions dựng khối [Instructions] của tin dispatch.
+// withClarify = false (bản Lite) giữ hướng dẫn cũ: blocker cho mọi trường hợp bị chặn.
+func memberDispatchInstructions(withClarify bool) string {
+	var sb strings.Builder
+	sb.WriteString("[Instructions]\n" +
+		"- Use team_tasks(action=\"progress\", percent=N, text=\"...\") to report progress\n" +
+		"- Use team_tasks(action=\"comment\", text=\"...\") to share findings\n")
+	if withClarify {
+		sb.WriteString("- Use team_tasks(action=\"clarify\", text=\"<question>\") when information is missing or unclear — the task waits for the lead's answer, then comes back to you\n" +
+			"- Use team_tasks(action=\"comment\", type=\"blocker\", text=\"...\") only when you cannot continue even with an answer — auto-fails task and notifies leader\n")
+	} else {
+		sb.WriteString("- Use team_tasks(action=\"comment\", type=\"blocker\", text=\"...\") when BLOCKED and need leader input — auto-fails task and notifies leader\n")
+	}
+	sb.WriteString("- When done: team_tasks(action=\"complete\", result=\"summary of your work\", deliverables=[\"exact path of each final file\"])\n" +
+		"- deliverables is how files reach the user: list every final file, including ones made by exec or post-processing, and leave out drafts. Unlisted files are not sent.\n" +
+		"- Write output files to team workspace so lead can review")
+	return sb.String()
 }

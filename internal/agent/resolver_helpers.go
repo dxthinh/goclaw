@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/nextlevelbuilder/goclaw/internal/config"
+	"github.com/nextlevelbuilder/goclaw/internal/edition"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
@@ -134,6 +135,14 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 			sb.WriteString("            \"scope_out\": [\"No forecasts\"]})\n```\n")
 		}
 
+		if edition.Current().TeamFullMode {
+			sb.WriteString("\n## Member Questions\n\n")
+			sb.WriteString("A member may ask you a question with `clarify`; the task then waits in `awaiting_input` and you get a message with the question.\n")
+			sb.WriteString("- Answer only when you know for certain: `team_tasks(action=\"answer\", task_id=\"<id>\", text=\"<answer>\")`. The task is dispatched again to the same member (add `assignee` to give it to another member).\n")
+			sb.WriteString("- If you are not sure, ask the user in the chat first, then `answer` with what they said. Never guess on the user's behalf.\n")
+			sb.WriteString("- A task waiting for the user's approval (they approve with `/approve <number>` in the chat) cannot be approved or rejected by you.\n")
+		}
+
 		sb.WriteString("\n## Follow-up Reminders\n\n")
 		sb.WriteString("When you need user input/decision: create+claim task, then `ask_user` with text=<question>. ONLY use when you have a question for the user — NOT for waiting on teammates or status updates.\n")
 		sb.WriteString("IMPORTANT: Present the question directly to the user in your response. `ask_user` only sets up periodic REMINDERS in case they don't reply — it does NOT present the question for you.\n")
@@ -164,8 +173,18 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 			sb.WriteString("\n## Communication\n\n")
 			sb.WriteString("Use `team_tasks(action=\"comment\")` to report issues or ask questions on your current task.\n")
 		}
-		sb.WriteString("\n## Blocker Escalation\n\n")
-		sb.WriteString("If blocked (missing info, unclear requirements, need credentials):\n")
+		if edition.Current().TeamFullMode {
+			sb.WriteString("\n## Asking for Clarification\n\n")
+			sb.WriteString("If information is missing or the requirements are unclear, ask instead of guessing:\n")
+			sb.WriteString("```\nteam_tasks(action=\"clarify\", text=\"your question\")\n```\n")
+			sb.WriteString("The task waits for the lead's answer (it does not fail). Stop and end your turn; you will get the task again with the answer.\n")
+			sb.WriteString("If you lack a tool the task needs, use `kind=\"missing_tool\"`.\n")
+			sb.WriteString("\n## Blocker Escalation\n\n")
+			sb.WriteString("Only when you cannot continue even with an answer (e.g. the task is impossible as defined):\n")
+		} else {
+			sb.WriteString("\n## Blocker Escalation\n\n")
+			sb.WriteString("If blocked (missing info, unclear requirements, need credentials):\n")
+		}
 		sb.WriteString("```\nteam_tasks(action=\"comment\", type=\"blocker\", text=\"what you need\")\n```\n")
 		sb.WriteString("This auto-fails the task and notifies the leader, who can retry with updated instructions.\n")
 	}

@@ -663,6 +663,7 @@ func wireExtras(
 		if !edition.Current().TeamFullMode {
 			teamPolicy = tools.LiteTeamPolicy{}
 		}
+		teamMgr.SetActionPolicy(teamPolicy)
 		toolsReg.Register(tools.NewTeamTasksTool(teamMgr, teamPolicy))
 		// Wire workspace interceptor into write_file so team workspace validation
 		// and event broadcasting happen transparently via existing file tools.

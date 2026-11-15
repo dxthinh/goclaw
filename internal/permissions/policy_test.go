@@ -169,6 +169,8 @@ func TestCanAccess_WriteMethods(t *testing.T) {
 		protocol.MethodCronCreate,
 		protocol.MethodTeamsTaskCancel,
 		protocol.MethodTeamsTaskRetry,
+		protocol.MethodTeamsTaskAnswer,
+		protocol.MethodTeamsTaskRequestChanges,
 	}
 	for _, method := range writeMethods {
 		t.Run(method, func(t *testing.T) {

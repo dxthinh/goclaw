@@ -141,11 +141,13 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		assigneeWarning = w
 	}
 
+	// require_approval nghĩa là checkpoint "result": task chạy rồi user duyệt
+	// kết quả, không còn tạo task ở in_review (duyệt task chưa chạy).
 	requireApproval, _ := args["require_approval"].(bool)
+	metaCheckpoint, checkpointNote := resolveCreateCheckpoint(contract, requireApproval,
+		t.manager.ChannelTaskApprovalEnabled(OriginChannelFromCtx(ctx)))
 	status := store.TeamTaskStatusPending
-	if requireApproval {
-		status = store.TeamTaskStatusInReview
-	} else if len(blockedBy) > 0 {
+	if len(blockedBy) > 0 {
 		status = store.TeamTaskStatusBlocked
 	}
 	// Assigned tasks without blockers stay pending — dispatched after the turn
@@ -168,6 +170,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 	taskMeta[TaskMetaTeamWorkspace] = teamWsDir
 	if contract != nil {
 		taskMeta[TaskMetaContract] = contract.ToMetadata()
+	}
+	if metaCheckpoint != "" {
+		taskMeta[TaskMetaCheckpoint] = metaCheckpoint
 	}
 	// Auto-collect media files from current run to team workspace.
 	// When leader received files from user and creates a task, copy those
@@ -345,6 +350,9 @@ func (t *TeamTasksTool) executeCreate(ctx context.Context, args map[string]any) 
 		assigneeName = t.manager.AgentKeyFromID(ctx, assigneeID)
 	}
 	msg := fmt.Sprintf("Task created: %s (id=%s, task_number=%d, status=%s, assignee=%s)", subject, task.ID, task.TaskNumber, status, assigneeName)
+	if checkpointNote != "" {
+		msg += "\n\n" + checkpointNote
+	}
 
 	// Soft guardrail: warn if subject suggests multiple deliverables.
 	// Only checks subject (not description) — detailed descriptions are fine.
@@ -376,4 +384,33 @@ func resolveCreateContract(team *store.TeamData, taskType string, raw any) (*Tas
 		return nil, "This team requires a task contract for every task except task_type request and note. Add contract={objective, deliverables, acceptance}. " + taskContractExample
 	}
 	return contract, ""
+}
+
+// checkpointDroppedNote là ghi chú trả lead khi checkpoint bị bỏ (tiếng Anh, cho LLM).
+const checkpointDroppedNote = "Note: the result checkpoint (require_approval) was dropped because this chat channel does not approve tasks by command. You (the lead) will review the result."
+
+// resolveCreateCheckpoint áp checkpoint của lệnh create: require_approval được
+// ánh xạ thành checkpoint "result". Task có contract lưu checkpoint trong
+// contract (sửa trực tiếp contract); task không có contract nhận giá trị trả
+// về để lưu vào metadata.checkpoint. Checkpoint chỉ giữ lại khi kênh gốc hỗ
+// trợ và đã bật duyệt qua lệnh chat; nếu không thì bị bỏ (không chặn việc tạo
+// task) và trả ghi chú cho lead.
+func resolveCreateCheckpoint(contract *TaskContract, requireApproval, channelApproval bool) (metaCheckpoint, note string) {
+	if contract == nil {
+		if !requireApproval {
+			return "", ""
+		}
+		if !channelApproval {
+			return "", checkpointDroppedNote
+		}
+		return TaskContractCheckpointResult, ""
+	}
+	if requireApproval {
+		contract.Checkpoint = TaskContractCheckpointResult
+	}
+	if contract.Checkpoint == TaskContractCheckpointResult && !channelApproval {
+		contract.Checkpoint = TaskContractCheckpointNone
+		return "", checkpointDroppedNote
+	}
+	return "", ""
 }
