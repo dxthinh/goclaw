@@ -220,6 +220,13 @@ func resolveTeamTaskOutcome(
 			result = "Agent run ended without explicit result"
 		}
 		result = truncateTaskResult(result)
+		// Không đọc được task (DB lỗi tạm thời): không biết task có contract hay
+		// cần user duyệt không, nên không tự hoàn thành. Task giữ in_progress;
+		// khóa hết hạn thì ticker xử lý như task stale và lead retry được.
+		if currentTask == nil {
+			slog.Warn("post-turn: task lookup failed, not auto-completing", "task_id", meta.TaskID, "error", taskErr)
+			break
+		}
 		// Task có contract (team đã bật) mà lượt chạy không gọi complete: không
 		// tự hoàn thành, chuyển sang chờ lead xem.
 		if contract := tools.GatedTaskContract(cachedTeam, currentTask); contract != nil {
@@ -244,7 +251,7 @@ func resolveTeamTaskOutcome(
 		}
 		// Cổng duyệt dùng chung với tool complete: task có checkpoint "result"
 		// được nộp chờ user duyệt thay vì completed.
-		if deps.TaskFeedback != nil && currentTask != nil {
+		if deps.TaskFeedback != nil {
 			submitted, err := deps.TaskFeedback.SubmitResultForUserApproval(ctx, cachedTeam, currentTask, result, tools.TaskActor{AgentKey: toAgent})
 			if submitted {
 				if err != nil {

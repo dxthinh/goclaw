@@ -393,3 +393,12 @@ func TestComposeLeadAnnounce(t *testing.T) {
 		t.Errorf("plain announce = %q", got)
 	}
 }
+
+// GetTask lỗi sau lượt chạy: không biết task có contract hay checkpoint, nên
+// không tự hoàn thành (task giữ in_progress để ticker xử lý).
+func TestTeamTaskOutcome_TaskLookupErrorDoesNotComplete(t *testing.T) {
+	c := newOutcomeCase(store.TeamTaskStatusInProgress)
+	c.ts.task = nil
+	c.run(scheduler.RunOutcome{Result: &agent.RunResult{Content: "draft"}}, tools.TaskActionFlags{})
+	c.assert(t, nil, "")
+}
