@@ -337,7 +337,7 @@ func TestBuildTeamMD_LeadRole_ContainsWorkflow(t *testing.T) {
 		{AgentID: selfID, Role: store.TeamRoleLead, AgentKey: "lead-agent"},
 		{AgentID: uuid.New(), Role: store.TeamRoleMember, AgentKey: "member-1", DisplayName: "Member One"},
 	}
-	md := buildTeamMD(team, members, selfID)
+	md := buildTeamMD(team, members, selfID, nil)
 	if !strings.Contains(md, "# Team: test-team") {
 		t.Error("expected team name in header")
 	}
@@ -358,7 +358,7 @@ func TestBuildTeamMD_MemberRole_NoTaskCreation(t *testing.T) {
 	members := []store.TeamMemberData{
 		{AgentID: selfID, Role: store.TeamRoleMember, AgentKey: "member-agent"},
 	}
-	md := buildTeamMD(team, members, selfID)
+	md := buildTeamMD(team, members, selfID, nil)
 	if !strings.Contains(md, "Role: member") {
 		t.Error("expected member role in output")
 	}
@@ -374,7 +374,7 @@ func TestBuildTeamMD_ReviewerRole_ContainsApproveInstructions(t *testing.T) {
 	members := []store.TeamMemberData{
 		{AgentID: selfID, Role: store.TeamRoleReviewer, AgentKey: "reviewer-1"},
 	}
-	md := buildTeamMD(team, members, selfID)
+	md := buildTeamMD(team, members, selfID, nil)
 	if !strings.Contains(md, "APPROVED") {
 		t.Error("expected APPROVED/REJECTED guidance for reviewer")
 	}
@@ -383,7 +383,7 @@ func TestBuildTeamMD_ReviewerRole_ContainsApproveInstructions(t *testing.T) {
 func TestBuildTeamMD_EmptyMembers(t *testing.T) {
 	selfID := uuid.New()
 	team := &store.TeamData{Name: "solo"}
-	md := buildTeamMD(team, nil, selfID)
+	md := buildTeamMD(team, nil, selfID, nil)
 	// selfID not in members → defaults to member role
 	if !strings.Contains(md, "# Team: solo") {
 		t.Error("expected team name")
@@ -398,7 +398,7 @@ func TestBuildTeamMD_LeadSeesReviewersSection(t *testing.T) {
 		{AgentID: selfID, Role: store.TeamRoleLead, AgentKey: "lead"},
 		{AgentID: reviewerID, Role: store.TeamRoleReviewer, AgentKey: "rev-1", DisplayName: "RevBot"},
 	}
-	md := buildTeamMD(team, members, selfID)
+	md := buildTeamMD(team, members, selfID, nil)
 	if !strings.Contains(md, "Reviewers") {
 		t.Error("lead should see Reviewers section")
 	}

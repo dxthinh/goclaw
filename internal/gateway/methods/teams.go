@@ -12,6 +12,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
+	"github.com/nextlevelbuilder/goclaw/internal/tools"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -24,6 +25,7 @@ type TeamsMethods struct {
 	msgBus      *bus.MessageBus      // for pub/sub cache invalidation
 	eventBus    bus.EventPublisher
 	dataDir string // workspace data directory for resolving file paths
+	toolCaps    *tools.TeamCapabilityChecker // nil: bỏ qua kiểm tra contract.needs
 }
 
 func NewTeamsMethods(teamStore store.TeamStore, agentStore store.AgentStore, linkStore store.AgentLinkStore, agentRouter *agent.Router, msgBus *bus.MessageBus, eventBus bus.EventPublisher, dataDir string) *TeamsMethods {

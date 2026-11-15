@@ -385,5 +385,7 @@ func init() {
 		MsgTaskContractInvalid:                     "invalid task contract: %s",
 		MsgTaskContractRequired:                    "this team requires a task contract (objective, deliverables, acceptance) before a task can be assigned",
 		MsgTaskTypeInvalid:                         "invalid task type %q: must be general, request, note, delegation or escalation",
+		MsgTaskNeedsMissing:                        "assignee %s lacks the tools this task needs: %s. Members that have them: %s",
+		MsgTaskNeedsNoMember:                       "assignee %s lacks the tools this task needs: %s. No team member has them; ask an admin to grant these tools to a member",
 	})
 }

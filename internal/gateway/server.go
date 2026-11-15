@@ -126,6 +126,15 @@ func (s *Server) SetToolPolicy(pe *tools.PolicyEngine) {
 	s.toolPolicy = pe
 }
 
+// TeamCapabilities trả checker năng lực tool của member team, dựng từ tool
+// policy và registry chung; nil khi một trong hai chưa được nối.
+func (s *Server) TeamCapabilities() *tools.TeamCapabilityChecker {
+	if s.tools == nil {
+		return nil
+	}
+	return tools.NewTeamCapabilityChecker(s.toolPolicy, s.tools)
+}
+
 // NewServer creates a new gateway server.
 func NewServer(cfg *config.Config, eventPub bus.EventPublisher, agents *agent.Router, sess store.SessionStore, toolsReg ...*tools.Registry) *Server {
 	s := &Server{
@@ -308,6 +317,7 @@ func (s *Server) BuildMux() *http.ServeMux {
 			Bitrix:            s.bitrixStore,
 			RunTimeline:       s.runTimelineStore,
 			Teams:             s.teamStore,
+			TeamCapabilities:  s.TeamCapabilities(),
 			ChannelInstances:  s.channelInstStore,
 			ChannelManager:    s.channelMgr,
 			Hooks:             s.hookStore,

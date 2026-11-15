@@ -148,6 +148,14 @@ func agentCacheKey(ctx context.Context, agentID string) string {
 	return tid.String() + ":" + agentID
 }
 
+// cacheDependent là Agent có prompt phụ thuộc dữ liệu của agent khác.
+type cacheDependent interface {
+	DependsOnAgentKeys() []string
+}
+
+// DependsOnAgentKeys trả các agent_key mà prompt của Loop phụ thuộc.
+func (l *Loop) DependsOnAgentKeys() []string { return l.cacheDependsOn }
+
 // matchAgentCacheKey reports whether a cache key's final segment equals agentKey.
 // Cache keys are either bare ("agentKey") or tenant-scoped ("tenantID:agentKey").
 // Exact-segment match — not suffix match — prevents substring collisions like

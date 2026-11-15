@@ -19,13 +19,13 @@ func TestBuildTeamMD_TaskContractGuidance(t *testing.T) {
 	enabled := &store.TeamData{Name: "t", Settings: json.RawMessage(`{"task_contract":{"enabled":true}}`)}
 	disabled := &store.TeamData{Name: "t"}
 
-	lead := buildTeamMD(enabled, members, leadID)
+	lead := buildTeamMD(enabled, members, leadID, nil)
 	for _, want := range []string{"## Task Contract (required)", "contract={", `"acceptance":`} {
 		if !strings.Contains(lead, want) {
 			t.Errorf("lead TEAM.md missing %q", want)
 		}
 	}
-	member := buildTeamMD(enabled, members, memberID)
+	member := buildTeamMD(enabled, members, memberID, nil)
 	if !strings.Contains(member, `"Task Contract" block, it is the authoritative definition`) {
 		t.Error("member TEAM.md must say the contract block is authoritative")
 	}
@@ -33,7 +33,7 @@ func TestBuildTeamMD_TaskContractGuidance(t *testing.T) {
 		t.Error("lead-only contract guidance leaked to member")
 	}
 
-	for _, md := range []string{buildTeamMD(disabled, members, leadID), buildTeamMD(disabled, members, memberID)} {
+	for _, md := range []string{buildTeamMD(disabled, members, leadID, nil), buildTeamMD(disabled, members, memberID, nil)} {
 		if strings.Contains(md, "Task Contract") {
 			t.Error("disabled team must not mention task contracts")
 		}

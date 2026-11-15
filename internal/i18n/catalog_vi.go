@@ -385,5 +385,7 @@ func init() {
 		MsgTaskContractInvalid:                     "Task contract không hợp lệ: %s",
 		MsgTaskContractRequired:                    "Team này yêu cầu task contract (objective, deliverables, acceptance) trước khi giao task",
 		MsgTaskTypeInvalid:                         "Loại task %q không hợp lệ: chỉ nhận general, request, note, delegation hoặc escalation",
+		MsgTaskNeedsMissing:                        "Agent %s thiếu tool mà task cần: %s. Các member có đủ: %s",
+		MsgTaskNeedsNoMember:                       "Agent %s thiếu tool mà task cần: %s. Không member nào có đủ; cần admin cấp các tool này cho một member",
 	})
 }

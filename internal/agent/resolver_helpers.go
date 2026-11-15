@@ -14,7 +14,8 @@ import (
 
 // buildTeamMD generates compact TEAM.md content for an agent that is part of a team.
 // Kept minimal — tool descriptions already live in tool Parameters()/Description().
-func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uuid.UUID) string {
+// capabilities (từ teamMemberCapabilities) chỉ được in cho lead; nil thì bỏ qua.
+func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uuid.UUID, capabilities map[uuid.UUID][]string) string {
 	var sb strings.Builder
 	sb.WriteString("# Team: " + team.Name + "\n")
 	if team.Description != "" {
@@ -47,6 +48,9 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 			sb.WriteString(": " + m.Frontmatter)
 		}
 		sb.WriteString("\n")
+	}
+	if selfRole == store.TeamRoleLead {
+		sb.WriteString(buildTeamCapabilitiesMD(members, capabilities))
 	}
 
 	// Reviewers section (visible to leads)
@@ -121,6 +125,7 @@ func buildTeamMD(team *store.TeamData, members []store.TeamMemberData, selfID uu
 			sb.WriteString("- `deliverables`: what to produce, in which format, and where to put it\n")
 			sb.WriteString("- `acceptance`: criteria anyone can check without asking you (counts, coverage, sources, format)\n")
 			sb.WriteString("- Optional: `scope_in`, `scope_out` (what NOT to do), `inputs` (files, links, facts the member needs), `on_unclear` (`ask` default, or `assume_and_note`)\n")
+			sb.WriteString("- Optional `needs`: tool groups (e.g. `web`, `runtime`, `fs`) or tool names the work requires; assigning to a member that lacks them is rejected with the members that have them\n")
 			sb.WriteString("Put everything the member needs in the contract: the member sees it in its system prompt as the authoritative task definition.\n\n")
 			sb.WriteString("```\nteam_tasks(action=\"create\", subject=\"Summarize Q3 sales\", description=\"Board meeting brief\", assignee=\"analyst\",\n")
 			sb.WriteString("  contract={\"objective\": \"Give the board a one-page view of Q3 sales\",\n")

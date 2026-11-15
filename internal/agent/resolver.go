@@ -205,6 +205,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 		// knows the team workflow: create/claim/complete tasks via team_tasks tool.
 		hasTeam := false
 		isTeamLead := false
+		var cacheDependsOn []string // agent_key mà TEAM.md của lead phụ thuộc
 		if deps.TeamStore != nil {
 			hasTeamMD := false
 			for _, cf := range contextFiles {
@@ -217,9 +218,11 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 				if team, err := deps.TeamStore.GetTeamForAgent(ctx, ag.ID); err == nil && team != nil {
 					if members, err := deps.TeamStore.ListMembers(ctx, team.ID); err == nil {
 						hasTeam = true
+						var caps map[uuid.UUID][]string
+						caps, cacheDependsOn = teamMemberCapabilities(ctx, deps.ToolPolicy, deps.Tools, deps.AgentStore, team, members, ag.ID)
 						contextFiles = append(contextFiles, bootstrap.ContextFile{
 							Path:    bootstrap.TeamFile,
-							Content: buildTeamMD(team, members, ag.ID),
+							Content: buildTeamMD(team, members, ag.ID, caps),
 						})
 						// Detect lead role for tool policy
 						for _, m := range members {
@@ -483,6 +486,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			AgentOtherConfig:       ag.OtherConfig,
 			AgentType:              ag.AgentType,
 			IsTeamLead:             isTeamLead,
+			CacheDependsOn:         cacheDependsOn,
 			AutoInjector:           deps.AutoInjector,
 			SubmitMemoryEval:       deps.SubmitMemoryEval,
 			Provider:               provider,
@@ -576,8 +580,8 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 func (r *Router) InvalidateAgent(agentKey string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for key := range r.agents {
-		if matchAgentCacheKey(key, agentKey) {
+	for key, entry := range r.agents {
+		if matchAgentCacheKey(key, agentKey) || dependsOnAgent(entry, agentKey) {
 			delete(r.agents, key)
 		}
 	}

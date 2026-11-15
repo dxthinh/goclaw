@@ -62,6 +62,13 @@ func (m *TeamsMethods) handleTaskCreate(ctx context.Context, client *gateway.Cli
 		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, contractErr))
 		return
 	}
+	// Tạo kèm giao: assignee phải có đủ tool trong contract.needs.
+	if assigneeID, err := uuid.Parse(params.AssignTo); err == nil {
+		if msg := m.taskNeedsError(ctx, locale, team, contract, assigneeID); msg != "" {
+			client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
+			return
+		}
+	}
 
 	ch := params.Channel
 	if ch == "" {
@@ -201,6 +208,10 @@ func (m *TeamsMethods) handleTaskAssign(ctx context.Context, client *gateway.Cli
 		return
 	}
 	if msg := taskAssignContractError(locale, team, task); msg != "" {
+		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
+		return
+	}
+	if msg := m.taskNeedsError(ctx, locale, team, tools.TaskContractFromTask(task), agentID); msg != "" {
 		client.SendResponse(protocol.NewErrorResponse(req.ID, protocol.ErrInvalidRequest, msg))
 		return
 	}
