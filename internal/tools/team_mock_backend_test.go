@@ -245,6 +245,9 @@ type mockTaskStore struct {
 	// ghi gì, như câu UPDATE nguyên tử thật.
 	submitReviewErr error
 	mu              sync.Mutex
+	// afterGetTask chạy sau khi GetTask trả bản sao, để giả lập thay đổi đồng
+	// thời (ví dụ user duyệt task) giữa lúc đọc và lúc ghi.
+	afterGetTask func(taskID uuid.UUID)
 }
 
 func newMockTaskStore(team *store.TeamData, members []store.TeamMemberData) *mockTaskStore {
@@ -281,12 +284,18 @@ func (s *mockTaskStore) ListMembers(_ context.Context, _ uuid.UUID) ([]store.Tea
 
 func (s *mockTaskStore) GetTask(_ context.Context, taskID uuid.UUID) (*store.TeamTaskData, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	t, ok := s.tasks[taskID]
 	if !ok {
+		s.mu.Unlock()
 		return nil, store.ErrTaskNotFound
 	}
 	cp := *t
+	// Store thật đọc lại từ DB: bản trả về không dùng chung map với task đang lưu.
+	cp.Metadata = maps.Clone(t.Metadata)
+	s.mu.Unlock()
+	if s.afterGetTask != nil {
+		s.afterGetTask(taskID)
+	}
 	return &cp, nil
 }
 

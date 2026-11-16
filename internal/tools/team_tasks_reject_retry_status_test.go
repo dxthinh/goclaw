@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 )
 
@@ -49,5 +51,35 @@ func TestRetry_CompletedTaskRefused(t *testing.T) {
 	}
 	if len(mb.dispatches) != 0 {
 		t.Errorf("dispatches = %d, want 0", len(mb.dispatches))
+	}
+}
+
+// Task được duyệt ngay sau lần đọc của reject: phép chuyển trạng thái thất bại
+// nên không có comment, amendment hay dispatch nào bám vào task đã completed.
+func TestReject_ApprovedConcurrentlyLeavesNoSideEffects(t *testing.T) {
+	mb, tool, leadID, _, ctx := newTestTeamSetup()
+	taskID := makeFeedbackTask(t, mb, store.TeamTaskStatusInReview, true, "")
+	mb.taskStore.afterGetTask = func(id uuid.UUID) {
+		mb.taskStore.mu.Lock()
+		mb.taskStore.tasks[id].Status = store.TeamTaskStatusCompleted
+		mb.taskStore.mu.Unlock()
+	}
+
+	res := tool.Execute(store.WithAgentID(ctx, leadID), map[string]any{"action": "reject", "task_id": taskID.String(), "text": "redo"})
+	mb.taskStore.afterGetTask = nil
+	if !res.IsError {
+		t.Fatalf("want error when the task was approved concurrently, got %q", res.ForLLM)
+	}
+	if got := readTask(mb, taskID).Status; got != store.TeamTaskStatusCompleted {
+		t.Errorf("status = %q, want completed", got)
+	}
+	if c := taskContract(t, mb, taskID); len(c.Amendments) != 0 {
+		t.Errorf("amendments = %+v, want none", c.Amendments)
+	}
+	if comments, _ := mb.taskStore.ListTaskComments(ctx, taskID); len(comments) != 0 {
+		t.Errorf("comments = %d, want none", len(comments))
+	}
+	if len(mb.dispatches) != 0 {
+		t.Errorf("dispatches = %d, want none", len(mb.dispatches))
 	}
 }
