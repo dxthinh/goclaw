@@ -33,20 +33,21 @@ func TestReject_NotInReviewRefusedWithoutSideEffects(t *testing.T) {
 	}
 }
 
-// Lead mở lại task completed bằng retry: task được dispatch lại cho owner.
-func TestRetry_ReopensCompletedTask(t *testing.T) {
+// retry từ chối task completed với lý do rõ ràng, không đổi trạng thái hay
+// dispatch: task phụ thuộc đã được mở khoá lúc task hoàn thành.
+func TestRetry_CompletedTaskRefused(t *testing.T) {
 	mb, tool, leadID, memberID, ctx := newTestTeamSetup()
 	taskID := makeTask(mb, testTeamID, memberID, store.TeamTaskStatusCompleted)
 
 	lCtx := WithTaskActionFlags(store.WithAgentID(ctx, leadID), &TaskActionFlags{})
 	res := tool.Execute(lCtx, map[string]any{"action": "retry", "task_id": taskID.String()})
-	if res.IsError {
-		t.Fatalf("retry completed: %s", res.ForLLM)
+	if !res.IsError || !strings.Contains(res.ForLLM, "new task") {
+		t.Fatalf("want refusal suggesting a new task, got %q", res.ForLLM)
 	}
-	if got := readTask(mb, taskID).Status; got != store.TeamTaskStatusInProgress {
-		t.Errorf("status = %q, want in_progress", got)
+	if got := readTask(mb, taskID).Status; got != store.TeamTaskStatusCompleted {
+		t.Errorf("status = %q, want completed", got)
 	}
-	if len(mb.dispatches) != 1 {
-		t.Errorf("dispatches = %d, want 1", len(mb.dispatches))
+	if len(mb.dispatches) != 0 {
+		t.Errorf("dispatches = %d, want 0", len(mb.dispatches))
 	}
 }

@@ -263,30 +263,6 @@ func scanRecoveredTaskInfoRows(rows interface {
 	return out, nil
 }
 
-// ReopenCompletedTask đưa task completed về pending để lead dispatch lại. Điều
-// kiện status = completed nằm trong cùng câu UPDATE, nên không đường nào khác
-// (retry trên dashboard, ResetTaskStatus) xoá được kết quả vừa duyệt.
-func (s *PGTeamStore) ReopenCompletedTask(ctx context.Context, taskID, teamID uuid.UUID) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE team_tasks SET status = $1, locked_at = NULL, lock_expires_at = NULL, result = NULL,
-		 progress_percent = NULL, progress_step = NULL, updated_at = $2
-		 WHERE id = $3 AND team_id = $4 AND status = $5 AND tenant_id = $6`,
-		store.TeamTaskStatusPending, time.Now(),
-		taskID, teamID, store.TeamTaskStatusCompleted, tenantIDForInsert(ctx),
-	)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("task not completed or wrong team")
-	}
-	return nil
-}
-
 func (s *PGTeamStore) ResetTaskStatus(ctx context.Context, taskID, teamID uuid.UUID) error {
 	now := time.Now()
 	tid := tenantIDForInsert(ctx)
