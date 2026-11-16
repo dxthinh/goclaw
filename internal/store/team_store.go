@@ -263,6 +263,10 @@ type TaskStore interface {
 	UpdateTaskProgress(ctx context.Context, taskID, teamID uuid.UUID, percent int, step string) error
 	RenewTaskLock(ctx context.Context, taskID, teamID uuid.UUID) error
 	ResetTaskStatus(ctx context.Context, taskID, teamID uuid.UUID) error
+	// RedispatchReviewedTask chuyển task in_review thẳng sang in_progress cho
+	// owner, xoá result và checkpoint_pending, thay các khóa metadata trong
+	// metadataSet, trong một câu UPDATE có điều kiện.
+	RedispatchReviewedTask(ctx context.Context, taskID, teamID, ownerID uuid.UUID, metadataSet map[string]any) error
 	// AwaitTaskInput chuyển task in_progress sang awaiting_input và nhả khóa.
 	AwaitTaskInput(ctx context.Context, taskID, teamID uuid.UUID) error
 	// SubmitTaskResultForReview chuyển task in_progress sang in_review, ghi

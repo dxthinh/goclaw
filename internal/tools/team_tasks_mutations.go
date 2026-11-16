@@ -89,9 +89,9 @@ func (t *TeamTasksTool) executeComment(ctx context.Context, args map[string]any)
 	msg := fmt.Sprintf("Comment added to task #%d \"%s\" (id: %s).", task.TaskNumber, task.Subject, taskID)
 	switch {
 	case isLead && task.Status == store.TeamTaskStatusInProgress:
-		msg += " Note: the assignee is currently working and won't see this comment during execution. To redirect, wait for completion then use retry action with this task_id."
+		msg += " Note: the assignee is currently working and won't see this comment during execution. To redirect, reject the result when it is submitted for review, or create a follow-up task after completion."
 	case isLead && task.Status == store.TeamTaskStatusCompleted:
-		msg += " Task is completed. Use retry action with this task_id to reopen and re-dispatch with your feedback."
+		msg += " Task is completed and its dependents were already released, so it cannot be reopened. Create a new task for any follow-up work."
 	case isLead && task.Status == store.TeamTaskStatusFailed:
 		msg += " Task failed. Use retry action with this task_id to re-dispatch with your feedback."
 	case !isLead && task.OwnerAgentID != nil && *task.OwnerAgentID == agentID:

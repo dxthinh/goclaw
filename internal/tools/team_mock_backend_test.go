@@ -123,6 +123,9 @@ func (b *baseNoopTeamStore) RenewTaskLock(_ context.Context, _, _ uuid.UUID) err
 func (b *baseNoopTeamStore) ResetTaskStatus(_ context.Context, _, _ uuid.UUID) error {
 	return fmt.Errorf("not implemented: ResetTaskStatus")
 }
+func (b *baseNoopTeamStore) RedispatchReviewedTask(_ context.Context, _, _, _ uuid.UUID, _ map[string]any) error {
+	return fmt.Errorf("not implemented: RedispatchReviewedTask")
+}
 func (b *baseNoopTeamStore) ListActiveTasksByChatID(_ context.Context, _ string) ([]store.TeamTaskData, error) {
 	return nil, fmt.Errorf("not implemented: ListActiveTasksByChatID")
 }
@@ -245,6 +248,9 @@ type mockTaskStore struct {
 	// ghi gì, như câu UPDATE nguyên tử thật.
 	submitReviewErr error
 	mu              sync.Mutex
+	// afterGetTask chạy sau khi GetTask trả bản sao, để giả lập thay đổi đồng
+	// thời (ví dụ user duyệt task) giữa lúc đọc và lúc ghi.
+	afterGetTask func(taskID uuid.UUID)
 }
 
 func newMockTaskStore(team *store.TeamData, members []store.TeamMemberData) *mockTaskStore {
@@ -281,12 +287,18 @@ func (s *mockTaskStore) ListMembers(_ context.Context, _ uuid.UUID) ([]store.Tea
 
 func (s *mockTaskStore) GetTask(_ context.Context, taskID uuid.UUID) (*store.TeamTaskData, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	t, ok := s.tasks[taskID]
 	if !ok {
+		s.mu.Unlock()
 		return nil, store.ErrTaskNotFound
 	}
 	cp := *t
+	// Store thật đọc lại từ DB: bản trả về không dùng chung map với task đang lưu.
+	cp.Metadata = maps.Clone(t.Metadata)
+	s.mu.Unlock()
+	if s.afterGetTask != nil {
+		s.afterGetTask(taskID)
+	}
 	return &cp, nil
 }
 
@@ -602,10 +614,45 @@ func (s *mockTaskStore) ResetTaskStatus(_ context.Context, taskID, _ uuid.UUID) 
 	if !ok {
 		return store.ErrTaskNotFound
 	}
+	// Cùng điều kiện trạng thái với ResetTaskStatus của PG và SQLite.
+	switch t.Status {
+	case store.TeamTaskStatusStale, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
+		store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked, store.TeamTaskStatusAwaitingInput:
+	default:
+		return fmt.Errorf("task not available for reset (status %s)", t.Status)
+	}
 	t.Status = store.TeamTaskStatusPending
 	t.LockedAt = nil
 	t.LockExpiresAt = nil
 	t.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *mockTaskStore) RedispatchReviewedTask(_ context.Context, taskID, _, ownerID uuid.UUID, metadataSet map[string]any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[taskID]
+	if !ok {
+		return store.ErrTaskNotFound
+	}
+	if t.Status != store.TeamTaskStatusInReview {
+		return fmt.Errorf("task not in review (status %s)", t.Status)
+	}
+	meta := maps.Clone(t.Metadata)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	delete(meta, TaskMetaCheckpointPending)
+	maps.Copy(meta, metadataSet)
+	now := time.Now()
+	lockExpires := now.Add(time.Hour)
+	t.Status = store.TeamTaskStatusInProgress
+	t.OwnerAgentID = &ownerID
+	t.LockedAt = &now
+	t.LockExpiresAt = &lockExpires
+	t.Result = nil
+	t.Metadata = meta
+	t.UpdatedAt = now
 	return nil
 }
 

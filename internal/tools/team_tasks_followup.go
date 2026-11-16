@@ -103,10 +103,15 @@ func (t *TeamTasksTool) executeRetry(ctx context.Context, args map[string]any) *
 		return ErrorResult("task does not belong to your team")
 	}
 	switch task.Status {
-	case store.TeamTaskStatusStale, store.TeamTaskStatusFailed, store.TeamTaskStatusCompleted:
-		// OK — can retry/reopen these statuses
+	case store.TeamTaskStatusStale, store.TeamTaskStatusFailed:
+		// OK — can retry these statuses
+	case store.TeamTaskStatusCompleted:
+		// Không mở lại task completed: lúc hoàn thành, store đã xoá task này khỏi
+		// blocked_by của task phụ thuộc và có thể đã cho chúng chạy, nên mở lại
+		// sẽ để task sau chạy song song với tiền đề chưa xong.
+		return ErrorResult("retry cannot reopen a completed task: its dependents were already released. Create a new task for the follow-up work instead.")
 	default:
-		return ErrorResult(fmt.Sprintf("retry only works on completed, stale, or failed tasks (current status: %s)", task.Status))
+		return ErrorResult(fmt.Sprintf("retry only works on stale or failed tasks (current status: %s)", task.Status))
 	}
 	if task.OwnerAgentID == nil {
 		return ErrorResult("task has no assignee — assign it first via update")
