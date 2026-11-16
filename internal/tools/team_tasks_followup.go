@@ -130,7 +130,13 @@ func (t *TeamTasksTool) executeRetry(ctx context.Context, args map[string]any) *
 	}
 
 	// Reset status to pending first (AssignTask only transitions from pending).
-	if err := t.manager.Store().ResetTaskStatus(ctx, taskID, team.ID); err != nil {
+	// Task completed đi qua phép chuyển riêng: ResetTaskStatus dùng chung cho
+	// nhiều đường khác nên không nhận completed.
+	reset := t.manager.Store().ResetTaskStatus
+	if task.Status == store.TeamTaskStatusCompleted {
+		reset = t.manager.Store().ReopenCompletedTask
+	}
+	if err := reset(ctx, taskID, team.ID); err != nil {
 		return ErrorResult("failed to reset task: " + err.Error())
 	}
 	// Assign (pending → in_progress + lock).

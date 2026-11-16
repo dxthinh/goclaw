@@ -123,6 +123,9 @@ func (b *baseNoopTeamStore) RenewTaskLock(_ context.Context, _, _ uuid.UUID) err
 func (b *baseNoopTeamStore) ResetTaskStatus(_ context.Context, _, _ uuid.UUID) error {
 	return fmt.Errorf("not implemented: ResetTaskStatus")
 }
+func (b *baseNoopTeamStore) ReopenCompletedTask(_ context.Context, _, _ uuid.UUID) error {
+	return fmt.Errorf("not implemented: ReopenCompletedTask")
+}
 func (b *baseNoopTeamStore) ListActiveTasksByChatID(_ context.Context, _ string) ([]store.TeamTaskData, error) {
 	return nil, fmt.Errorf("not implemented: ListActiveTasksByChatID")
 }
@@ -605,10 +608,26 @@ func (s *mockTaskStore) ResetTaskStatus(_ context.Context, taskID, _ uuid.UUID) 
 	// Cùng điều kiện trạng thái với ResetTaskStatus của PG và SQLite.
 	switch t.Status {
 	case store.TeamTaskStatusStale, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
-		store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked, store.TeamTaskStatusAwaitingInput,
-		store.TeamTaskStatusCompleted:
+		store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked, store.TeamTaskStatusAwaitingInput:
 	default:
 		return fmt.Errorf("task not available for reset (status %s)", t.Status)
+	}
+	t.Status = store.TeamTaskStatusPending
+	t.LockedAt = nil
+	t.LockExpiresAt = nil
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *mockTaskStore) ReopenCompletedTask(_ context.Context, taskID, _ uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[taskID]
+	if !ok {
+		return store.ErrTaskNotFound
+	}
+	if t.Status != store.TeamTaskStatusCompleted {
+		return fmt.Errorf("task not completed (status %s)", t.Status)
 	}
 	t.Status = store.TeamTaskStatusPending
 	t.LockedAt = nil
