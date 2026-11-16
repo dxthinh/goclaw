@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { CHANNEL_TYPES } from "@/constants/channels";
 import type { TeamData, TeamAccessSettings, TeamNotifyConfig, EscalationMode, EscalationAction } from "@/types/team";
 import { useTeams } from "./hooks/use-teams";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { preserveServerOnlyTeamSettings } from "./preserve-server-only-team-settings";
 import { TeamNotificationsSection } from "./team-notifications-section";
 import { TeamAccessControlSection } from "./team-access-control-section";
@@ -24,6 +25,7 @@ function deriveDefaults(team: TeamData): TeamSettingsFormData {
   const sn = s.notifications ?? {};
   const smr = s.member_requests ?? {};
   const sbe = s.blocker_escalation ?? {};
+  const stc = s.task_contract ?? {};
   return {
     notifyDispatched: sn.dispatched ?? true,
     notifyProgress: sn.progress ?? false,
@@ -37,6 +39,7 @@ function deriveDefaults(team: TeamData): TeamSettingsFormData {
     memberRequestsEnabled: smr.enabled ?? false,
     memberRequestsAutoDispatch: smr.auto_dispatch ?? false,
     blockerEscalationEnabled: sbe.enabled ?? true,
+    taskContractEnabled: stc.enabled ?? false,
     followupInterval: s.followup_interval_minutes ?? 30,
     followupMaxReminders: s.followup_max_reminders ?? 0,
     allowUserIds: s.allow_user_ids ?? [],
@@ -49,6 +52,8 @@ function deriveDefaults(team: TeamData): TeamSettingsFormData {
 export function TeamSettingsTab({ teamId, team, onSaved }: TeamSettingsTabProps) {
   const { t } = useTranslation("teams");
   const { updateTeam } = useTeams();
+  // Task Contract chỉ có ở bản Standard; Lite ẩn công tắc và giữ nguyên giá trị cũ.
+  const isStandard = useAuthStore((s) => s.edition) === "standard";
 
   // UI-only state
   const [saving, setSaving] = useState(false);
@@ -78,6 +83,7 @@ export function TeamSettingsTab({ teamId, team, onSaved }: TeamSettingsTabProps)
   const memberRequestsEnabled = watch("memberRequestsEnabled");
   const memberRequestsAutoDispatch = watch("memberRequestsAutoDispatch");
   const blockerEscalationEnabled = watch("blockerEscalationEnabled");
+  const taskContractEnabled = watch("taskContractEnabled");
   const followupInterval = watch("followupInterval");
   const followupMaxReminders = watch("followupMaxReminders");
   const allowUserIds = watch("allowUserIds");
@@ -116,17 +122,18 @@ export function TeamSettingsTab({ teamId, team, onSaved }: TeamSettingsTabProps)
         if (escalationActions.length > 0) settings.escalation_actions = escalationActions;
       }
       settings.blocker_escalation = { enabled: data.blockerEscalationEnabled };
+      if (isStandard) settings.task_contract = { enabled: data.taskContractEnabled };
       settings.followup_interval_minutes = data.followupInterval;
       settings.followup_max_reminders = data.followupMaxReminders;
       settings.workspace_scope = data.workspaceScope || "isolated";
-      // Giữ version (tránh hạ v2→v1) và task_contract: form không chỉnh hai khóa này.
+      // Giữ version (tránh hạ v2→v1) và task_contract khi form không ghi (bản Lite).
       await updateTeam(teamId, { settings: preserveServerOnlyTeamSettings(initial, settings) });
       onSaved();
     } catch { // toast shown by hook
     } finally {
       setSaving(false);
     }
-  }, [teamId, form, initial, escalationMode, escalationActions, updateTeam, onSaved]);
+  }, [teamId, form, initial, escalationMode, escalationActions, isStandard, updateTeam, onSaved]);
 
   const channelOptions = CHANNEL_TYPES.map((c) => ({ value: c.value, label: c.label }));
 
@@ -148,6 +155,8 @@ export function TeamSettingsTab({ teamId, team, onSaved }: TeamSettingsTabProps)
         memberRequestsEnabled={memberRequestsEnabled} setMemberRequestsEnabled={(v) => setValue("memberRequestsEnabled", v)}
         memberRequestsAutoDispatch={memberRequestsAutoDispatch} setMemberRequestsAutoDispatch={(v) => setValue("memberRequestsAutoDispatch", v)}
         blockerEscalationEnabled={blockerEscalationEnabled} setBlockerEscalationEnabled={(v) => setValue("blockerEscalationEnabled", v)}
+        showTaskContract={isStandard}
+        taskContractEnabled={taskContractEnabled} setTaskContractEnabled={(v) => setValue("taskContractEnabled", v)}
         followupInterval={followupInterval} setFollowupInterval={(v) => setValue("followupInterval", v)}
         followupMaxReminders={followupMaxReminders} setFollowupMaxReminders={(v) => setValue("followupMaxReminders", v)}
       />

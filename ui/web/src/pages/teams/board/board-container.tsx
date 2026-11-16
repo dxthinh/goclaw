@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { useBoardStore } from "../stores/use-board-store";
-import { toast } from "@/stores/use-toast-store";
 import { buildTaskLookup, buildMemberLookup, buildEmojiLookup, buildAssigneeOptions } from "./board-utils";
 import { BoardToolbar } from "./board-toolbar";
 import { KanbanBoard } from "./kanban-board";
@@ -12,6 +11,9 @@ const TaskDetailDialog = lazy(() =>
 );
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useBoardTasks } from "./use-board-tasks";
+import { CreateTaskDialog } from "./create-task-dialog";
+import type { CreateTaskParams } from "../hooks/use-teams";
+import type { TaskFeedbackActions } from "../task-sections/task-detail-feedback";
 import type {
   TeamTaskData, TeamTaskComment, TeamTaskEvent, TeamTaskAttachment,
   TeamMemberData, ScopeEntry,
@@ -32,12 +34,18 @@ interface BoardContainerProps {
   addTaskComment?: (teamId: string, taskId: string, content: string) => Promise<void>;
   cancelTask?: (teamId: string, taskId: string, reason?: string) => Promise<void>;
   retryTask?: (teamId: string, taskId: string, comment: string, agentId?: string) => Promise<void>;
+  createTask: (teamId: string, params: CreateTaskParams) => Promise<TeamTaskData>;
+  /** Team bật task_contract (bản Standard): form tạo task có khối contract. */
+  taskContractEnabled: boolean;
+  /** Trả lời, duyệt, yêu cầu sửa trong chi tiết task; bỏ trống ở bản Lite. */
+  feedback?: TaskFeedbackActions;
   onWorkspace?: () => void;
 }
 
 export const BoardContainer = memo(function BoardContainer({
   teamId, members, scopes, isTeamV2,
-  getTeamTasks, getTaskDetail, getTaskLight, deleteTask, deleteTasksBulk, addTaskComment, cancelTask, retryTask, onWorkspace,
+  getTeamTasks, getTaskDetail, getTaskLight, deleteTask, deleteTasksBulk, addTaskComment, cancelTask, retryTask,
+  createTask, taskContractEnabled, feedback, onWorkspace,
 }: BoardContainerProps) {
   const { t } = useTranslation("teams");
   const viewMode = useBoardStore((s) => s.viewMode);
@@ -48,6 +56,7 @@ export const BoardContainer = memo(function BoardContainer({
   const [selectedTask, setSelectedTask] = useState<TeamTaskData | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [singleDeleting, setSingleDeleting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { tasks, initialized, refreshing, load } = useBoardTasks({
     teamId,
@@ -73,7 +82,8 @@ export const BoardContainer = memo(function BoardContainer({
   // ── Callbacks for children ──
 
   const handleRefresh = useCallback(() => load(true), [load]);
-  const handleCreateTask = useCallback(() => toast.info(t("board.createViaChat")), [t]);
+  const handleCreateTask = useCallback(() => setCreateOpen(true), []);
+  const handleTaskCreated = useCallback(() => load(true), [load]);
   const handleTaskClick = useCallback((task: TeamTaskData) => setSelectedTask(task), []);
   const handleCloseDetail = useCallback(() => setSelectedTask(null), []);
   const handleNavigateTask = useCallback((taskId: string) => {
@@ -143,6 +153,7 @@ export const BoardContainer = memo(function BoardContainer({
             addTaskComment={addTaskComment}
             cancelTask={cancelTask}
             retryTask={retryTask}
+            feedback={feedback}
           />
         )}
       </div>
@@ -158,6 +169,17 @@ export const BoardContainer = memo(function BoardContainer({
         loading={singleDeleting}
       />
 
+      <CreateTaskDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        teamId={teamId}
+        members={members}
+        selectedScope={selectedScope}
+        taskContractEnabled={taskContractEnabled}
+        createTask={createTask}
+        onCreated={handleTaskCreated}
+      />
+
       {selectedTask && (
         <Suspense fallback={null}>
           <TaskDetailDialog
@@ -169,6 +191,7 @@ export const BoardContainer = memo(function BoardContainer({
             deleteTask={deleteTask}
             cancelTask={cancelTask}
             retryTask={retryTask}
+            feedback={feedback}
             assignees={assigneeOptions}
             taskLookup={taskLookup}
             memberLookup={memberLookup}

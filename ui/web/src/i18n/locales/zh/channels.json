@@ -109,6 +109,8 @@
     "behaviorDesc": "响应行为配置",
     "accessControl": "访问控制",
     "accessControlDesc": "用户访问限制",
+    "teamTaskApproval": "团队任务审批",
+    "teamTaskApprovalDesc": "允许用户在发起请求的聊天中用 /approve 和 /changes 审批团队任务结果",
     "telegramManagement": "Telegram 管理",
     "telegramManagementDesc": "为使用此频道的 Agent 启用隐藏工具并选择 Telegram 操作权限",
     "discordMetadata": "Discord 元数据",
@@ -560,6 +562,12 @@
     "private_reply_message": {
       "label": "私信内容",
       "help": "支持 commenter_name 和 post_title 占位符。留空使用英文默认文本。"
+    },
+    "task_approval": {
+      "enabled": {
+        "label": "通过命令审批团队任务",
+        "help": "允许提出请求的用户在此聊天中用 /approve <编号> 审批团队任务结果，或用 /changes <编号> <原因> 要求修改。仅适用于负责人标记为需要审批结果的任务。"
+      }
     }
   },
   "fieldOptions": {

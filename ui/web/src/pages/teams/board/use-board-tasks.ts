@@ -179,6 +179,8 @@ export function useBoardTasks({
   useWsEvent(Events.TEAM_TASK_ASSIGNED, onFetchOne);
   useWsEvent(Events.TEAM_TASK_DISPATCHED, onFetchOne);
   useWsEvent(Events.TEAM_TASK_COMMENTED, onFetchOne);
+  // clarify đưa task về awaiting_input chỉ phát team.task.updated.
+  useWsEvent(Events.TEAM_TASK_UPDATED, onFetchOne);
 
   return { tasks, initialized, refreshing, load };
 }

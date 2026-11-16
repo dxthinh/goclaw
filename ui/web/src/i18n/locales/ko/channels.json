@@ -110,6 +110,8 @@
     "behaviorDesc": "응답 동작 설정",
     "accessControl": "접근 제어",
     "accessControlDesc": "사용자 접근 제한",
+    "teamTaskApproval": "팀 작업 승인",
+    "teamTaskApprovalDesc": "사용자가 요청한 채팅에서 /approve, /changes로 팀 작업 결과를 승인할 수 있게 합니다",
     "discordMetadata": "Discord 메타데이터",
     "discordMetadataDesc": "실행 중인 봇에서 캐시된 Discord 채널, 카테고리, 스레드 및 알려진 사용자 이름을 새로 고칩니다.",
     "refreshDiscordMetadata": "Discord 메타데이터 새로 고침",
@@ -274,6 +276,12 @@
     }
   },
   "fieldConfig": {
+    "task_approval": {
+      "enabled": {
+        "label": "명령으로 팀 작업 승인",
+        "help": "요청한 사용자가 이 채팅에서 /approve <번호>로 팀 작업 결과를 승인하거나 /changes <번호> <사유>로 수정을 요청할 수 있습니다. 리드가 결과 승인이 필요하다고 표시한 작업에만 적용됩니다."
+      }
+    },
     "token": { "label": "봇 토큰", "help": "@BotFather에서 받은 토큰" },
     "bot_token": { "label": "봇 토큰" },
     "app_token": {

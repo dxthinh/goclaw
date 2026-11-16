@@ -167,6 +167,8 @@ export const configSchema: Record<string, FieldDef[]> = {
     { key: "allow_from", label: "Allowed Users", type: "tags", help: "User IDs or @usernames, one per line or comma-separated" },
     { key: "telegram_manager.enabled", label: "Telegram Management Tool", type: "boolean", defaultValue: false, help: "Enable the hidden Telegram-only management tool for agents using this channel." },
     { key: "telegram_manager.allowed_actions", label: "Telegram Management Permissions", type: "multi-select", options: telegramManagerActionOptions, help: "Choose which Telegram management actions the hidden tool may run for agents using this channel. The tool stays hidden unless at least one permission is selected." },
+    // Duyệt kết quả task của team bằng /approve, /changes (chỉ Telegram cài TaskApprovalCapable).
+    { key: "task_approval.enabled", label: "Approve team tasks by command", type: "boolean", defaultValue: false, help: "Lets the user who asked approve a team task result with /approve <number>, or request changes with /changes <number> <reason>, in this chat. Only applies to tasks the lead marks as needing result approval." },
     ...chatBehaviorOverrideFields,
   ],
   discord: [

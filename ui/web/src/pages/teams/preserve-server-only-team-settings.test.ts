@@ -10,6 +10,14 @@ describe("preserveServerOnlyTeamSettings", () => {
     expect(out).toEqual({ version: 2, task_contract: { enabled: true }, workspace_scope: "shared" });
   });
 
+  it("lets the form change task_contract", () => {
+    const out = preserveServerOnlyTeamSettings(
+      { version: 2, task_contract: { enabled: true } },
+      { task_contract: { enabled: false } },
+    );
+    expect(out).toEqual({ version: 2, task_contract: { enabled: false } });
+  });
+
   it("does not add keys the team never had", () => {
     expect(preserveServerOnlyTeamSettings({}, { workspace_scope: "shared" })).toEqual({ workspace_scope: "shared" });
   });

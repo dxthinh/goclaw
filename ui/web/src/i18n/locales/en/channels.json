@@ -110,6 +110,8 @@
     "behaviorDesc": "Response behavior configuration",
     "accessControl": "Access Control",
     "accessControlDesc": "User access restrictions",
+    "teamTaskApproval": "Team task approval",
+    "teamTaskApprovalDesc": "Let the user approve team task results with /approve and /changes in the chat where they asked",
     "telegramManagement": "Telegram Management",
     "telegramManagementDesc": "Enable the hidden tool and choose Telegram actions for agents using this channel",
     "discordMetadata": "Discord Metadata",
@@ -561,6 +563,12 @@
     "private_reply_message": {
       "label": "DM Message",
       "help": "Supports the placeholders commenter_name and post_title. Empty = default English text."
+    },
+    "task_approval": {
+      "enabled": {
+        "label": "Approve team tasks by command",
+        "help": "Lets the user who asked approve a team task result with /approve <number>, or request changes with /changes <number> <reason>, in this chat. Only applies to tasks the lead marks as needing result approval."
+      }
     }
   },
   "fieldOptions": {

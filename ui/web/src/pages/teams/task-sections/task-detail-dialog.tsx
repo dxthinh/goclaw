@@ -5,8 +5,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
   Trash2, ArrowUp, ArrowDown, ArrowRight, AlertTriangle, Copy, Check, Ban, RotateCcw,
@@ -19,6 +17,9 @@ import type { TeamTaskData, TeamTaskComment, TeamTaskEvent, TeamTaskAttachment }
 import type { TeamTaskEventPayload } from "@/types/team-events";
 import { taskStatusBadgeVariant, isTerminalStatus, canCancelTask, canRetryTask } from "./task-utils";
 import { TaskDetailContent } from "./task-detail-content";
+import { TaskActionDialog, type TaskAssigneeOption } from "./task-action-dialog";
+import { TaskDetailContract } from "./task-detail-contract";
+import { TaskDetailFeedback, type TaskFeedbackActions } from "./task-detail-feedback";
 import { TaskDetailAttachments } from "./task-detail-attachments";
 import { TaskDetailComments } from "./task-detail-comments";
 import { TaskDetailTimeline } from "./task-detail-timeline";
@@ -90,88 +91,6 @@ function MetaItem({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-/* ── Action dialog (cancel with optional reason / retry with required comment) ── */
-
-export interface TaskAssigneeOption { id: string; name: string }
-
-interface TaskActionDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  description: string;
-  placeholder: string;
-  confirmLabel: string;
-  required?: boolean;
-  requiredHint?: string;
-  variant?: "default" | "destructive";
-  loading?: boolean;
-  /** When set, an assignee select is shown above the textarea (retry). */
-  assignees?: TaskAssigneeOption[];
-  assigneeLabel?: string;
-  defaultAssigneeId?: string;
-  onConfirm: (text: string, assigneeId?: string) => void;
-}
-
-function TaskActionDialog({
-  open, onOpenChange, title, description, placeholder, confirmLabel,
-  required, requiredHint, variant = "default", loading,
-  assignees, assigneeLabel, defaultAssigneeId, onConfirm,
-}: TaskActionDialogProps) {
-  const { t } = useTranslation("common");
-  const [text, setText] = useState("");
-  const [assigneeId, setAssigneeId] = useState<string>("");
-  useEffect(() => {
-    if (open) { setText(""); setAssigneeId(defaultAssigneeId ?? ""); }
-  }, [open, defaultAssigneeId]);
-  const withAssignee = !!assignees && assignees.length > 0;
-  const missing = (!!required && text.trim() === "") || (withAssignee && assigneeId === "");
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!loading) onOpenChange(v); }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">{description}</p>
-        {withAssignee && (
-          <div className="space-y-1">
-            {assigneeLabel && <p className="text-xs text-muted-foreground">{assigneeLabel}</p>}
-            <Select value={assigneeId} onValueChange={setAssigneeId} disabled={loading}>
-              <SelectTrigger className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {assignees!.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={placeholder}
-          rows={4}
-          autoFocus
-          disabled={loading}
-        />
-        {missing && requiredHint && (
-          <p className="text-xs text-muted-foreground">{requiredHint}</p>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={loading}>
-            {t("cancel")}
-          </Button>
-          <Button variant={variant} size="sm" onClick={() => onConfirm(text.trim(), assigneeId || undefined)} disabled={loading || missing}>
-            {loading ? "..." : confirmLabel}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 /* ── Props ────────────────────────────────────────────────────── */
 
 interface TaskDetailDialogProps {
@@ -186,6 +105,8 @@ interface TaskDetailDialogProps {
   deleteTask?: (teamId: string, taskId: string) => Promise<void>;
   cancelTask?: (teamId: string, taskId: string, reason?: string) => Promise<void>;
   retryTask?: (teamId: string, taskId: string, comment: string, agentId?: string) => Promise<void>;
+  /** Trả lời, duyệt, yêu cầu sửa (bản Standard); không truyền thì ẩn các nút này. */
+  feedback?: TaskFeedbackActions;
   /** Team members a retried task may be (re)assigned to; the lead is excluded. */
   assignees?: TaskAssigneeOption[];
   onAddComment?: (teamId: string, taskId: string, content: string) => Promise<void>;
@@ -196,10 +117,13 @@ interface TaskDetailDialogProps {
 }
 
 export function TaskDetailDialog({
-  task, teamId, isTeamV2, onClose,
-  getTaskDetail, deleteTask, cancelTask, retryTask, assignees, onAddComment, taskLookup, memberLookup, emojiLookup, onNavigateTask,
+  task: initialTask, teamId, isTeamV2, onClose,
+  getTaskDetail, deleteTask, cancelTask, retryTask, feedback, assignees, onAddComment, taskLookup, memberLookup, emojiLookup, onNavigateTask,
 }: TaskDetailDialogProps) {
   const { t } = useTranslation("teams");
+  // Bản task từ board có thể cũ; dùng bản vừa tải từ teams.tasks.get (có metadata mới nhất).
+  const [loadedTask, setLoadedTask] = useState<TeamTaskData | null>(null);
+  const task = loadedTask?.id === initialTask.id ? loadedTask : initialTask;
   const [events, setEvents] = useState<TeamTaskEvent[]>([]);
   const [attachments, setAttachments] = useState<TeamTaskAttachment[]>([]);
   const [comments, setComments] = useState<TeamTaskComment[]>([]);
@@ -213,6 +137,7 @@ export function TaskDetailDialog({
   const loadDetail = useCallback(async () => {
     try {
       const res = await getTaskDetail(teamId, task.id);
+      if (res.task) setLoadedTask(res.task);
       setEvents(res.events ?? []);
       setAttachments(res.attachments ?? []);
       setComments(res.comments ?? []);
@@ -221,11 +146,19 @@ export function TaskDetailDialog({
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
-  const onCommentEvent = useCallback((payload: unknown) => {
+  const onTaskEvent = useCallback((payload: unknown) => {
     const p = payload as TeamTaskEventPayload;
     if (p?.task_id === task.id) loadDetail();
   }, [task.id, loadDetail]);
-  useWsEvent(Events.TEAM_TASK_COMMENTED, onCommentEvent);
+  useWsEvent(Events.TEAM_TASK_COMMENTED, onTaskEvent);
+  // Trạng thái và metadata (checkpoint, amendment, báo cáo nghiệm thu) đổi qua các event này.
+  useWsEvent(Events.TEAM_TASK_UPDATED, onTaskEvent);
+  useWsEvent(Events.TEAM_TASK_DISPATCHED, onTaskEvent);
+  useWsEvent(Events.TEAM_TASK_REVIEWED, onTaskEvent);
+  useWsEvent(Events.TEAM_TASK_APPROVED, onTaskEvent);
+  useWsEvent(Events.TEAM_TASK_REJECTED, onTaskEvent);
+  useWsEvent(Events.TEAM_TASK_COMPLETED, onTaskEvent);
+  useWsEvent(Events.TEAM_TASK_CANCELLED, onTaskEvent);
 
   const resolveMember = (id?: string) => (id && memberLookup?.get(id)) || undefined;
   const resolveEmoji = (id?: string) => (id && emojiLookup?.get(id)) || undefined;
@@ -381,7 +314,21 @@ export function TaskDetailDialog({
 
           <Separator />
 
+          {/* Trả lời câu hỏi hoặc duyệt kết quả, theo trạng thái task */}
+          {feedback && (
+            <TaskDetailFeedback
+              task={task}
+              teamId={teamId}
+              comments={comments}
+              actions={feedback}
+              assignees={assignees}
+              resolveMember={resolveMember}
+              onDone={loadDetail}
+            />
+          )}
+
           {/* Content sections */}
+          <TaskDetailContract task={task} />
           <TaskDetailContent description={task.description} result={task.result} />
 
           {isTeamV2 && <TaskDetailAttachments attachments={attachments} />}

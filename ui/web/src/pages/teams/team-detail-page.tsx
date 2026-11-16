@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { DetailPageSkeleton } from "@/components/shared/loading-skeleton";
 import { ConfirmDeleteDialog } from "@/components/shared/confirm-delete-dialog";
 import { useTranslation } from "react-i18next";
 import { useTeams } from "./hooks/use-teams";
+import { useAuthStore } from "@/stores/use-auth-store";
+import type { TaskFeedbackActions } from "./task-sections/task-detail-feedback";
 import { BoardHeader } from "./board/board-header";
 import { BoardContainer } from "./board/board-container";
 import { TeamInfoDialog } from "./board/team-info-dialog";
@@ -23,8 +25,14 @@ export function TeamDetailPage({ teamId, onBack }: TeamDetailPageProps) {
   const {
     getTeam, getTeamTasks, getTeamScopes, addMember, removeMember, deleteTeam,
     getTaskDetail, getTaskLight, deleteTask, deleteTasksBulk, addTaskComment, updateTeam,
-    cancelTask, retryTask,
+    cancelTask, retryTask, createTask, answerTask, requestTaskChanges, approveTask,
   } = useTeams();
+  // Task Contract, trả lời clarify và duyệt checkpoint chỉ có ở bản Standard.
+  const isStandard = useAuthStore((s) => s.edition) === "standard";
+  const feedback = useMemo<TaskFeedbackActions | undefined>(
+    () => (isStandard ? { answerTask, requestTaskChanges, approveTask } : undefined),
+    [isStandard, answerTask, requestTaskChanges, approveTask],
+  );
 
   // Wrap addTaskComment to match (teamId, taskId, content) signature expected by UI components.
   const handleAddComment = useCallback(
@@ -99,6 +107,7 @@ export function TeamDetailPage({ teamId, onBack }: TeamDetailPageProps) {
 
   const settings = (team.settings ?? {}) as TeamAccessSettings;
   const isTeamV2 = (settings.version ?? 1) >= 2;
+  const taskContractEnabled = isStandard && !!settings.task_contract?.enabled;
 
   return (
     <div className="flex h-full flex-col">
@@ -125,6 +134,9 @@ export function TeamDetailPage({ teamId, onBack }: TeamDetailPageProps) {
         addTaskComment={handleAddComment}
         cancelTask={cancelTask}
         retryTask={retryTask}
+        createTask={createTask}
+        taskContractEnabled={taskContractEnabled}
+        feedback={feedback}
         onWorkspace={() => setWorkspaceOpen(true)}
       />
 

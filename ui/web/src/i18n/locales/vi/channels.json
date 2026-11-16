@@ -109,6 +109,8 @@
     "behaviorDesc": "Cấu hình hành vi phản hồi",
     "accessControl": "Kiểm soát truy cập",
     "accessControlDesc": "Giới hạn truy cập người dùng",
+    "teamTaskApproval": "Duyệt task của team",
+    "teamTaskApprovalDesc": "Cho user duyệt kết quả task của team bằng /approve và /changes ngay trong chat đã yêu cầu",
     "telegramManagement": "Quản trị Telegram",
     "telegramManagementDesc": "Bật tool ẩn và chọn quyền thao tác Telegram cho agent chạy qua channel này",
     "discordMetadata": "Metadata Discord",
@@ -560,6 +562,12 @@
     "private_reply_message": {
       "label": "Nội dung DM",
       "help": "Hỗ trợ biến commenter_name và post_title. Để trống dùng mặc định tiếng Anh."
+    },
+    "task_approval": {
+      "enabled": {
+        "label": "Duyệt task của team qua lệnh",
+        "help": "Cho người tạo yêu cầu duyệt kết quả task của team bằng /approve <số>, hoặc yêu cầu sửa bằng /changes <số> <lý do>, ngay trong chat này. Chỉ áp cho task mà lead đánh dấu cần duyệt kết quả."
+      }
     }
   },
   "fieldOptions": {
