@@ -377,6 +377,12 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 	if err := t.manager.RequireLead(ctx, team, agentID); err != nil {
 		return ErrorResult(err.Error())
 	}
+	// Chỉ reject được kết quả đã nộp. Kiểm trước mọi lần ghi: nếu không, comment
+	// và amendment changes_requested đã nằm trong DB dù reject thất bại, và task
+	// awaiting_input bị dispatch lại khi chưa có câu trả lời.
+	if task.Status != store.TeamTaskStatusInReview {
+		return ErrorResult(fmt.Sprintf("reject only works on in_review tasks (current status: %s); use answer for awaiting_input or cancel to stop the task", task.Status))
+	}
 
 	// Record rejection as a task comment for audit trail (before status change).
 	rejectMsg := fmt.Sprintf("Task rejected. Reason: %s", reason)

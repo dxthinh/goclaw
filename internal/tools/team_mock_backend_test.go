@@ -602,6 +602,14 @@ func (s *mockTaskStore) ResetTaskStatus(_ context.Context, taskID, _ uuid.UUID) 
 	if !ok {
 		return store.ErrTaskNotFound
 	}
+	// Cùng điều kiện trạng thái với ResetTaskStatus của PG và SQLite.
+	switch t.Status {
+	case store.TeamTaskStatusStale, store.TeamTaskStatusFailed, store.TeamTaskStatusCancelled,
+		store.TeamTaskStatusInReview, store.TeamTaskStatusBlocked, store.TeamTaskStatusAwaitingInput,
+		store.TeamTaskStatusCompleted:
+	default:
+		return fmt.Errorf("task not available for reset (status %s)", t.Status)
+	}
 	t.Status = store.TeamTaskStatusPending
 	t.LockedAt = nil
 	t.LockExpiresAt = nil

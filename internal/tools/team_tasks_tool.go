@@ -153,7 +153,7 @@ func (t *TeamTasksTool) buildActionDescription() string {
 		base.WriteString(" ask_user: set a periodic reminder. clear_ask_user: cancel reminder.")
 	}
 	if t.policy.IsAllowed("retry") {
-		base.WriteString(" retry: re-dispatch a stale/failed task.")
+		base.WriteString(" retry: re-dispatch a stale/failed task, or reopen a completed one.")
 	}
 	// Per-action param guide — only list actions allowed by policy.
 	base.WriteString("\n\nParams per action (only send listed params):\n")
