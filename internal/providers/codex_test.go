@@ -967,8 +967,11 @@ func TestCodexBuildRequestBodyImageGenerationTool(t *testing.T) {
 	if tool["type"] != "image_generation" {
 		t.Errorf("tool[type] = %v, want image_generation", tool["type"])
 	}
-	if tool["action"] != "generate" {
-		t.Errorf("tool[action] = %v, want generate", tool["action"])
+	if tool["action"] != "auto" {
+		t.Errorf("tool[action] = %v, want auto", tool["action"])
+	}
+	if tool["quality"] != "auto" {
+		t.Errorf("tool[quality] = %v, want auto", tool["quality"])
 	}
 	if tool["model"] != DefaultImageModel {
 		t.Errorf("tool[model] = %v, want %v", tool["model"], DefaultImageModel)
@@ -1036,8 +1039,8 @@ func TestCodexBuildRequestBodyMixedTools(t *testing.T) {
 	if img["type"] != "image_generation" {
 		t.Errorf("tools[1] type = %v, want image_generation", img["type"])
 	}
-	if img["action"] != "generate" {
-		t.Errorf("tools[1] action = %v, want generate", img["action"])
+	if img["action"] != "auto" {
+		t.Errorf("tools[1] action = %v, want auto", img["action"])
 	}
 	if img["model"] != DefaultImageModel {
 		t.Errorf("tools[1] model = %v, want %v", img["model"], DefaultImageModel)

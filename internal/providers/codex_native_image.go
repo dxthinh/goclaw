@@ -57,14 +57,17 @@ func (p *CodexProvider) GenerateImage(ctx context.Context, req NativeImageReques
 // so stream is always true. Final assembly happens in parseNativeImageSSE which scans the
 // event stream for response.output_item.done (image item) or response.completed output walk.
 func (p *CodexProvider) buildNativeImageRequestBody(model string, req NativeImageRequest) map[string]any {
+	// action "auto" lets the model edit the reference images instead of always
+	// drawing a new image, which is where the editing-tuned models pay off.
 	tool := map[string]any{
 		"type":          "image_generation",
-		"action":        "generate",
+		"action":        "auto",
 		"model":         req.ImageModel,
+		"quality":       "auto",
 		"output_format": req.OutputFormat,
-		"size":          SizeFromAspect(req.AspectRatio),
+		"size":          SizeFromAspect(req.ImageModel, req.AspectRatio),
 	}
-	
+
 	contentParts := []map[string]any{}
 
 	for _, img := range req.RefImages {
