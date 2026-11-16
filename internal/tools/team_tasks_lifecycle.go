@@ -387,6 +387,7 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 	// Task có owner được dispatch lại: lý do reject thành amendment
 	// changes_requested của contract để member thấy yêu cầu sửa ở lượt sau.
 	// Tính trong bộ nhớ trước để lỗi validate chặn reject khi chưa ghi gì.
+	metadataSet := map[string]any{}
 	if c := TaskContractFromTask(task); c != nil && task.OwnerAgentID != nil {
 		if err := validateFeedbackText(reason); err != nil {
 			return ErrorResult("reject: " + err.Error())
@@ -394,6 +395,7 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 		if err := appendTaskAmendment(task, c, AmendmentKindChangesRequested, reason, t.manager.AgentKeyFromID(ctx, agentID)); err != nil {
 			return ErrorResult(err.Error())
 		}
+		metadataSet[TaskMetaContract] = task.Metadata[TaskMetaContract]
 	}
 	// Comment và amendment chỉ ghi sau khi phép chuyển trạng thái có điều kiện
 	// đã thành công: task có thể vừa được duyệt sau lần GetTask ở trên.
@@ -406,13 +408,16 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 	}
 
 	// Auto re-dispatch if task has an owner: skip RejectTask (which unblocks dependents)
-	// and instead reset in_review → pending → in_progress → dispatch.
+	// and instead move in_review → in_progress → dispatch.
 	// Dependents stay blocked until this task actually completes or circuit breaker fails it.
 	if task.OwnerAgentID != nil {
-		// Reset in_review → pending (ResetTaskStatus accepts in_review via store guard).
-		if err := t.manager.Store().ResetTaskStatus(ctx, taskID, team.ID); err != nil {
-			// Fallback: use RejectTask (cancels + unblocks) if reset fails.
-			slog.Warn("reject: reset failed, falling back to RejectTask", "task_id", taskID, "error", err)
+		// Một câu UPDATE có điều kiện: chuyển thẳng sang in_progress, khóa cho
+		// owner và lưu amendment. Task không qua pending nên không đường dispatch
+		// nào khác nhặt nó trước khi phản hồi được lưu.
+		clearCheckpointPending(task)
+		if err := t.manager.Store().RedispatchReviewedTask(ctx, taskID, team.ID, *task.OwnerAgentID, metadataSet); err != nil {
+			// Fallback: use RejectTask (cancels + unblocks) if the transition fails.
+			slog.Warn("reject: redispatch failed, falling back to RejectTask", "task_id", taskID, "error", err)
 			if err := t.manager.Store().RejectTask(ctx, taskID, team.ID, reason); err != nil {
 				return ErrorResult("failed to reject task: " + err.Error())
 			}
@@ -428,18 +433,6 @@ func (t *TeamTasksTool) executeReject(ctx context.Context, args map[string]any) 
 			return NewResult(fmt.Sprintf("Task %s rejected (cancelled). Use retry to re-dispatch manually.", taskID))
 		}
 		addRejectComment()
-		// Lưu amendment đã tính ở trên. Lưu lỗi thì vẫn dispatch: comment đã mang
-		// lý do tới member.
-		clearCheckpointPending(task)
-		if task.Metadata != nil {
-			if err := t.manager.Store().UpdateTask(ctx, taskID, map[string]any{"metadata": task.Metadata}); err != nil {
-				slog.Warn("reject: save metadata failed", "task_id", taskID, "error", err)
-			}
-		}
-		if err := t.manager.Store().AssignTask(ctx, taskID, *task.OwnerAgentID, team.ID); err != nil {
-			slog.Warn("reject: assign task failed", "task_id", taskID, "error", err)
-			return NewResult(fmt.Sprintf("Task %s rejected but could not assign. Use retry to re-dispatch manually.", taskID))
-		}
 		t.manager.BroadcastTeamEvent(ctx, protocol.EventTeamTaskRejected, BuildTaskEventPayload(
 			team.ID.String(), taskID.String(),
 			store.TeamTaskStatusInProgress,

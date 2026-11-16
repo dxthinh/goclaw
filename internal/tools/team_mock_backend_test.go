@@ -123,6 +123,9 @@ func (b *baseNoopTeamStore) RenewTaskLock(_ context.Context, _, _ uuid.UUID) err
 func (b *baseNoopTeamStore) ResetTaskStatus(_ context.Context, _, _ uuid.UUID) error {
 	return fmt.Errorf("not implemented: ResetTaskStatus")
 }
+func (b *baseNoopTeamStore) RedispatchReviewedTask(_ context.Context, _, _, _ uuid.UUID, _ map[string]any) error {
+	return fmt.Errorf("not implemented: RedispatchReviewedTask")
+}
 func (b *baseNoopTeamStore) ListActiveTasksByChatID(_ context.Context, _ string) ([]store.TeamTaskData, error) {
 	return nil, fmt.Errorf("not implemented: ListActiveTasksByChatID")
 }
@@ -622,6 +625,34 @@ func (s *mockTaskStore) ResetTaskStatus(_ context.Context, taskID, _ uuid.UUID) 
 	t.LockedAt = nil
 	t.LockExpiresAt = nil
 	t.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *mockTaskStore) RedispatchReviewedTask(_ context.Context, taskID, _, ownerID uuid.UUID, metadataSet map[string]any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[taskID]
+	if !ok {
+		return store.ErrTaskNotFound
+	}
+	if t.Status != store.TeamTaskStatusInReview {
+		return fmt.Errorf("task not in review (status %s)", t.Status)
+	}
+	meta := maps.Clone(t.Metadata)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	delete(meta, TaskMetaCheckpointPending)
+	maps.Copy(meta, metadataSet)
+	now := time.Now()
+	lockExpires := now.Add(time.Hour)
+	t.Status = store.TeamTaskStatusInProgress
+	t.OwnerAgentID = &ownerID
+	t.LockedAt = &now
+	t.LockExpiresAt = &lockExpires
+	t.Result = nil
+	t.Metadata = meta
+	t.UpdatedAt = now
 	return nil
 }
 
